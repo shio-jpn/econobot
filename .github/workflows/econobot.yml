@@ -1,0 +1,27 @@
+name: EconoBot - 毎朝8時に米国経済ニュースをSlackに投稿
+
+on:
+  schedule:
+    # 毎朝8時JST = UTC 23時（前日）
+    - cron: '0 23 * * *'
+  workflow_dispatch:  # 手動実行ボタンも有効化
+
+jobs:
+  post-news:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: EconoBotを実行
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+        run: python econobot.py
