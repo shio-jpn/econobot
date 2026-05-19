@@ -312,13 +312,17 @@ def post_to_slack(page_url, summary):
 
     def trim(s): return s[:60] + "…" if len(s) > 60 else s
 
+    earnings_line = (
+        f"💹 *決算*　{trim(summary['EARNINGS'])}\n\n"
+        if summary['EARNINGS'].upper() != 'NONE' else "\n"
+    )
     text = (
         f"*🇺🇸 米国経済ニュース 朝刊｜{date_str}*\n"
         f"*📌 {summary['HEADLINE']}*\n\n"
         f"📈 *株式*　{trim(summary['STOCK'])}\n"
         f"🏦 *FRB*　{trim(summary['FED'])}\n"
         f"💼 *雇用*　{trim(summary['JOBS'])}\n"
-        (f"💹 *決算*　{trim(summary['EARNINGS'])}\n\n" if summary['EARNINGS'].upper() != 'NONE' else "")
+        + earnings_line +
         f"🔗 *詳細レポートを読む* → {page_url}"
     )
 
