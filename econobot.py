@@ -117,11 +117,10 @@ HEADLINE: （本日全体を一言で表す見出し、20文字以内）
                     wait = 15 * (attempt + 1)
                     print(f"  HTTP {e.code} → {wait}秒後にリトライ ({attempt+1}/3)...")
                     time.sleep(wait)
-                elif e.code in (404, 400):
-                    print(f"  {model} は利用不可、次のモデルへ...")
-                    break
                 else:
-                    raise
+                    # リトライ上限 or 404/400 → 次のモデルへ
+                    print(f"  {model} 失敗(HTTP {e.code})、次のモデルへ...")
+                    break
     raise RuntimeError("全モデルで失敗しました")
 
 
