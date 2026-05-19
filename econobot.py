@@ -9,6 +9,7 @@ EconoBot - 米国経済ニュース自動要約 & Slack投稿スクリプト
 
 import os
 import json
+import time
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -100,16 +101,25 @@ EARNINGS: （企業決算の要約）
         "https://generativelanguage.googleapis.com/v1beta/models"
         f"/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     )
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=30) as res:
-        data = json.loads(res.read().decode())
-
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    # 503エラーに備えて最大3回リトライ
+    for attempt in range(3):
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as res:
+                data = json.loads(res.read().decode())
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except urllib.error.HTTPError as e:
+            if e.code == 503 and attempt < 2:
+                wait = 10 * (attempt + 1)
+                print(f"  Gemini 503エラー、{wait}秒後にリトライ ({attempt+1}/3)...")
+                time.sleep(wait)
+            else:
+                raise
 
 
 # ========================================
