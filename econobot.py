@@ -88,28 +88,41 @@ HEADLINE: （本日全体を一言で表す見出し、20文字以内）
         "generationConfig": {"temperature": 0.3},
     }).encode("utf-8")
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models"
-        f"/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
-    )
+    # 試すモデルの優先順位（上から順に試す）
+    models = [
+        "gemini-2.5-flash-lite-preview-06-17",
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+    ]
 
-    for attempt in range(6):
-        req = urllib.request.Request(
-            url, data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
+    for model in models:
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models"
+            f"/{model}:generateContent?key={GEMINI_API_KEY}"
         )
-        try:
-            with urllib.request.urlopen(req, timeout=60) as res:
-                data = json.loads(res.read().decode())
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        except urllib.error.HTTPError as e:
-            if e.code in (503, 429) and attempt < 5:
-                wait = 20 * (attempt + 1)
-                print(f"  HTTP {e.code} → {wait}秒後にリトライ ({attempt+1}/6)...")
-                time.sleep(wait)
-            else:
-                raise
+        print(f"  モデル試行: {model}")
+        for attempt in range(3):
+            req = urllib.request.Request(
+                url, data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=60) as res:
+                    data = json.loads(res.read().decode())
+                print(f"  成功: {model}")
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            except urllib.error.HTTPError as e:
+                if e.code in (503, 429) and attempt < 2:
+                    wait = 15 * (attempt + 1)
+                    print(f"  HTTP {e.code} → {wait}秒後にリトライ ({attempt+1}/3)...")
+                    time.sleep(wait)
+                elif e.code in (404, 400):
+                    print(f"  {model} は利用不可、次のモデルへ...")
+                    break
+                else:
+                    raise
+    raise RuntimeError("全モデルで失敗しました")
 
 
 # ========================================
