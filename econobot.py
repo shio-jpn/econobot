@@ -68,15 +68,27 @@ def summarize_with_gemini(articles):
 
     prompt = f"""あなたは米国経済の専門アナリストです。
 以下の英語ニュース記事を読み、本日（{today_str}）の米国経済を日本語で要約してください。
+数値・指標・企業名・変動率があれば必ず含めてください。
 
-必ず以下の4カテゴリに分けて、それぞれ3〜4文でまとめてください。
-数値・指標・企業名があれば必ず含めてください。
+【企業決算（EARNINGS）のルール】
+- NVDA・GOOGL・AAPL・MSFT・AMZN・META・TSLA・JPM・BAC・WMT など主要大手企業の決算発表が
+  本日のニュースに含まれる場合のみ、3〜4文で具体的に要約する。
+- 上記に該当する決算ニュースがない場合は、必ず EARNINGS: NONE と出力する。
+
+【決算なしの場合のルール】
+- EARNINGSがNONEの場合、STOCK・FED・JOBSをそれぞれ5〜6文と詳しく書く。
+- 具体的な数値（指数の値・変動率・金利・雇用者数など）を必ず含める。
+- 背景・要因・今後の見通しまで掘り下げて書く。
+
+【決算ありの場合のルール】
+- STOCK・FED・JOBSはそれぞれ3〜4文でまとめる。
+- EARNINGSは決算企業名・売上高・EPS・市場予想との比較・株価反応を含める。
 
 出力形式（このフォーマットを厳守。他の文字を入れないこと）:
 STOCK: （株式市場・相場の要約）
 FED: （FRB・金融政策の要約）
 JOBS: （雇用・インフレの要約）
-EARNINGS: （企業決算の要約）
+EARNINGS: （大手企業決算の要約、または NONE）
 HEADLINE: （本日全体を一言で表す見出し、20文字以内）
 
 【ニュース記事】
@@ -233,10 +245,10 @@ def generate_html(summary, articles):
       <div class="section-header"><span class="section-icon">💼</span><span class="section-title">雇用・インフレ</span></div>
       <p class="section-body">{summary['JOBS']}</p>
     </div>
-    <div class="section">
+    {f'''<div class="section">
       <div class="section-header"><span class="section-icon">💹</span><span class="section-title">企業決算</span></div>
       <p class="section-body">{summary['EARNINGS']}</p>
-    </div>
+    </div>''' if summary['EARNINGS'].upper() != 'NONE' else ''}
   </div>
   <div class="sources">
     <div class="sources-title">📰 参照ニュースソース</div>
@@ -306,7 +318,7 @@ def post_to_slack(page_url, summary):
         f"📈 *株式*　{trim(summary['STOCK'])}\n"
         f"🏦 *FRB*　{trim(summary['FED'])}\n"
         f"💼 *雇用*　{trim(summary['JOBS'])}\n"
-        f"💹 *決算*　{trim(summary['EARNINGS'])}\n\n"
+        (f"💹 *決算*　{trim(summary['EARNINGS'])}\n\n" if summary['EARNINGS'].upper() != 'NONE' else "")
         f"🔗 *詳細レポートを読む* → {page_url}"
     )
 
