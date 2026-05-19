@@ -98,7 +98,7 @@ EARNINGS: （企業決算の要約）
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models"
-        f"/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        f"/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     )
     req = urllib.request.Request(
         url,
