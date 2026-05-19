@@ -90,7 +90,7 @@ HEADLINE: （本日全体を一言で表す見出し、20文字以内）
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models"
-        f"/gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}"
+        f"/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
     )
 
     for attempt in range(6):
