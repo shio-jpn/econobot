@@ -319,19 +319,18 @@ def post_to_slack(page_url, summary):
 
     def trim(s): return s[:60] + "…" if len(s) > 60 else s
 
-    earnings_line = (
-        f"💹 *決算*　{trim(summary['EARNINGS'])}\n\n"
-        if summary['EARNINGS'].upper() != 'NONE' else "\n"
-    )
-    text = (
-        f"*🇺🇸 米国経済ニュース 朝刊｜{date_str}*\n"
-        f"*📌 {summary['HEADLINE']}*\n\n"
-        f"📈 *株式*　{trim(summary['STOCK'])}\n"
-        (f"🏦 *FRB*　{trim(summary['FED'])}\n" if summary['FED'].upper() != 'NONE' else "")
-        (f"💼 *雇用*　{trim(summary['JOBS'])}\n" if summary['JOBS'].upper() != 'NONE' else "")
-        + earnings_line +
-        f"🔗 *詳細レポートを読む* → {page_url}"
-    )
+    lines = []
+    lines.append(f"*🇺🇸 米国経済ニュース 朝刊｜{date_str}*")
+    lines.append(f"*📌 {summary['HEADLINE']}*\n")
+    lines.append(f"📈 *株式*　{trim(summary['STOCK'])}")
+    if summary['FED'].upper() != 'NONE':
+        lines.append(f"🏦 *FRB*　{trim(summary['FED'])}")
+    if summary['JOBS'].upper() != 'NONE':
+        lines.append(f"💼 *雇用*　{trim(summary['JOBS'])}")
+    if summary['EARNINGS'].upper() != 'NONE':
+        lines.append(f"💹 *決算*　{trim(summary['EARNINGS'])}")
+    lines.append(f"\n🔗 *詳細レポートを読む* → {page_url}")
+    text = "\n".join(lines)
 
     payload = json.dumps({"text": text}).encode("utf-8")
     req = urllib.request.Request(
