@@ -70,24 +70,31 @@ def summarize_with_gemini(articles):
 以下の英語ニュース記事を読み、本日（{today_str}）の米国経済を日本語で要約してください。
 数値・指標・企業名・変動率があれば必ず含めてください。
 
+【FRB・金融政策（FED）のルール】
+- FRBの政策金利決定・FOMC会合・FRB高官の重要発言・量的緩和など主要な金融政策ニュースが
+  本日のニュースに含まれる場合のみ、3〜4文で具体的に要約する。
+- 該当するニュースがない場合は、必ず FED: NONE と出力する。
+
+【雇用・インフレ（JOBS）のルール】
+- 非農業部門雇用者数・失業率・CPI・PCEデフレーター・賃金上昇率など
+  主要な雇用・インフレ指標の発表が本日のニュースに含まれる場合のみ、3〜4文で具体的に要約する。
+- 該当するニュースがない場合は、必ず JOBS: NONE と出力する。
+
 【企業決算（EARNINGS）のルール】
 - NVDA・GOOGL・AAPL・MSFT・AMZN・META・TSLA・JPM・BAC・WMT など主要大手企業の決算発表が
   本日のニュースに含まれる場合のみ、3〜4文で具体的に要約する。
-- 上記に該当する決算ニュースがない場合は、必ず EARNINGS: NONE と出力する。
+- 該当する決算ニュースがない場合は、必ず EARNINGS: NONE と出力する。
 
-【決算なしの場合のルール】
-- EARNINGSがNONEの場合、STOCK・FED・JOBSをそれぞれ5〜6文と詳しく書く。
-- 具体的な数値（指数の値・変動率・金利・雇用者数など）を必ず含める。
-- 背景・要因・今後の見通しまで掘り下げて書く。
-
-【決算ありの場合のルール】
-- STOCK・FED・JOBSはそれぞれ3〜4文でまとめる。
-- EARNINGSは決算企業名・売上高・EPS・市場予想との比較・株価反応を含める。
+【STOCKの文量ルール】
+- FED・JOBS・EARNINGSがすべてNONEの場合：STOCKを8〜10文と非常に詳しく書く。
+- FED・JOBS・EARNINGSのうち1つがNONEの場合：STOCKを6〜7文と詳しく書く。
+- FED・JOBS・EARNINGSがすべて揃っている場合：STOCKを3〜4文でまとめる。
+- いずれの場合も具体的な指数の値・変動率・背景・要因・今後の見通しを含める。
 
 出力形式（このフォーマットを厳守。他の文字を入れないこと）:
 STOCK: （株式市場・相場の要約）
-FED: （FRB・金融政策の要約）
-JOBS: （雇用・インフレの要約）
+FED: （FRB・金融政策の要約、または NONE）
+JOBS: （雇用・インフレの要約、または NONE）
 EARNINGS: （大手企業決算の要約、または NONE）
 HEADLINE: （本日全体を一言で表す見出し、20文字以内）
 
@@ -237,14 +244,14 @@ def generate_html(summary, articles):
       <div class="section-header"><span class="section-icon">📈</span><span class="section-title">株式市場・相場</span></div>
       <p class="section-body">{summary['STOCK']}</p>
     </div>
-    <div class="section">
+    {f'''<div class="section">
       <div class="section-header"><span class="section-icon">🏦</span><span class="section-title">FRB・金融政策</span></div>
       <p class="section-body">{summary['FED']}</p>
-    </div>
-    <div class="section">
+    </div>''' if summary['FED'].upper() != 'NONE' else ''}
+    {f'''<div class="section">
       <div class="section-header"><span class="section-icon">💼</span><span class="section-title">雇用・インフレ</span></div>
       <p class="section-body">{summary['JOBS']}</p>
-    </div>
+    </div>''' if summary['JOBS'].upper() != 'NONE' else ''}
     {f'''<div class="section">
       <div class="section-header"><span class="section-icon">💹</span><span class="section-title">企業決算</span></div>
       <p class="section-body">{summary['EARNINGS']}</p>
@@ -320,8 +327,8 @@ def post_to_slack(page_url, summary):
         f"*🇺🇸 米国経済ニュース 朝刊｜{date_str}*\n"
         f"*📌 {summary['HEADLINE']}*\n\n"
         f"📈 *株式*　{trim(summary['STOCK'])}\n"
-        f"🏦 *FRB*　{trim(summary['FED'])}\n"
-        f"💼 *雇用*　{trim(summary['JOBS'])}\n"
+        (f"🏦 *FRB*　{trim(summary['FED'])}\n" if summary['FED'].upper() != 'NONE' else "")
+        (f"💼 *雇用*　{trim(summary['JOBS'])}\n" if summary['JOBS'].upper() != 'NONE' else "")
         + earnings_line +
         f"🔗 *詳細レポートを読む* → {page_url}"
     )
