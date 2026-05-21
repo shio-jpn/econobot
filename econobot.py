@@ -57,6 +57,38 @@ def fetch_news():
 
 
 # ========================================
+# 1b. 主要ニュース（トランプ・米国内政）を取得
+# ========================================
+def fetch_major_news():
+    """トランプ・米国内政・国際情勢など主要ニュースを取得"""
+    queries = [
+        "Trump US policy politics major news",
+        "United States major news domestic economy",
+    ]
+    articles = []
+    for query in queries:
+        params = urllib.parse.urlencode({
+            "q": query,
+            "language": "en",
+            "sortBy": "publishedAt",
+            "pageSize": 5,
+            "apiKey": NEWS_API_KEY,
+        })
+        url = f"https://newsapi.org/v2/everything?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "EconoBot/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as res:
+            data = json.loads(res.read().decode())
+        for a in data.get("articles", []):
+            articles.append({
+                "title": a.get("title", ""),
+                "description": a.get("description", ""),
+                "source": a.get("source", {}).get("name", ""),
+                "url": a.get("url", ""),
+            })
+    return articles
+
+
+# ========================================
 # 2. Gemini APIで要約（リトライあり）
 # ========================================
 def summarize_with_gemini(articles):
@@ -159,9 +191,78 @@ def parse_summary(text):
 
 
 # ========================================
+# 3b. 主要ニュース2件をGeminiで要約
+# ========================================
+def summarize_major_news(articles):
+    """主要ニュース2件を日本語で要約"""
+    news_text = "\n".join([
+        f"- [{a['source']}] {a['title']}: {a['description']}"
+        for a in articles if a["title"]
+    ])
+    today_str = datetime.now(JST).strftime("%Y年%-m月%-d日")
+
+    prompt = f"""あなたは米国・国際情勢の専門アナリストです。
+以下の英語ニュース記事から、本日（{today_str}）最も重要な主要ニュースを2件選び、日本語で要約してください。
+
+トランプ大統領の政策・発言、米国内政、米中関係、国際情勢など、経済以外の重要ニュースを優先してください。
+
+出力形式（このフォーマットを厳守。他の文字を入れないこと）:
+NEWS1_TITLE: （1件目の見出し、25文字以内）
+NEWS1_BODY: （1件目の要約、3〜4文、具体的な内容・背景・影響を含める）
+NEWS2_TITLE: （2件目の見出し、25文字以内）
+NEWS2_BODY: （2件目の要約、3〜4文、具体的な内容・背景・影響を含める）
+
+【ニュース記事】
+{news_text}
+"""
+
+    body = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.3},
+    }).encode("utf-8")
+
+    models = [
+        "gemini-2.5-flash-lite-preview-06-17",
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+    ]
+    for model in models:
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models"
+            f"/{model}:generateContent?key={GEMINI_API_KEY}"
+        )
+        for attempt in range(3):
+            req = urllib.request.Request(
+                url, data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=60) as res:
+                    data = json.loads(res.read().decode())
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            except urllib.error.HTTPError as e:
+                if e.code in (503, 429) and attempt < 2:
+                    time.sleep(15 * (attempt + 1))
+                else:
+                    break
+    return "NEWS1_TITLE: 取得失敗\nNEWS1_BODY: ニュースの取得に失敗しました。\nNEWS2_TITLE: -\nNEWS2_BODY: -"
+
+
+def parse_major_news(text):
+    keys = ["NEWS1_TITLE", "NEWS1_BODY", "NEWS2_TITLE", "NEWS2_BODY"]
+    result = {k: "" for k in keys}
+    for line in text.strip().splitlines():
+        for key in keys:
+            if line.startswith(f"{key}:"):
+                result[key] = line[len(key)+1:].strip()
+    return result
+
+
+# ========================================
 # 4. BBCスタイルHTMLを生成
 # ========================================
-def generate_html(summary, articles):
+def generate_html(summary, articles, major_news):
     now = datetime.now(JST)
     weekdays = ["月","火","水","木","金","土","日"]
     wd = weekdays[now.weekday()]
@@ -179,6 +280,15 @@ def generate_html(summary, articles):
                 <span class="source-title">{title}</span>
               </a>
             </li>"""
+
+    js_code = '''<script>
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(function(el){ el.classList.remove('active'); });
+  document.querySelectorAll('.tab-btn').forEach(function(el){ el.classList.remove('active'); });
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+</script>'''
 
     return f"""<!DOCTYPE html>
 <html lang="ja">
@@ -224,6 +334,39 @@ def generate_html(summary, articles):
   footer {{ background: var(--dark); color: #666; text-align: center; font-size: 12px; padding: 20px; border-top: 3px solid var(--red); }}
   @keyframes fadeUp {{ from {{ opacity: 0; transform: translateY(12px); }} to {{ opacity: 1; transform: translateY(0); }} }}
   @media (max-width: 600px) {{ .main {{ padding: 24px 16px 48px; }} .section {{ padding: 20px 18px; }} }}
+
+  /* ─── タブ ─── */
+  .tabs {{ display: flex; border-bottom: 3px solid var(--red); margin-bottom: 32px; gap: 0; }}
+  .tab-btn {{
+    padding: 12px 28px; font-size: 14px; font-weight: 600;
+    font-family: 'Noto Sans JP', sans-serif;
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); border-bottom: 3px solid transparent;
+    margin-bottom: -3px; transition: all 0.2s;
+  }}
+  .tab-btn:hover {{ color: var(--dark); }}
+  .tab-btn.active {{ color: var(--red); border-bottom: 3px solid var(--red); }}
+  .tab-content {{ display: none; }}
+  .tab-content.active {{ display: block; }}
+
+  /* ─── 主要ニュースカード ─── */
+  .major-card {{
+    background: var(--white); border-top: 1px solid var(--border);
+    padding: 28px 32px; transition: background 0.2s;
+  }}
+  .major-card:hover {{ background: #fafafa; }}
+  .major-card:first-child {{ border-top: none; }}
+  .major-num {{
+    display: inline-block; background: var(--red); color: #fff;
+    font-size: 11px; font-weight: 700; padding: 2px 8px;
+    border-radius: 2px; margin-bottom: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+  }}
+  .major-title {{
+    font-family: 'Noto Serif JP', serif; font-size: 18px; font-weight: 700;
+    color: var(--dark); margin-bottom: 12px; line-height: 1.4;
+  }}
+  .major-body {{ font-size: 15px; line-height: 1.85; color: var(--text); }}
 </style>
 </head>
 <body>
@@ -239,6 +382,12 @@ def generate_html(summary, articles):
     <h1 class="hero-headline">{summary['HEADLINE']}</h1>
     <div class="hero-meta">自動生成ニュースまとめ ｜ Powered by Gemini + NewsAPI</div>
   </div>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('economy', this)">📊 経済ニュース</button>
+    <button class="tab-btn" onclick="switchTab('major', this)">🗞️ 主要ニュース</button>
+  </div>
+
+  <div id="tab-economy" class="tab-content active">
   <div class="sections">
     <div class="section">
       <div class="section-header"><span class="section-icon">📈</span><span class="section-title">株式市場・相場</span></div>
@@ -261,10 +410,28 @@ def generate_html(summary, articles):
     <div class="sources-title">📰 参照ニュースソース</div>
     <ul class="source-list">{source_items}</ul>
   </div>
+  </div><!-- /tab-economy -->
+
+  <div id="tab-major" class="tab-content">
+    <div style="margin-bottom:40px;">
+      <div class="major-card">
+        <div class="major-num">NEWS 01</div>
+        <div class="major-title">{major_news['NEWS1_TITLE']}</div>
+        <p class="major-body">{major_news['NEWS1_BODY']}</p>
+      </div>
+      <div class="major-card">
+        <div class="major-num">NEWS 02</div>
+        <div class="major-title">{major_news['NEWS2_TITLE']}</div>
+        <p class="major-body">{major_news['NEWS2_BODY']}</p>
+      </div>
+    </div>
+  </div><!-- /tab-major -->
+
 </main>
 <footer>
   <p>🤖 EconoBot ｜ 本コンテンツはAIが自動生成したものです。投資判断の根拠にしないでください。</p>
 </footer>
+""" + js_code + """
 </body>
 </html>"""
 
@@ -346,17 +513,27 @@ def post_to_slack(page_url, summary):
 # メイン
 # ========================================
 def main():
-    print("📰 ニュース取得中...")
+    print("📰 経済ニュース取得中...")
     articles = fetch_news()
     print(f"  {len(articles)}件取得")
 
-    print("🤖 Geminiで要約中...")
+    print("📰 主要ニュース取得中...")
+    major_articles = fetch_major_news()
+    print(f"  {len(major_articles)}件取得")
+
+    print("🤖 Geminiで経済ニュース要約中...")
     raw = summarize_with_gemini(articles)
     summary = parse_summary(raw)
     print(f"  見出し: {summary['HEADLINE']}")
 
+    print("🤖 Geminiで主要ニュース要約中...")
+    major_raw = summarize_major_news(major_articles)
+    major_news = parse_major_news(major_raw)
+    print(f"  主要1: {major_news['NEWS1_TITLE']}")
+    print(f"  主要2: {major_news['NEWS2_TITLE']}")
+
     print("🎨 HTMLページ生成中...")
-    html = generate_html(summary, articles)
+    html = generate_html(summary, articles, major_news)
 
     print("🚀 GitHub Pagesに公開中...")
     page_url = publish_to_github_pages(html)
