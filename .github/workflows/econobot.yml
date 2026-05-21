@@ -2,9 +2,9 @@ name: EconoBot - 毎朝8時に米国経済ニュースをSlackに投稿
 
 on:
   schedule:
-    # Asia/Tokyoで7:30に設定（GitHub Actionsの遅延対策で30分早める）
+    # Asia/Tokyoで7:30指定（遅延対策で30分早める）
     - cron: '30 22 * * *'
-    timezone: 'Asia/Tokyo'
+      timezone: 'Asia/Tokyo'
   workflow_dispatch:
 
 jobs:
