@@ -42,33 +42,72 @@
   footer { background: var(--dark); color: #666; text-align: center; font-size: 12px; padding: 20px; border-top: 3px solid var(--red); }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
   @media (max-width: 600px) { .main { padding: 24px 16px 48px; } .section { padding: 20px 18px; } }
+
+  /* ─── タブ ─── */
+  .tabs { display: flex; border-bottom: 3px solid var(--red); margin-bottom: 32px; gap: 0; }
+  .tab-btn {
+    padding: 12px 28px; font-size: 14px; font-weight: 600;
+    font-family: 'Noto Sans JP', sans-serif;
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); border-bottom: 3px solid transparent;
+    margin-bottom: -3px; transition: all 0.2s;
+  }
+  .tab-btn:hover { color: var(--dark); }
+  .tab-btn.active { color: var(--red); border-bottom: 3px solid var(--red); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ─── 主要ニュースカード ─── */
+  .major-card {
+    background: var(--white); border-top: 1px solid var(--border);
+    padding: 28px 32px; transition: background 0.2s;
+  }
+  .major-card:hover { background: #fafafa; }
+  .major-card:first-child { border-top: none; }
+  .major-num {
+    display: inline-block; background: var(--red); color: #fff;
+    font-size: 11px; font-weight: 700; padding: 2px 8px;
+    border-radius: 2px; margin-bottom: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .major-title {
+    font-family: 'Noto Serif JP', serif; font-size: 18px; font-weight: 700;
+    color: var(--dark); margin-bottom: 12px; line-height: 1.4;
+  }
+  .major-body { font-size: 15px; line-height: 1.85; color: var(--text); }
 </style>
 </head>
 <body>
 <header>
   <div class="header-top">
     <div class="logo">ECONO<span>BOT</span></div>
-    <div class="header-date">2026年5月21日（木） 19:55 JST</div>
+    <div class="header-date">2026年5月21日（木） 20:12 JST</div>
   </div>
 </header>
 <main class="main">
   <div class="hero">
     <div class="hero-label">🇺🇸 Daily US Economy Briefing</div>
-    <h1 class="hero-headline">インフレ懸念、株価下落</h1>
+    <h1 class="hero-headline">インフレ懸念で株価下落</h1>
     <div class="hero-meta">自動生成ニュースまとめ ｜ Powered by Gemini + NewsAPI</div>
   </div>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('economy', this)">📊 経済ニュース</button>
+    <button class="tab-btn" onclick="switchTab('major', this)">🗞️ 主要ニュース</button>
+  </div>
+
+  <div id="tab-economy" class="tab-content active">
   <div class="sections">
     <div class="section">
       <div class="section-header"><span class="section-icon">📈</span><span class="section-title">株式市場・相場</span></div>
-      <p class="section-body">米国株式市場は、記録的な高値からの後退を続け、欧州およびアジア市場にも波及しました。S&P 500、ダウ・ジョーンズ、ナスダックは、インフレ懸念と地政学的緊張の高まりを受けて、さらなる下落が示唆されています。特に、イラン情勢の緊迫化と原油価格の上昇が、インフレ率の急騰（3.8%）を招き、ウォール街に衝撃を与えました。ダウ・ジョーンズは307ポイント以上下落し49,396.89、S&P 500は0.63%下落し7,366.24、ナスダック総合は1%近く下落しました。債券市場も警告サインを発しており、株式市場とは対照的な動きを見せています。</p>
+      <p class="section-body">米国株式市場は、記録的な上昇からの後退を続け、ダウ・ジョーンズは307ポイント以上下落し49,396.89、S&P 500は0.63%下落し7,366.24、ナスダック総合は1%近く下落しました。これは、イラン情勢の緊迫化と原油価格の高騰がインフレ懸念を再燃させたことが背景にあります。債券市場も警告サインを発しており、投資家はウォール街の好転を期待しています。</p>
     </div>
     <div class="section">
       <div class="section-header"><span class="section-icon">🏦</span><span class="section-title">FRB・金融政策</span></div>
-      <p class="section-body">FED: ケビン・ウォーシュ氏がFRB議長に就任し、インフレ率が3年ぶりの高水準となる中、独立性が攻撃にさらされている中央銀行を率いることになります。FRB関係者の金利の方向性に関する見解の相違の深さが、議事録の発表で明らかになる可能性があります。</p>
+      <p class="section-body">FED: NONE</p>
     </div>
     <div class="section">
       <div class="section-header"><span class="section-icon">💼</span><span class="section-title">雇用・インフレ</span></div>
-      <p class="section-body">JOBS: 米国CPIインフレ率が3年ぶりの高水準である3.8%に跳ね上がったことが、米国株式市場の急落の要因となりました。</p>
+      <p class="section-body">米国のCPIインフレ率は3.8%に跳ね上がり、3年ぶりの高水準となりました。</p>
     </div>
     <div class="section">
       <div class="section-header"><span class="section-icon">💹</span><span class="section-title">企業決算</span></div>
@@ -127,9 +166,34 @@
               </a>
             </li></ul>
   </div>
+  </div><!-- /tab-economy -->
+
+  <div id="tab-major" class="tab-content">
+    <div style="margin-bottom:40px;">
+      <div class="major-card">
+        <div class="major-num">NEWS 01</div>
+        <div class="major-title">トランプ弁護士辞任、共和党分裂</div>
+        <p class="major-body">トランプ氏の弁護団トップを務める弁護士が辞任した。辞任の理由は、トランプ氏の「武器化基金」を巡る問題とされている。また、共和党内では、ある「ボールルーム」を巡る問題で分裂が生じている模様だ。これらの動きは、トランプ氏周辺の混乱と共和党内の亀裂を浮き彫りにしている。</p>
+      </div>
+      <div class="major-card">
+        <div class="major-num">NEWS 02</div>
+        <div class="major-title">米中関係、安全保障リスク懸念</div>
+        <p class="major-body">メイン州の上院候補者が中国とのクリーンエネルギー協力に言及したが、安全保障上のリスクに対する認識が甘いと指摘されている。この候補者は中国との協力を「白い旗」に例え、対立を避ける姿勢を示唆した。しかし、専門家からは、中国との協力が米国の国家安全保障に与える影響について懸念の声が上がっている。</p>
+      </div>
+    </div>
+  </div><!-- /tab-major -->
+
 </main>
 <footer>
   <p>🤖 EconoBot ｜ 本コンテンツはAIが自動生成したものです。投資判断の根拠にしないでください。</p>
 </footer>
+<script>
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(function(el){ el.classList.remove('active'); });
+  document.querySelectorAll('.tab-btn').forEach(function(el){ el.classList.remove('active'); });
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+</script>
 </body>
 </html>
