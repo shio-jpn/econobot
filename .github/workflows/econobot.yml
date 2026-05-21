@@ -2,15 +2,16 @@ name: EconoBot - 毎朝8時に米国経済ニュースをSlackに投稿
 
 on:
   schedule:
-    # 毎朝8時JST = UTC 23時（前日）
-    - cron: '0 23 * * *'
-  workflow_dispatch:  # 手動実行ボタンも有効化
+    # Asia/Tokyoで7:30に設定（GitHub Actionsの遅延対策で30分早める）
+    - cron: '30 22 * * *'
+    timezone: 'Asia/Tokyo'
+  workflow_dispatch:
 
 jobs:
   post-news:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # GitHub PagesへのHTML書き込みに必要
+      contents: write
 
     steps:
       - name: リポジトリをチェックアウト
