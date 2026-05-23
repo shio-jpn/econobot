@@ -27,11 +27,14 @@ JST = timezone(timedelta(hours=9))
 # 1. NewsAPIでニュースを取得
 # ========================================
 def fetch_news():
+    # 前日からの最新ニュースのみ取得
+    from_date = (datetime.now(JST) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     queries = [
-        "US stock market S&P Nasdaq Dow",
-        "Federal Reserve interest rate inflation policy",
-        "US jobs unemployment CPI inflation",
-        "corporate earnings revenue profit quarterly",
+        "US stock market S&P 500 Nasdaq Dow Jones",
+        "Federal Reserve interest rate FOMC monetary policy",
+        "US jobs unemployment CPI inflation consumer prices",
+        "corporate earnings revenue profit quarterly results",
     ]
     articles = []
     for query in queries:
@@ -39,28 +42,41 @@ def fetch_news():
             "q": query,
             "language": "en",
             "sortBy": "publishedAt",
-            "pageSize": 3,
+            "from": from_date,
+            "pageSize": 5,
             "apiKey": NEWS_API_KEY,
         })
         url = f"https://newsapi.org/v2/everything?{params}"
         req = urllib.request.Request(url, headers={"User-Agent": "EconoBot/1.0"})
         with urllib.request.urlopen(req, timeout=10) as res:
             data = json.loads(res.read().decode())
-        for a in data.get("articles", []):
+        fetched = data.get("articles", [])
+        for a in fetched:
             articles.append({
                 "title": a.get("title", ""),
                 "description": a.get("description", ""),
                 "source": a.get("source", {}).get("name", ""),
                 "url": a.get("url", ""),
+                "publishedAt": a.get("publishedAt", ""),
             })
-    return articles
+        print(f"    [{query[:30]}...] {len(fetched)}件")
+    # 重複除去・最新順ソート
+    seen = set()
+    unique = []
+    for a in sorted(articles, key=lambda x: x.get("publishedAt",""), reverse=True):
+        if a["title"] not in seen and a["title"]:
+            seen.add(a["title"])
+            unique.append(a)
+    return unique
 
 
 # ========================================
 # 1b. 主要ニュース（トランプ・米国内政）を取得
 # ========================================
 def fetch_major_news():
-    """トランプ・米国内政・国際情勢など主要ニュースを取得"""
+    """トランプ・米国内政・AI・半導体など主要ニュースを取得（最新24時間）"""
+    from_date = (datetime.now(JST) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     queries = [
         "Trump US policy politics major news",
         "United States major news domestic international",
@@ -73,6 +89,7 @@ def fetch_major_news():
             "q": query,
             "language": "en",
             "sortBy": "publishedAt",
+            "from": from_date,
             "pageSize": 5,
             "apiKey": NEWS_API_KEY,
         })
@@ -86,8 +103,16 @@ def fetch_major_news():
                 "description": a.get("description", ""),
                 "source": a.get("source", {}).get("name", ""),
                 "url": a.get("url", ""),
+                "publishedAt": a.get("publishedAt", ""),
             })
-    return articles
+    # 重複除去・最新順ソート
+    seen = set()
+    unique = []
+    for a in sorted(articles, key=lambda x: x.get("publishedAt",""), reverse=True):
+        if a["title"] not in seen and a["title"]:
+            seen.add(a["title"])
+            unique.append(a)
+    return unique
 
 
 # ========================================
@@ -101,8 +126,9 @@ def summarize_with_gemini(articles):
     today_str = datetime.now(JST).strftime("%Y年%-m月%-d日")
 
     prompt = f"""あなたは米国経済の専門アナリストです。
-以下の英語ニュース記事を読み、本日（{today_str}）の米国経済を日本語で要約してください。
-数値・指標・企業名・変動率があれば必ず含めてください。
+以下の英語ニュース記事はすべて本日・昨日の最新ニュースです。
+本日（{today_str}）時点の最新情報として、日本語で要約してください。
+古い情報や一般論は避け、記事に書かれている具体的な数値・日付・企業名・変動率を必ず使ってください。
 
 【FRB・金融政策（FED）のルール】
 - FRBの政策金利決定・FOMC会合・FRB高官の重要発言・量的緩和など主要な金融政策ニュースが
