@@ -27,8 +27,9 @@ JST = timezone(timedelta(hours=9))
 # 1. NewsAPIでニュースを取得
 # ========================================
 def fetch_news():
-    # 前日からの最新ニュースのみ取得
-    from_date = (datetime.now(JST) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # 信頼できる情報源のドメインに限定
+    TRUSTED_DOMAINS = "bbc.com,cnn.com,wsj.com,reuters.com,finance.yahoo.com,nikkei.com,nhk.or.jp"
+    from_date = (datetime.now(JST) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     queries = [
         "US stock market S&P 500 Nasdaq Dow Jones",
@@ -40,7 +41,7 @@ def fetch_news():
     for query in queries:
         params = urllib.parse.urlencode({
             "q": query,
-            "language": "en",
+            "domains": TRUSTED_DOMAINS,
             "sortBy": "publishedAt",
             "from": from_date,
             "pageSize": 5,
@@ -60,13 +61,41 @@ def fetch_news():
                 "publishedAt": a.get("publishedAt", ""),
             })
         print(f"    [{query[:30]}...] {len(fetched)}件")
+
+    # 記事が少ない場合は48時間に拡張して再取得
+    if len(articles) < 5:
+        print("  記事が少ないため48時間に拡張して再取得...")
+        from_date_extended = (datetime.now(JST) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for query in queries[:2]:  # 主要2クエリのみ
+            params = urllib.parse.urlencode({
+                "q": query,
+                "domains": TRUSTED_DOMAINS,
+                "sortBy": "publishedAt",
+                "from": from_date_extended,
+                "pageSize": 5,
+                "apiKey": NEWS_API_KEY,
+            })
+            url = f"https://newsapi.org/v2/everything?{params}"
+            req = urllib.request.Request(url, headers={"User-Agent": "EconoBot/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as res:
+                data = json.loads(res.read().decode())
+            for a in data.get("articles", []):
+                articles.append({
+                    "title": a.get("title", ""),
+                    "description": a.get("description", ""),
+                    "source": a.get("source", {}).get("name", ""),
+                    "url": a.get("url", ""),
+                    "publishedAt": a.get("publishedAt", ""),
+                })
+
     # 重複除去・最新順ソート
     seen = set()
     unique = []
-    for a in sorted(articles, key=lambda x: x.get("publishedAt",""), reverse=True):
+    for a in sorted(articles, key=lambda x: x.get("publishedAt", ""), reverse=True):
         if a["title"] not in seen and a["title"]:
             seen.add(a["title"])
             unique.append(a)
+    print(f"  合計 {len(unique)}件（信頼ソース限定）")
     return unique
 
 
@@ -74,8 +103,9 @@ def fetch_news():
 # 1b. 主要ニュース（トランプ・米国内政）を取得
 # ========================================
 def fetch_major_news():
-    """トランプ・米国内政・AI・半導体など主要ニュースを取得（最新24時間）"""
-    from_date = (datetime.now(JST) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """トランプ・米国内政・AI・半導体など主要ニュースを取得（信頼ソース・24時間限定）"""
+    TRUSTED_DOMAINS = "bbc.com,cnn.com,wsj.com,reuters.com,finance.yahoo.com,nikkei.com,nhk.or.jp"
+    from_date = (datetime.now(JST) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     queries = [
         "Trump US policy politics major news",
@@ -87,7 +117,7 @@ def fetch_major_news():
     for query in queries:
         params = urllib.parse.urlencode({
             "q": query,
-            "language": "en",
+            "domains": TRUSTED_DOMAINS,
             "sortBy": "publishedAt",
             "from": from_date,
             "pageSize": 5,
@@ -105,13 +135,40 @@ def fetch_major_news():
                 "url": a.get("url", ""),
                 "publishedAt": a.get("publishedAt", ""),
             })
+
+    # 記事が少ない場合は48時間に拡張
+    if len(articles) < 5:
+        from_date_extended = (datetime.now(JST) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for query in queries[:2]:
+            params = urllib.parse.urlencode({
+                "q": query,
+                "domains": TRUSTED_DOMAINS,
+                "sortBy": "publishedAt",
+                "from": from_date_extended,
+                "pageSize": 5,
+                "apiKey": NEWS_API_KEY,
+            })
+            url = f"https://newsapi.org/v2/everything?{params}"
+            req = urllib.request.Request(url, headers={"User-Agent": "EconoBot/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as res:
+                data = json.loads(res.read().decode())
+            for a in data.get("articles", []):
+                articles.append({
+                    "title": a.get("title", ""),
+                    "description": a.get("description", ""),
+                    "source": a.get("source", {}).get("name", ""),
+                    "url": a.get("url", ""),
+                    "publishedAt": a.get("publishedAt", ""),
+                })
+
     # 重複除去・最新順ソート
     seen = set()
     unique = []
-    for a in sorted(articles, key=lambda x: x.get("publishedAt",""), reverse=True):
+    for a in sorted(articles, key=lambda x: x.get("publishedAt", ""), reverse=True):
         if a["title"] not in seen and a["title"]:
             seen.add(a["title"])
             unique.append(a)
+    print(f"  合計 {len(unique)}件（信頼ソース限定）")
     return unique
 
 
