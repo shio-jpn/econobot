@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   try {
     switch (event.type) {
       case 'checkout.session.completed': {
-        const session = event.data.object as Stripe.CheckoutSession;
+        const session = event.data.object as Stripe.Checkout.Session;
         const userId = session.metadata?.user_id;
         if (!userId) break;
 

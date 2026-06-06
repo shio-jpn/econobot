@@ -3,19 +3,19 @@ import { createClient } from '@/lib/supabase-server';
 import type { RecordValue } from '@/types';
 
 interface Params {
-  params: { widgetId: string };
+  params: Promise<{ widgetId: string }>;
 }
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const supabase = createClient();
+    const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { widgetId } = params;
+    const { widgetId } = await params;
     const body: { date: string; value: RecordValue } = await request.json();
     const { date, value } = body;
 
