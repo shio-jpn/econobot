@@ -284,6 +284,10 @@ body {
   to { transform: translateY(0); opacity: 1; }
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ============================================================
    Range Input Styling
    ============================================================ */
