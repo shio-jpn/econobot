@@ -7,7 +7,8 @@ import Header from '@/components/Header';
 import WidgetCard from '@/components/widgets/WidgetCard';
 import RecordModal from '@/components/RecordModal';
 import UpgradeModal from '@/components/UpgradeModal';
-import type { Widget, DailyRecord, WidgetWithRecord, RecordValue } from '@/types';
+import type { Widget, DailyRecord, WidgetWithRecord, RecordValue, Plan } from '@/types';
+import { FREE_WIDGET_LIMIT } from '@/types';
 
 function todayJST(): string {
   const now = new Date();
@@ -41,6 +42,7 @@ function DashboardContent() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [completionBanner, setCompletionBanner] = useState(false);
   const [hasDashboard, setHasDashboard] = useState<boolean | null>(null);
+  const [plan, setPlan] = useState<Plan>('free');
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -74,6 +76,14 @@ function DashboardContent() {
         document.documentElement.setAttribute('data-theme', dashboard.theme);
         localStorage.setItem('theme', dashboard.theme);
       }
+
+      // Load subscription plan
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('plan')
+        .eq('user_id', user.id)
+        .single();
+      setPlan((sub?.plan as Plan) ?? 'free');
 
       // Load widgets
       const [widgetsRes, recordsRes] = await Promise.all([
@@ -114,6 +124,14 @@ function DashboardContent() {
       // Could show a toast here
     }
   }, [searchParams]);
+
+  const handleAddWidget = () => {
+    if (plan === 'pro' || widgets.length < FREE_WIDGET_LIMIT) {
+      router.push('/settings');
+    } else {
+      setShowUpgrade(true);
+    }
+  };
 
   const handleRecordSaved = (widgetId: string, value: RecordValue) => {
     setWidgets((prev) => {
@@ -245,9 +263,9 @@ function DashboardContent() {
           </div>
         )}
 
-        {/* Add widget button (for Pro / within limit) */}
+        {/* Add widget button */}
         <button
-          onClick={() => setShowUpgrade(true)}
+          onClick={handleAddWidget}
           className="w-full mt-4 py-3 text-xs rounded"
           style={{
             border: '1px dashed var(--border)',

@@ -91,7 +91,7 @@ export interface OnboardingData {
   metric: Metric;
   rhythm: RhythmType;
   trackItems: string[];
-  goal: string;
+  goal?: string;
   theme: Theme;
 }
 

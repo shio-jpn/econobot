@@ -127,7 +127,7 @@ function generateWidgets(data: OnboardingData): WidgetDef[] {
     }
   }
 
-  // Cap at 3 for free plan — API layer enforces this too
+  // Safety cap; free plan limit (3) is enforced in the POST handler
   return widgets.slice(0, 10);
 }
 
