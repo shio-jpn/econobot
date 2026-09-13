@@ -7,6 +7,7 @@ import os
 import json
 import time
 import base64
+import html
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -346,11 +347,30 @@ def parse_major_news(text):
 
 
 # ========================================
-# 4. BBCスタイルHTMLを生成
+# 4. 編集部スタイルHTMLを生成
 # ========================================
+
+# SVGアイコン（絵文字の代わり。currentColorでテーマ色を継承）
+_ICONS = {
+    "trending-up": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 17 9 11 13 15 21 6"/><polyline points="14 6 21 6 21 13"/></svg>',
+    "bank": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="21" x2="21" y2="21"/><line x1="5" y1="21" x2="5" y2="10"/><line x1="19" y1="21" x2="19" y2="10"/><line x1="12" y1="21" x2="12" y2="10"/><polygon points="12 3 21 8 3 8"/></svg>',
+    "briefcase": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>',
+    "bar-chart": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>',
+    "newspaper": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h13a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a3 3 0 0 1-3-3V4z"/><path d="M18 8h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="8" y1="8" x2="14" y2="8"/><line x1="8" y1="12" x2="14" y2="12"/><line x1="8" y1="16" x2="11" y2="16"/></svg>',
+    "globe": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
+    "external-link": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
+    "arrow-right": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>',
+}
+
+
+def _esc(s):
+    """HTMLへの埋め込み用にエスケープ（外部APIの文字列を信用しない）"""
+    return html.escape(s or "", quote=True)
+
+
 def generate_html(summary, articles, major_news):
     now = datetime.now(JST)
-    weekdays = ["月","火","水","木","金","土","日"]
+    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
     wd = weekdays[now.weekday()]
     date_str = now.strftime(f"%Y年%-m月%-d日（{wd}）")
     time_str = now.strftime("%H:%M JST")
@@ -359,22 +379,86 @@ def generate_html(summary, articles, major_news):
     for a in articles[:8]:
         if a["title"] and a["url"]:
             title = a["title"][:80] + ("…" if len(a["title"]) > 80 else "")
+            safe_url = _esc(a["url"])
             source_items += f"""
             <li class="source-item">
-              <a href="{a['url']}" target="_blank" rel="noopener">
-                <span class="source-name">{a['source']}</span>
-                <span class="source-title">{title}</span>
+              <a href="{safe_url}" target="_blank" rel="noopener noreferrer">
+                <span class="source-name">{_esc(a['source'])}</span>
+                <span class="source-title">{_esc(title)}</span>
+                <span class="source-icon">{_ICONS['external-link']}</span>
               </a>
             </li>"""
 
-    js_code = '''<script>
-function switchTab(name, btn) {
-  document.querySelectorAll('.tab-content').forEach(function(el){ el.classList.remove('active'); });
-  document.querySelectorAll('.tab-btn').forEach(function(el){ el.classList.remove('active'); });
-  document.getElementById('tab-' + name).classList.add('active');
-  btn.classList.add('active');
-}
-</script>'''
+    def section(icon, title, body):
+        return f"""
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">{_ICONS[icon]}</span>
+        <h2 class="section-title">{_esc(title)}</h2>
+      </div>
+      <p class="section-body">{_esc(body)}</p>
+    </div>"""
+
+    sections_html = section("trending-up", "株式市場・相場", summary["STOCK"])
+    if summary["FED"].upper() != "NONE":
+        sections_html += section("bank", "FRB・金融政策", summary["FED"])
+    if summary["JOBS"].upper() != "NONE":
+        sections_html += section("briefcase", "雇用・インフレ", summary["JOBS"])
+    if summary["EARNINGS"].upper() != "NONE":
+        sections_html += section("bar-chart", "企業決算", summary["EARNINGS"])
+
+    def major_card(num, title, body):
+        return f"""
+      <div class="major-card">
+        <span class="major-num">NEWS {num}</span>
+        <h3 class="major-title">{_esc(title)}</h3>
+        <p class="major-body">{_esc(body)}</p>
+      </div>"""
+
+    major_html = (
+        major_card("01", major_news["NEWS1_TITLE"], major_news["NEWS1_BODY"])
+        + major_card("02", major_news["NEWS2_TITLE"], major_news["NEWS2_BODY"])
+        + major_card("03", major_news["NEWS3_TITLE"], major_news["NEWS3_BODY"])
+    )
+
+    js_code = """<script>
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function byId(id) { return document.getElementById(id); }
+  function activate(tab, opts) {
+    tabs.forEach(function (t) {
+      var selected = t === tab;
+      t.setAttribute('aria-selected', selected ? 'true' : 'false');
+      t.tabIndex = selected ? 0 : -1;
+      byId(t.getAttribute('aria-controls')).hidden = !selected;
+    });
+    if (!opts || opts.focus !== false) tab.focus();
+  }
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener('click', function () { activate(tab); });
+    tab.addEventListener('keydown', function (e) {
+      var idx = i;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') idx = (i + 1) % tabs.length;
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') idx = (i - 1 + tabs.length) % tabs.length;
+      else return;
+      e.preventDefault();
+      activate(tabs[idx]);
+    });
+  });
+  // "#major" 付きリンク（Slack投稿等から）で開いた場合は主要ニュースタブを自動表示
+  document.querySelectorAll('[data-open-tab]').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      var target = byId('tab-btn-' + el.getAttribute('data-open-tab'));
+      if (target) activate(target);
+    });
+  });
+  if (location.hash === '#major') {
+    var majorTab = byId('tab-btn-major');
+    if (majorTab) activate(majorTab, { focus: false });
+  }
+})();
+</script>"""
 
     return f"""<!DOCTYPE html>
 <html lang="ja">
@@ -382,77 +466,117 @@ function switchTab(name, btn) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>米国経済ニュース | {date_str}</title>
+<meta name="description" content="{_esc(summary['HEADLINE'])} ｜ AIが自動生成する米国経済ニュースの朝刊まとめ">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;600;700&family=Noto+Sans+JP:wght@400;500&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;0,700;1,500&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {{
-    --red: #bb1919; --dark: #0d0d0d; --text: #1f1f1f;
-    --muted: #555; --border: #e0e0e0; --bg: #f9f7f4; --white: #ffffff;
+    --red: #dc2626; --red-dark: #b91c1c; --red-soft: #fdeaea; --ink: #16181d; --text: #24272e;
+    --muted: #5b6472; --border: #e6e8eb; --bg: #ffffff; --bg-soft: #fafafa;
+    --focus: #1e40af;
+    --shadow: 0 1px 2px rgba(16,24,40,0.04), 0 4px 12px rgba(16,24,40,0.05);
+    --shadow-hover: 0 2px 4px rgba(16,24,40,0.06), 0 8px 20px rgba(16,24,40,0.08);
   }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{ background: var(--bg); font-family: 'Noto Sans JP', sans-serif; color: var(--text); line-height: 1.7; }}
-  header {{ background: var(--dark); border-bottom: 3px solid var(--red); }}
-  .header-top {{ max-width: 900px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }}
-  .logo {{ font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 800; color: #fff; letter-spacing: 0.04em; }}
+  html {{ -webkit-text-size-adjust: 100%; }}
+  body {{ background: var(--bg); font-family: 'Roboto', 'Noto Sans JP', sans-serif; color: var(--text); line-height: 1.7; font-size: 16px; }}
+  a {{ color: inherit; }}
+  :focus-visible {{ outline: 3px solid var(--focus); outline-offset: 2px; }}
+
+  header {{ position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,0.92); backdrop-filter: saturate(180%) blur(8px); border-bottom: 3px solid var(--red); }}
+  .header-top {{ max-width: 900px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }}
+  .logo {{ font-family: 'Newsreader', serif; font-size: 24px; font-weight: 700; color: var(--ink); letter-spacing: 0.01em; }}
   .logo span {{ color: var(--red); }}
-  .header-date {{ font-size: 12px; color: #aaa; }}
-  .main {{ max-width: 900px; margin: 0 auto; padding: 40px 24px 60px; }}
-  .hero {{ border-left: 5px solid var(--red); padding-left: 20px; margin-bottom: 36px; animation: fadeUp 0.5s ease both; }}
-  .hero-label {{ font-size: 11px; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; color: var(--red); margin-bottom: 10px; }}
-  .hero-headline {{ font-family: 'Playfair Display', serif; font-size: clamp(26px, 4vw, 38px); font-weight: 800; line-height: 1.25; color: var(--dark); margin-bottom: 10px; }}
+  .header-date {{ font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }}
+
+  .main {{ max-width: 900px; margin: 0 auto; padding: 44px 24px 64px; }}
+
+  .hero {{ position: relative; padding-left: 22px; margin-bottom: 36px; }}
+  .hero::before {{ content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 5px; border-radius: 3px; background: linear-gradient(180deg, var(--red), var(--red-dark)); }}
+  .hero-label {{ display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--red); margin-bottom: 14px; }}
+  .hero-label svg {{ width: 16px; height: 16px; }}
+  .hero-headline {{ font-family: 'Newsreader', serif; font-size: clamp(28px, 5vw, 44px); font-weight: 700; line-height: 1.2; color: var(--ink); margin-bottom: 14px; letter-spacing: -0.01em; }}
   .hero-meta {{ font-size: 13px; color: var(--muted); }}
-  .sections {{ display: grid; gap: 2px; margin-bottom: 40px; }}
-  .section {{ background: var(--white); padding: 28px 32px; border-top: 1px solid var(--border); animation: fadeUp 0.5s ease both; transition: background 0.2s; }}
-  .section:hover {{ background: #fafafa; }}
-  .section:first-child {{ border-top: none; }}
-  .section-header {{ display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }}
-  .section-icon {{ font-size: 22px; }}
-  .section-title {{ font-family: 'Noto Serif JP', serif; font-size: 17px; font-weight: 700; color: var(--dark); border-bottom: 2px solid var(--red); padding-bottom: 2px; }}
-  .section-body {{ font-size: 15px; line-height: 1.85; }}
-  .sources {{ background: var(--white); border: 1px solid var(--border); padding: 24px 28px; margin-bottom: 32px; animation: fadeUp 0.6s ease both; }}
-  .sources-title {{ font-size: 12px; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }}
-  .source-list {{ list-style: none; }}
-  .source-item a {{ display: flex; gap: 12px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; transition: color 0.15s; }}
-  .source-item:last-child a {{ border-bottom: none; }}
-  .source-item a:hover .source-title {{ color: var(--red); }}
-  .source-name {{ font-size: 11px; font-weight: 500; color: var(--red); white-space: nowrap; min-width: 90px; }}
-  .source-title {{ font-size: 13px; color: var(--muted); transition: color 0.15s; }}
-  footer {{ background: var(--dark); color: #666; text-align: center; font-size: 12px; padding: 20px; border-top: 3px solid var(--red); }}
-  @keyframes fadeUp {{ from {{ opacity: 0; transform: translateY(12px); }} to {{ opacity: 1; transform: translateY(0); }} }}
-  @media (max-width: 600px) {{ .main {{ padding: 24px 16px 48px; }} .section {{ padding: 20px 18px; }} }}
 
   /* ─── タブ ─── */
-  .tabs {{ display: flex; border-bottom: 3px solid var(--red); margin-bottom: 32px; gap: 0; }}
+  .tablist {{ display: flex; border-bottom: 2px solid var(--border); margin-bottom: 28px; gap: 4px; }}
   .tab-btn {{
-    padding: 12px 28px; font-size: 14px; font-weight: 600;
-    font-family: 'Noto Sans JP', sans-serif;
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 20px; min-height: 44px; font-size: 15px; font-weight: 500;
+    font-family: 'Roboto', 'Noto Sans JP', sans-serif;
     background: none; border: none; cursor: pointer;
     color: var(--muted); border-bottom: 3px solid transparent;
-    margin-bottom: -3px; transition: all 0.2s;
+    margin-bottom: -2px; transition: color 0.2s, border-color 0.2s;
   }}
-  .tab-btn:hover {{ color: var(--dark); }}
-  .tab-btn.active {{ color: var(--red); border-bottom: 3px solid var(--red); }}
-  .tab-content {{ display: none; }}
-  .tab-content.active {{ display: block; }}
+  .tab-btn svg {{ width: 18px; height: 18px; flex-shrink: 0; }}
+  .tab-btn:hover {{ color: var(--ink); }}
+  .tab-btn[aria-selected="true"] {{ color: var(--red); border-bottom-color: var(--red); font-weight: 700; }}
+
+  .sections {{ display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 24px; background: var(--bg); box-shadow: var(--shadow); }}
+  .section {{ padding: 30px 30px; border-top: 1px solid var(--border); transition: background 0.2s; }}
+  .section:hover {{ background: var(--bg-soft); }}
+  .section:first-child {{ border-top: none; }}
+  .section-header {{ display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }}
+  .section-icon {{ display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 50%; background: var(--red-soft); color: var(--red); flex-shrink: 0; }}
+  .section-icon svg {{ width: 20px; height: 20px; }}
+  .section-title {{ font-family: 'Newsreader', serif; font-size: 18.5px; font-weight: 600; color: var(--ink); }}
+  .section-body {{ font-size: 15.5px; line-height: 1.9; color: var(--text); }}
+
+  /* ─── 主要ニュースへの誘導 ─── */
+  .teaser {{
+    display: flex; align-items: center; gap: 16px; justify-content: space-between;
+    background: var(--ink); color: #fff; border-radius: 10px; padding: 20px 24px;
+    margin-bottom: 24px; box-shadow: var(--shadow);
+  }}
+  .teaser-text {{ display: flex; align-items: center; gap: 12px; font-size: 14.5px; }}
+  .teaser-text svg {{ width: 20px; height: 20px; color: var(--red); flex-shrink: 0; }}
+  .teaser-text strong {{ font-weight: 700; }}
+  .teaser-link {{
+    display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+    background: var(--red); color: #fff; text-decoration: none;
+    font-size: 13.5px; font-weight: 700; padding: 9px 16px; border-radius: 6px;
+    min-height: 44px; cursor: pointer; transition: background 0.2s;
+  }}
+  .teaser-link:hover, .teaser-link:focus-visible {{ background: var(--red-dark); }}
+  .teaser-link svg {{ width: 15px; height: 15px; }}
+
+  .sources {{ background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; padding: 24px 28px; margin-bottom: 8px; box-shadow: var(--shadow); }}
+  .sources-title {{ display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }}
+  .sources-title svg {{ width: 16px; height: 16px; }}
+  .source-list {{ list-style: none; }}
+  .source-item a {{ display: flex; gap: 12px; align-items: center; padding: 12px 8px; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; transition: color 0.15s, background 0.15s; border-radius: 6px; }}
+  .source-item:last-child a {{ border-bottom: none; }}
+  .source-item a:hover, .source-item a:focus-visible {{ color: var(--red); background: rgba(220,38,38,0.05); }}
+  .source-item a:hover .source-title, .source-item a:focus-visible .source-title {{ color: var(--red); }}
+  .source-name {{ font-size: 11px; font-weight: 700; color: var(--red); white-space: nowrap; min-width: 96px; background: var(--red-soft); padding: 3px 8px; border-radius: 4px; text-align: center; }}
+  .source-title {{ font-size: 13.5px; color: var(--muted); transition: color 0.15s; flex: 1; }}
+  .source-icon {{ width: 15px; height: 15px; color: var(--muted); flex-shrink: 0; opacity: 0.7; }}
+  .source-icon svg {{ width: 100%; height: 100%; }}
 
   /* ─── 主要ニュースカード ─── */
-  .major-card {{
-    background: var(--white); border-top: 1px solid var(--border);
-    padding: 28px 32px; transition: background 0.2s;
-  }}
-  .major-card:hover {{ background: #fafafa; }}
+  .major-intro {{ font-size: 13.5px; color: var(--muted); margin-bottom: 18px; }}
+  .major-list {{ display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 8px; background: var(--bg); box-shadow: var(--shadow); }}
+  .major-card {{ border-top: 1px solid var(--border); padding: 30px; transition: background 0.2s; }}
+  .major-card:hover {{ background: var(--bg-soft); }}
   .major-card:first-child {{ border-top: none; }}
-  .major-num {{
-    display: inline-block; background: var(--red); color: #fff;
-    font-size: 11px; font-weight: 700; padding: 2px 8px;
-    border-radius: 2px; margin-bottom: 10px;
-    font-family: 'IBM Plex Mono', monospace;
+  .major-num {{ display: inline-block; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; padding: 4px 10px; border-radius: 4px; margin-bottom: 14px; }}
+  .major-title {{ font-family: 'Newsreader', serif; font-size: 19.5px; font-weight: 600; color: var(--ink); margin-bottom: 10px; line-height: 1.4; }}
+  .major-body {{ font-size: 15.5px; line-height: 1.9; color: var(--text); }}
+
+  footer {{ background: var(--ink); color: #9aa1ac; text-align: center; font-size: 12.5px; padding: 22px; border-top: 3px solid var(--red); }}
+
+  @media (max-width: 600px) {{
+    .main {{ padding: 28px 16px 48px; }}
+    .section, .major-card, .sources {{ padding: 20px 18px; }}
+    .tab-btn {{ padding: 10px 14px; font-size: 14px; }}
+    .teaser {{ flex-direction: column; align-items: flex-start; }}
+    .teaser-link {{ width: 100%; justify-content: center; }}
   }}
-  .major-title {{
-    font-family: 'Noto Serif JP', serif; font-size: 18px; font-weight: 700;
-    color: var(--dark); margin-bottom: 12px; line-height: 1.4;
+
+  @media (prefers-reduced-motion: reduce) {{
+    * {{ transition: none !important; }}
   }}
-  .major-body {{ font-size: 15px; line-height: 1.85; color: var(--text); }}
 </style>
 </head>
 <body>
@@ -462,67 +586,42 @@ function switchTab(name, btn) {
     <div class="header-date">{date_str} {time_str}</div>
   </div>
 </header>
-<main class="main">
+<main class="main" id="main">
   <div class="hero">
-    <div class="hero-label">🇺🇸 Daily US Economy Briefing</div>
-    <h1 class="hero-headline">{summary['HEADLINE']}</h1>
+    <div class="hero-label">{_ICONS['globe']}<span>Daily US Economy Briefing</span></div>
+    <h1 class="hero-headline">{_esc(summary['HEADLINE'])}</h1>
     <div class="hero-meta">自動生成ニュースまとめ ｜ Powered by Gemini + NewsAPI</div>
   </div>
-  <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('economy', this)">📊 経済ニュース</button>
-    <button class="tab-btn" onclick="switchTab('major', this)">🗞️ 主要ニュース</button>
+
+  <div class="tablist" role="tablist" aria-label="ニュースカテゴリ">
+    <button id="tab-btn-economy" class="tab-btn" role="tab" aria-selected="true" aria-controls="tab-economy" tabindex="0">{_ICONS['trending-up']}<span>経済ニュース</span></button>
+    <button id="tab-btn-major" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-major" tabindex="-1">{_ICONS['newspaper']}<span>主要ニュース</span></button>
   </div>
 
-  <div id="tab-economy" class="tab-content active">
-  <div class="sections">
-    <div class="section">
-      <div class="section-header"><span class="section-icon">📈</span><span class="section-title">株式市場・相場</span></div>
-      <p class="section-body">{summary['STOCK']}</p>
+  <div id="tab-economy" role="tabpanel" aria-labelledby="tab-btn-economy">
+    <div class="sections">{sections_html}
     </div>
-    {f'''<div class="section">
-      <div class="section-header"><span class="section-icon">🏦</span><span class="section-title">FRB・金融政策</span></div>
-      <p class="section-body">{summary['FED']}</p>
-    </div>''' if summary['FED'].upper() != 'NONE' else ''}
-    {f'''<div class="section">
-      <div class="section-header"><span class="section-icon">💼</span><span class="section-title">雇用・インフレ</span></div>
-      <p class="section-body">{summary['JOBS']}</p>
-    </div>''' if summary['JOBS'].upper() != 'NONE' else ''}
-    {f'''<div class="section">
-      <div class="section-header"><span class="section-icon">💹</span><span class="section-title">企業決算</span></div>
-      <p class="section-body">{summary['EARNINGS']}</p>
-    </div>''' if summary['EARNINGS'].upper() != 'NONE' else ''}
-  </div>
-  <div class="sources">
-    <div class="sources-title">📰 参照ニュースソース</div>
-    <ul class="source-list">{source_items}</ul>
-  </div>
-  </div><!-- /tab-economy -->
-
-  <div id="tab-major" class="tab-content">
-    <div style="margin-bottom:40px;">
-      <div class="major-card">
-        <div class="major-num">NEWS 01</div>
-        <div class="major-title">{major_news['NEWS1_TITLE']}</div>
-        <p class="major-body">{major_news['NEWS1_BODY']}</p>
-      </div>
-      <div class="major-card">
-        <div class="major-num">NEWS 02</div>
-        <div class="major-title">{major_news['NEWS2_TITLE']}</div>
-        <p class="major-body">{major_news['NEWS2_BODY']}</p>
-      </div>
-      <div class="major-card">
-        <div class="major-num">NEWS 03</div>
-        <div class="major-title">{major_news['NEWS3_TITLE']}</div>
-        <p class="major-body">{major_news['NEWS3_BODY']}</p>
-      </div>
+    <div class="teaser">
+      <div class="teaser-text">{_ICONS['newspaper']}<span>本日の主要ニュース：<strong>{_esc(major_news['NEWS1_TITLE'])}</strong> ほか2本</span></div>
+      <a href="#major" class="teaser-link" data-open-tab="major">読む{_ICONS['arrow-right']}</a>
     </div>
-  </div><!-- /tab-major -->
+    <div class="sources">
+      <div class="sources-title">{_ICONS['newspaper']}<span>参照ニュースソース</span></div>
+      <ul class="source-list">{source_items}
+      </ul>
+    </div>
+  </div>
 
+  <div id="tab-major" role="tabpanel" aria-labelledby="tab-btn-major" hidden>
+    <p class="major-intro">トランプ政権・国際情勢・AI/半導体など、経済以外の主要ニュースをピックアップ</p>
+    <div class="major-list">{major_html}
+    </div>
+  </div>
 </main>
 <footer>
-  <p>🤖 EconoBot ｜ 本コンテンツはAIが自動生成したものです。投資判断の根拠にしないでください。</p>
+  <p>EconoBot ｜ 本コンテンツはAIが自動生成したものです。投資判断の根拠にしないでください。</p>
 </footer>
-""" + js_code + """
+{js_code}
 </body>
 </html>"""
 
@@ -569,7 +668,7 @@ def publish_to_github_pages(html_content):
 # ========================================
 # 6. SlackにリンクURL付きで投稿
 # ========================================
-def post_to_slack(page_url, summary):
+def post_to_slack(page_url, summary, major_news):
     now = datetime.now(JST)
     weekdays = ["月","火","水","木","金","土","日"]
     wd = weekdays[now.weekday()]
@@ -587,7 +686,11 @@ def post_to_slack(page_url, summary):
         lines.append(f"💼 *雇用*　{trim(summary['JOBS'])}")
     if summary['EARNINGS'].upper() != 'NONE':
         lines.append(f"💹 *決算*　{trim(summary['EARNINGS'])}")
+    # 主要ニュースタブが読まれずに埋もれないよう、見出しをここでも露出させる
+    if major_news.get('NEWS1_TITLE'):
+        lines.append(f"\n🗞️ *主要ニュースも公開中*　{major_news['NEWS1_TITLE']} ほか2本")
     lines.append(f"\n🔗 *詳細レポートを読む* → {page_url}")
+    lines.append(f"🔗 *主要ニュースを直接読む* → {page_url}#major")
     text = "\n".join(lines)
 
     payload = json.dumps({"text": text}).encode("utf-8")
@@ -603,37 +706,59 @@ def post_to_slack(page_url, summary):
 # ========================================
 # メイン
 # ========================================
+def notify_failure(stage, error):
+    """途中で失敗した場合、サイレントに落ちずSlackにも異常を知らせる"""
+    try:
+        payload = json.dumps({
+            "text": f":warning: *EconoBot エラー*\n段階: {stage}\n内容: {error}"
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            SLACK_WEBHOOK_URL, data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+    except Exception as notify_err:
+        print(f"  ⚠️ 失敗通知にも失敗: {notify_err}")
+
+
 def main():
-    print("📰 経済ニュース取得中...")
-    articles = fetch_news()
-    print(f"  {len(articles)}件取得")
+    try:
+        print("📰 経済ニュース取得中...")
+        articles = fetch_news()
+        print(f"  {len(articles)}件取得")
 
-    print("📰 主要ニュース取得中...")
-    major_articles = fetch_major_news()
-    print(f"  {len(major_articles)}件取得")
+        print("📰 主要ニュース取得中...")
+        major_articles = fetch_major_news()
+        print(f"  {len(major_articles)}件取得")
 
-    print("🤖 Geminiで経済ニュース要約中...")
-    raw = summarize_with_gemini(articles)
-    summary = parse_summary(raw)
-    print(f"  見出し: {summary['HEADLINE']}")
+        print("🤖 Geminiで経済ニュース要約中...")
+        raw = summarize_with_gemini(articles)
+        summary = parse_summary(raw)
+        print(f"  見出し: {summary['HEADLINE']}")
 
-    print("🤖 Geminiで主要ニュース要約中...")
-    major_raw = summarize_major_news(major_articles)
-    major_news = parse_major_news(major_raw)
-    print(f"  主要1: {major_news['NEWS1_TITLE']}")
-    print(f"  主要2: {major_news['NEWS2_TITLE']}")
-    print(f"  主要3: {major_news['NEWS3_TITLE']}")
+        print("🤖 Geminiで主要ニュース要約中...")
+        major_raw = summarize_major_news(major_articles)
+        major_news = parse_major_news(major_raw)
+        print(f"  主要1: {major_news['NEWS1_TITLE']}")
+        print(f"  主要2: {major_news['NEWS2_TITLE']}")
+        print(f"  主要3: {major_news['NEWS3_TITLE']}")
 
-    print("🎨 HTMLページ生成中...")
-    html = generate_html(summary, articles, major_news)
+        print("🎨 HTMLページ生成中...")
+        page_html = generate_html(summary, articles, major_news)
 
-    print("🚀 GitHub Pagesに公開中...")
-    page_url = publish_to_github_pages(html)
+        print("🚀 GitHub Pagesに公開中...")
+        page_url = publish_to_github_pages(page_html)
 
-    print("📤 Slackに投稿中...")
-    post_to_slack(page_url, summary)
+        print("📤 Slackに投稿中...")
+        post_to_slack(page_url, summary, major_news)
 
-    print("✅ 完了！")
+        print("✅ 完了！")
+    except Exception as e:
+        print(f"❌ エラー発生: {e}")
+        notify_failure(stage=type(e).__name__, error=str(e))
+        raise
 
 
 if __name__ == "__main__":
