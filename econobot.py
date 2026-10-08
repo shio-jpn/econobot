@@ -5,6 +5,7 @@ BBCスタイルHTMLページを生成 → GitHub Pages公開 → SlackにURLを�
 
 import os
 import json
+import re
 import time
 import base64
 import html
@@ -23,6 +24,34 @@ GITHUB_TOKEN      = os.environ["GITHUB_TOKEN"]         # Actions自動提供
 
 JST = timezone(timedelta(hours=9))
 
+
+
+_TRUNC_RE = re.compile(r"\s*\[\+\d+ chars\]\s*$")
+
+
+def _clean_desc(text):
+    """NewsAPIの説明文は途中で切れていることがある。切れた末尾の数値をAIが拾わないよう、
+    「[+123 chars]」と、末尾の「…」「...」で終わる途中の文を取り除く"""
+    t = _TRUNC_RE.sub("", text or "").strip()
+    if t.endswith(("…", "...")):
+        cut = max(t.rfind(". "), t.rfind("。"))
+        t = t[:cut + 1] if cut > 0 else ""
+    return t
+
+
+# 参照ソース欄に出す記事の判定用(セール情報・事故など経済と無関係な見出しを外す)
+_ECON_RE = re.compile(
+    r"stock|market|price|wage|s&p|nasdaq|dow|fed|rate|inflation|cpi|job|payroll|unemploy|earning|revenue|"
+    r"profit|economy|economic|gdp|treasury|yield|bond|dollar|tariff|trade|bank|oil|bitcoin|crypto|"
+    r"shares|investor|wall street|recession|deficit|debt|ipo|merger|acquisition",
+    re.IGNORECASE,
+)
+_NOISE_RE = re.compile(r"\bdeals?\b|prime day|discount|coupon|\bsales? event\b|\bon sale\b|gift guide", re.IGNORECASE)
+
+
+def _is_econ(a):
+    text = f"{a.get('title', '')} {a.get('description', '')}"
+    return bool(_ECON_RE.search(text)) and not _NOISE_RE.search(a.get("title", ""))
 
 # ========================================
 # 1. NewsAPIでニュースを取得
@@ -50,14 +79,14 @@ def fetch_news():
         for a in fetched:
             articles.append({
                 "title": a.get("title", ""),
-                "description": a.get("description", ""),
+                "description": _clean_desc(a.get("description", "")),
                 "source": a.get("source", {}).get("name", ""),
                 "url": a.get("url", ""),
                 "publishedAt": a.get("publishedAt", ""),
             })
 
     # ② everything: キーワード検索で補完（直近48時間）
-    from_date = (datetime.now(JST) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    from_date = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
     queries = [
         "S&P 500 Nasdaq stock market",
         "Federal Reserve interest rate",
@@ -82,7 +111,7 @@ def fetch_news():
         for a in fetched:
             articles.append({
                 "title": a.get("title", ""),
-                "description": a.get("description", ""),
+                "description": _clean_desc(a.get("description", "")),
                 "source": a.get("source", {}).get("name", ""),
                 "url": a.get("url", ""),
                 "publishedAt": a.get("publishedAt", ""),
@@ -128,7 +157,7 @@ def fetch_major_news():
         })
 
     # ② キーワード検索で補完（48時間）
-    from_date = (datetime.now(JST) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    from_date = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
     queries = [
         "Trump White House policy executive order",
         "artificial intelligence AI technology OpenAI Google",
@@ -150,7 +179,7 @@ def fetch_major_news():
         for a in data.get("articles", []):
             articles.append({
                 "title": a.get("title", ""),
-                "description": a.get("description", ""),
+                "description": _clean_desc(a.get("description", "")),
                 "source": a.get("source", {}).get("name", ""),
                 "url": a.get("url", ""),
                 "publishedAt": a.get("publishedAt", ""),
@@ -173,7 +202,7 @@ def fetch_major_news():
 def summarize_with_gemini(articles):
     news_text = "\n".join([
         f"- [{a['source']}] {a['title']}: {a['description']}"
-        for a in articles if a["title"]
+        for a in articles if a["title"] and not _NOISE_RE.search(a["title"])
     ])
     today_str = datetime.now(JST).strftime("%Y年%-m月%-d日")
 
@@ -181,6 +210,8 @@ def summarize_with_gemini(articles):
 以下の英語ニュース記事はすべて本日・昨日の最新ニュースです。
 本日（{today_str}）時点の最新情報として、日本語で要約してください。
 古い情報や一般論は避け、記事に書かれている具体的な数値・日付・企業名・変動率を必ず使ってください。
+ただし数値は記事に完全な形で書かれているものだけを使い、途中で切れた数値(「51...」など)や推測した数値は書かないでください。
+セール情報・事故・芸能など経済と関係のない記事は無視してください。
 
 【FRB・金融政策（FED）のルール】
 - FRBの政策金利決定・FOMC会合・FRB高官の重要発言・量的緩和など主要な金融政策ニュースが
@@ -259,13 +290,31 @@ HEADLINE: （本日全体を一言で表す見出し、20文字以内）
 # 3. 要約テキストをパース
 # ========================================
 def parse_summary(text):
+    """AIの出力を項目ごとに分ける。太字記号(**)・行の折り返し・「EARNINGS: EARNINGS: NONE」の
+    ような重複や「なし」表記の揺れがあっても、ページに「NONE」が漏れないよう正規化する"""
     keys = ["STOCK", "FED", "JOBS", "EARNINGS", "HEADLINE"]
     result = {k: "" for k in keys}
-    for line in text.strip().splitlines():
-        for key in keys:
-            if line.startswith(f"{key}:"):
-                result[key] = line[len(key)+1:].strip()
-    if not result["HEADLINE"]:
+    key_re = re.compile(r"^\W*(" + "|".join(keys) + r")\W*[:：]\s*(.*)$")
+    current = None
+    for raw_line in text.strip().splitlines():
+        line = raw_line.replace("**", "").strip()
+        m = key_re.match(line)
+        if m:
+            current = m.group(1)
+            result[current] = m.group(2).strip()
+        elif current and line:
+            result[current] = (result[current] + " " + line).strip()
+    for k in keys:
+        v = result[k]
+        while True:  # 「EARNINGS: NONE」のように値の頭に項目名が重なった場合
+            m = key_re.match(v)
+            if not m:
+                break
+            v = m.group(2).strip()
+        if re.fullmatch(r"(NONE|N/A|なし|該当なし|該当ニュースなし)[。.]?", v, re.IGNORECASE) or (k != "HEADLINE" and not v):
+            v = "NONE"
+        result[k] = v
+    if result["HEADLINE"] in ("", "NONE"):
         result["HEADLINE"] = "本日の米国経済まとめ"
     return result
 
@@ -376,7 +425,9 @@ def generate_html(summary, articles, major_news):
     time_str = now.strftime("%H:%M JST")
 
     source_items = ""
-    for a in articles[:8]:
+    econ = [a for a in articles if _is_econ(a)]
+    picked = (econ + [a for a in articles if a not in econ and not _NOISE_RE.search(a.get("title", ""))])[:8]
+    for a in picked:
         if a["title"] and a["url"]:
             title = a["title"][:80] + ("…" if len(a["title"]) > 80 else "")
             safe_url = _esc(a["url"])
