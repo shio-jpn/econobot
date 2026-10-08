@@ -3,115 +3,106 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>米国経済ニュース | 2026年10月8日（木）</title>
-<meta name="description" content="米株史上最高値、ビットコインも上昇 ｜ AIが自動生成する米国経済ニュースの朝刊まとめ">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<title>米国経済ニュース | 10月9日(金)</title>
+<meta name="description" content="本日の米国経済まとめ | AIが自動生成する米国経済ニュースの朝刊まとめ">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;0,700;1,500&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:wght@600;700&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --red: #dc2626; --red-dark: #b91c1c; --red-soft: #fdeaea; --ink: #16181d; --text: #24272e;
-    --muted: #5b6472; --border: #e6e8eb; --bg: #ffffff; --bg-soft: #fafafa;
+    color-scheme: light;
+    --brand: #dc2626; --ink: #16181d; --text: #24272e; --muted: #5b6472; --line: #e6e8eb;
+    --up: #166534; --up-bg: #f0fdf4; --down: #b91c1c; --down-bg: #fef2f2; --flat: #475569; --flat-bg: #f1f5f9;
     --focus: #1e40af;
-    --shadow: 0 1px 2px rgba(16,24,40,0.04), 0 4px 12px rgba(16,24,40,0.05);
-    --shadow-hover: 0 2px 4px rgba(16,24,40,0.06), 0 8px 20px rgba(16,24,40,0.08);
+    --sans: 'Roboto', 'Noto Sans JP', sans-serif; --serif: 'Newsreader', 'Noto Serif JP', serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { -webkit-text-size-adjust: 100%; }
-  body { background: var(--bg); font-family: 'Roboto', 'Noto Sans JP', sans-serif; color: var(--text); line-height: 1.7; font-size: 16px; }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+  body { background: #ffffff; color: var(--text); font-family: var(--sans); font-size: 16px; line-height: 1.8; }
   a { color: inherit; }
   :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  [id] { scroll-margin-top: 64px; }
 
-  header { position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,0.92); backdrop-filter: saturate(180%) blur(8px); border-bottom: 3px solid var(--red); }
-  .header-top { max-width: 900px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .logo { font-family: 'Newsreader', serif; font-size: 24px; font-weight: 700; color: var(--ink); letter-spacing: 0.01em; }
-  .logo span { color: var(--red); }
-  .header-date { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  header { position: sticky; top: 0; z-index: 10; background: #ffffff; border-bottom: 3px solid var(--brand); }
+  .bar { max-width: 680px; margin: 0 auto; padding: 0 16px; height: 45px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .logo { font-family: 'Newsreader', serif; font-size: 20px; font-weight: 700; color: var(--ink); letter-spacing: 0.02em; }
+  .logo span { color: var(--brand); }
+  .stamp { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-  .main { max-width: 900px; margin: 0 auto; padding: 44px 24px 64px; }
+  main { max-width: 680px; margin: 0 auto; padding: 24px 16px 56px; }
+  h1 { font-family: var(--serif); font-size: 26px; font-weight: 700; line-height: 1.35; color: var(--ink); }
+  .sub { font-size: 13px; color: var(--muted); line-height: 1.6; margin-top: 4px; }
+  .notice { margin-top: 24px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; }
 
-  .hero { position: relative; padding-left: 22px; margin-bottom: 36px; }
-  .hero::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 5px; border-radius: 3px; background: linear-gradient(180deg, var(--red), var(--red-dark)); }
-  .hero-label { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--red); margin-bottom: 14px; }
-  .hero-label svg { width: 16px; height: 16px; }
-  .hero-headline { font-family: 'Newsreader', serif; font-size: clamp(28px, 5vw, 44px); font-weight: 700; line-height: 1.2; color: var(--ink); margin-bottom: 14px; letter-spacing: -0.01em; }
-  .hero-meta { font-size: 13px; color: var(--muted); }
+  .block { margin-top: 40px; }
+  h2 { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; line-height: 1.4; color: var(--ink); margin-bottom: 16px; }
+  .h-icon { display: inline-flex; width: 20px; height: 20px; color: var(--muted); flex-shrink: 0; }
+  .h-icon svg { width: 100%; height: 100%; }
 
-  /* ─── タブ ─── */
-  .tablist { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 28px; gap: 4px; }
-  .tab-btn {
-    display: flex; align-items: center; gap: 8px;
-    padding: 12px 20px; min-height: 44px; font-size: 15px; font-weight: 500;
-    font-family: 'Roboto', 'Noto Sans JP', sans-serif;
-    background: none; border: none; cursor: pointer;
-    color: var(--muted); border-bottom: 3px solid transparent;
-    margin-bottom: -2px; transition: color 0.2s, border-color 0.2s;
+  .kps { list-style: none; display: grid; gap: 12px; }
+  .kp { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: start; }
+  .kp-num { width: 28px; height: 28px; border-radius: 50%; background: var(--brand); color: #ffffff; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px; font-variant-numeric: tabular-nums; }
+  .kp-body { font-size: 17px; font-weight: 500; line-height: 1.6; color: var(--ink); }
+  .tag { display: inline-block; font-size: 12px; font-weight: 500; line-height: 1.5; color: var(--muted); border: 1px solid #cfd4da; border-radius: 4px; padding: 0 6px; margin-right: 8px; vertical-align: 2px; white-space: nowrap; }
+
+  .cards { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .card { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; font-variant-numeric: tabular-nums; }
+  .card.up { background: var(--up-bg); } .card.up .card-chg { color: var(--up); }
+  .card.down { background: var(--down-bg); } .card.down .card-chg { color: var(--down); }
+  .card.flat { background: var(--flat-bg); } .card.flat .card-chg { color: var(--flat); }
+  .card-name { font-size: 13px; color: var(--muted); line-height: 1.4; }
+  .card-value { display: block; font-family: 'Roboto', sans-serif; font-size: 22px; font-weight: 700; color: var(--ink); line-height: 1.3; }
+  .card-value.none { font-family: var(--sans); font-size: 13px; font-weight: 400; color: var(--muted); line-height: 1.7; padding: 3px 0 2px; }
+  .card-chg { display: block; font-family: 'Roboto', sans-serif; font-size: 16px; font-weight: 700; line-height: 1.4; }
+  .card-chg.none { font-family: var(--sans); font-size: 13px; font-weight: 400; color: var(--muted); }
+  .card-note { display: block; font-size: 12px; color: var(--flat); line-height: 1.4; }
+  .card-src { font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 4px; }
+  .note { font-size: 12px; color: var(--muted); line-height: 1.6; margin-top: 8px; }
+
+  .heads { list-style: none; border-top: 1px solid var(--line); }
+  .heads li { border-bottom: 1px solid var(--line); }
+  .heads a { display: block; padding: 10px 0; min-height: 44px; font-size: 16px; font-weight: 500; line-height: 1.6; color: var(--ink); text-decoration: none; }
+  .heads a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .heads .src-name { display: block; margin-top: -8px; padding-bottom: 8px; }
+
+  .jump { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .jump a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1px solid #cfd4da; border-radius: 6px; font-size: 15px; font-weight: 500; color: var(--ink); text-decoration: none; }
+  .jump a:hover { border-color: var(--ink); }
+
+  .lines { list-style: none; display: grid; gap: 12px; }
+  .lines li { position: relative; padding-left: 16px; font-size: 16px; line-height: 1.8; }
+  .lines li::before { content: ""; position: absolute; left: 2px; top: 0.8em; width: 5px; height: 5px; border-radius: 50%; background: #9aa1ac; }
+  .src { display: inline-block; margin-left: 8px; font-size: 12px; color: var(--muted); text-underline-offset: 2px; white-space: nowrap; }
+  .src + .src { margin-left: 6px; }
+  .src:hover { color: var(--ink); }
+
+  .story + .story { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); }
+  .story h3 { font-family: var(--serif); font-size: 19px; font-weight: 700; line-height: 1.45; color: var(--ink); margin-bottom: 8px; }
+  .story h3 .tag { font-family: var(--sans); vertical-align: 3px; }
+  .lead { font-size: 16px; font-weight: 500; line-height: 1.7; margin-bottom: 12px; color: var(--ink); }
+
+  .sources summary { display: flex; align-items: center; min-height: 44px; font-size: 16px; font-weight: 700; color: var(--ink); cursor: pointer; border-top: 1px solid var(--line); }
+  .src-list { list-style: none; }
+  .src-list a { display: block; padding: 10px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
+  .src-list a:hover .src-title { text-decoration: underline; }
+  .src-name { display: block; font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .src-title { display: block; font-size: 14px; line-height: 1.6; color: var(--text); }
+
+  footer { border-top: 1px solid var(--line); }
+  footer p { max-width: 680px; margin: 0 auto; padding: 20px 16px 32px; font-size: 12px; line-height: 1.6; color: var(--muted); }
+
+  @media (min-width: 600px) {
+    main { padding-top: 40px; }
+    h1 { font-size: 34px; }
+    h2 { font-size: 20px; }
+    .block { margin-top: 48px; }
+    .kp-body { font-size: 18px; }
+    .lines li { font-size: 16.5px; }
+    .stamp, .src-name { font-size: 13px; }
   }
-  .tab-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
-  .tab-btn:hover { color: var(--ink); }
-  .tab-btn[aria-selected="true"] { color: var(--red); border-bottom-color: var(--red); font-weight: 700; }
-
-  .sections { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 24px; background: var(--bg); box-shadow: var(--shadow); }
-  .section { padding: 30px 30px; border-top: 1px solid var(--border); transition: background 0.2s; }
-  .section:hover { background: var(--bg-soft); }
-  .section:first-child { border-top: none; }
-  .section-header { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
-  .section-icon { display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 50%; background: var(--red-soft); color: var(--red); flex-shrink: 0; }
-  .section-icon svg { width: 20px; height: 20px; }
-  .section-title { font-family: 'Newsreader', serif; font-size: 18.5px; font-weight: 600; color: var(--ink); }
-  .section-body { font-size: 15.5px; line-height: 1.9; color: var(--text); }
-
-  /* ─── 主要ニュースへの誘導 ─── */
-  .teaser {
-    display: flex; align-items: center; gap: 16px; justify-content: space-between;
-    background: var(--ink); color: #fff; border-radius: 10px; padding: 20px 24px;
-    margin-bottom: 24px; box-shadow: var(--shadow);
-  }
-  .teaser-text { display: flex; align-items: center; gap: 12px; font-size: 14.5px; }
-  .teaser-text svg { width: 20px; height: 20px; color: var(--red); flex-shrink: 0; }
-  .teaser-text strong { font-weight: 700; }
-  .teaser-link {
-    display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
-    background: var(--red); color: #fff; text-decoration: none;
-    font-size: 13.5px; font-weight: 700; padding: 9px 16px; border-radius: 6px;
-    min-height: 44px; cursor: pointer; transition: background 0.2s;
-  }
-  .teaser-link:hover, .teaser-link:focus-visible { background: var(--red-dark); }
-  .teaser-link svg { width: 15px; height: 15px; }
-
-  .sources { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; padding: 24px 28px; margin-bottom: 8px; box-shadow: var(--shadow); }
-  .sources-title { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
-  .sources-title svg { width: 16px; height: 16px; }
-  .source-list { list-style: none; }
-  .source-item a { display: flex; gap: 12px; align-items: center; padding: 12px 8px; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; transition: color 0.15s, background 0.15s; border-radius: 6px; }
-  .source-item:last-child a { border-bottom: none; }
-  .source-item a:hover, .source-item a:focus-visible { color: var(--red); background: rgba(220,38,38,0.05); }
-  .source-item a:hover .source-title, .source-item a:focus-visible .source-title { color: var(--red); }
-  .source-name { font-size: 11px; font-weight: 700; color: var(--red); white-space: nowrap; min-width: 96px; background: var(--red-soft); padding: 3px 8px; border-radius: 4px; text-align: center; }
-  .source-title { font-size: 13.5px; color: var(--muted); transition: color 0.15s; flex: 1; }
-  .source-icon { width: 15px; height: 15px; color: var(--muted); flex-shrink: 0; opacity: 0.7; }
-  .source-icon svg { width: 100%; height: 100%; }
-
-  /* ─── 主要ニュースカード ─── */
-  .major-intro { font-size: 13.5px; color: var(--muted); margin-bottom: 18px; }
-  .major-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 8px; background: var(--bg); box-shadow: var(--shadow); }
-  .major-card { border-top: 1px solid var(--border); padding: 30px; transition: background 0.2s; }
-  .major-card:hover { background: var(--bg-soft); }
-  .major-card:first-child { border-top: none; }
-  .major-num { display: inline-block; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; padding: 4px 10px; border-radius: 4px; margin-bottom: 14px; }
-  .major-title { font-family: 'Newsreader', serif; font-size: 19.5px; font-weight: 600; color: var(--ink); margin-bottom: 10px; line-height: 1.4; }
-  .major-body { font-size: 15.5px; line-height: 1.9; color: var(--text); }
-
-  footer { background: var(--ink); color: #9aa1ac; text-align: center; font-size: 12.5px; padding: 22px; border-top: 3px solid var(--red); }
-
-  @media (max-width: 600px) {
-    .main { padding: 28px 16px 48px; }
-    .section, .major-card, .sources { padding: 20px 18px; }
-    .tab-btn { padding: 10px 14px; font-size: 14px; }
-    .teaser { flex-direction: column; align-items: flex-start; }
-    .teaser-link { width: 100%; justify-content: center; }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; }
   }
@@ -119,175 +110,119 @@
 </head>
 <body>
 <header>
-  <div class="header-top">
+  <div class="bar">
     <div class="logo">ECONO<span>BOT</span></div>
-    <div class="header-date">2026年10月8日（木） 04:24 JST</div>
+    <div class="stamp">10月9日(金) 8:55 更新</div>
   </div>
 </header>
-<main class="main" id="main">
-  <div class="hero">
-    <div class="hero-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span>Daily US Economy Briefing</span></div>
-    <h1 class="hero-headline">米株史上最高値、ビットコインも上昇</h1>
-    <div class="hero-meta">自動生成ニュースまとめ ｜ Powered by Gemini + NewsAPI</div>
-  </div>
-
-  <div class="tablist" role="tablist" aria-label="ニュースカテゴリ">
-    <button id="tab-btn-economy" class="tab-btn" role="tab" aria-selected="true" aria-controls="tab-economy" tabindex="0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 17 9 11 13 15 21 6"/><polyline points="14 6 21 6 21 13"/></svg><span>経済ニュース</span></button>
-    <button id="tab-btn-major" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-major" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h13a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a3 3 0 0 1-3-3V4z"/><path d="M18 8h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="8" y1="8" x2="14" y2="8"/><line x1="8" y1="12" x2="14" y2="12"/><line x1="8" y1="16" x2="11" y2="16"/></svg><span>主要ニュース</span></button>
-  </div>
-
-  <div id="tab-economy" role="tabpanel" aria-labelledby="tab-btn-economy">
-    <div class="sections">
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 17 9 11 13 15 21 6"/><polyline points="14 6 21 6 21 13"/></svg></span>
-        <h2 class="section-title">株式市場・相場</h2>
-      </div>
-      <p class="section-body">米国株式市場は本日、S&amp;P 500指数が0.85%上昇し7,840ポイント、ナスダック総合指数が0.88%上昇し27,718ポイントと、それぞれ史上最高値を更新しました。ダウ平均株価も0.69%高の51...ポイントで取引されています。テクノロジー株への熱狂が続く中、バンク・オブ・アメリカはテックバブルのリスクを指摘しつつも、投資家にはラリーから降りないよう助言しています。一方で、金利上昇により、多くの退職世代が収入源として頼る配当株が打撃を受けています。ビットコインは87,000ドル近辺で推移しており、ナスダックは23回目の最高値を記録しました。SeagateとWestern Digitalの株価は、東芝との競争懸念に新たな展開があったとの報道を受け、さらに下落しました。Option Care Healthは50億ドルの買収報道を受けて22%急騰しましたが、Nikeは弱い見通しから1.3%下落しました。</p>
-    </div>
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
-        <h2 class="section-title">雇用・インフレ</h2>
-      </div>
-      <p class="section-body">5つの米国州では2027年に最低賃金が引き上げられ、ワシントン州では時給17.73ドルに達します。シアトルの最低賃金は22.14ドルになります。</p>
-    </div>
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></span>
-        <h2 class="section-title">企業決算</h2>
-      </div>
-      <p class="section-body">EARNINGS: NONE</p>
-    </div>
-    </div>
-    <div class="teaser">
-      <div class="teaser-text"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h13a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a3 3 0 0 1-3-3V4z"/><path d="M18 8h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="8" y1="8" x2="14" y2="8"/><line x1="8" y1="12" x2="14" y2="12"/><line x1="8" y1="16" x2="11" y2="16"/></svg><span>本日の主要ニュース：<strong>トランプ氏、死刑執行方法を承認</strong> ほか2本</span></div>
-      <a href="#major" class="teaser-link" data-open-tab="major">読む<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a>
-    </div>
-    <div class="sources">
-      <div class="sources-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h13a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a3 3 0 0 1-3-3V4z"/><path d="M18 8h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="8" y1="8" x2="14" y2="8"/><line x1="8" y1="12" x2="14" y2="12"/><line x1="8" y1="16" x2="11" y2="16"/></svg><span>参照ニュースソース</span></div>
-      <ul class="source-list">
-            <li class="source-item">
-              <a href="https://www.nbcnews.com/select/shopping/october-prime-day-deals-2026-rcna601203" target="_blank" rel="noopener noreferrer">
-                <span class="source-name">NBC News</span>
-                <span class="source-title">We’re live tracking the best October Prime Day deals — these 113+ are worth shop…</span>
-                <span class="source-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
-              </a>
-            </li>
-            <li class="source-item">
-              <a href="https://nypost.com/2026/10/06/us-news/delta-and-air-canada-planes-involved-in-lax-runway-collision/" target="_blank" rel="noopener noreferrer">
-                <span class="source-name">New York Post</span>
-                <span class="source-title">Planes collide on LAX runway - New York Post</span>
-                <span class="source-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
-              </a>
-            </li>
-            <li class="source-item">
-              <a href="https://apnews.com/article/cnn-cbs-skydance-merger-david-ellison-a0b39dd71b3fa6361058357835b2b76e" target="_blank" rel="noopener noreferrer">
-                <span class="source-name">Associated Press</span>
-                <span class="source-title">CNN now has a new owner. What will the future of the network be under Skydance? …</span>
-                <span class="source-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
-              </a>
-            </li>
-            <li class="source-item">
-              <a href="https://shopping.yahoo.com/deals/breaking-news/article/there-are-thousands-of-discounts-at-the-walmart-deals-event--here-are-the-17-our-editors-are-eyeing-202040199.html" target="_blank" rel="noopener noreferrer">
-                <span class="source-name">Yahoo Entertainment</span>
-                <span class="source-title">There are thousands of discounts at the Walmart Deals event — here are the 17 ou…</span>
-                <span class="source-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
-              </a>
-            </li>
-            <li class="source-item">
-              <a href="https://cryptobriefing.com/bank-of-america-tech-bubble-call-spreads/" target="_blank" rel="noopener noreferrer">
-                <span class="source-name">Crypto Briefing</span>
-                <span class="source-title">Bank of America flags tech bubble risk but tells clients not to sit out the rall…</span>
-                <span class="source-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
-              </a>
-            </li>
-            <li class="source-item">
-              <a href="https://www.foxbusiness.com/lifestyle/starbucks-sued-allegedly-mislabeling-sugar-free-protein-drinks" target="_blank" rel="noopener noreferrer">
-                <span class="source-name">Fox Business</span>
-                <span class="source-title">Starbucks sued for allegedly mislabeling &#x27;sugar-free&#x27; protein drinks - Fox Busin…</span>
-                <span class="source-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
-              </a>
-            </li>
-            <li class="source-item">
-              <a href="https://www.wsj.com/livecoverage/stock-market-today-dow-sp-500-nasdaq-10-06-2026" target="_blank" rel="noopener noreferrer">
-                <span class="source-name">The Wall Street Journal</span>
-                <span class="source-title">Stock Market Today: S&amp;P 500 Hits New Record High - WSJ</span>
-                <span class="source-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
-              </a>
-            </li>
-            <li class="source-item">
-              <a href="https://biztoc.com/x/d3308c697c96dd03" target="_blank" rel="noopener noreferrer">
-                <span class="source-name">Biztoc.com</span>
-                <span class="source-title">If a Stock Market Crash Is Coming, Warren Buffett Says Investors Should Make Thi…</span>
-                <span class="source-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
-              </a>
-            </li>
+<main id="main">
+  <h1>本日の米国経済まとめ</h1>
+  <p class="sub">直近24〜48時間の英語報道からAIが自動要約</p>
+    <section class="block" aria-labelledby="h-kp">
+      <h2 id="h-kp">今日の要点</h2>
+      <ol class="kps">
+        <li class="kp">
+          <span class="kp-num" aria-hidden="true">1</span>
+          <div class="kp-body"><span class="tag">株式</span><span class="kp-text">米国株は最高値から後退。S&amp;P500は0.2%下落</span><a class="src" href="https://apnews.com/article/stocks-markets-rates-oil-earnings-44b75c188756038371cf3112ede9cee8" target="_blank" rel="noopener noreferrer" aria-label="出典:Associated Press(新しいタブで開く)">出典</a></div>
+        </li>
+        <li class="kp">
+          <span class="kp-num" aria-hidden="true">2</span>
+          <div class="kp-body"><span class="tag">金融政策</span><span class="kp-text">FRB高官、追加利上げの可能性を示唆。時期は不明</span><a class="src" href="https://www.cnbc.com/2026/10/07/fed-officials-see-another-hike-coming-but-no-sign-as-to-when-minutes-show.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></div>
+        </li>
+        <li class="kp">
+          <span class="kp-num" aria-hidden="true">3</span>
+          <div class="kp-body"><span class="tag">その他</span><span class="kp-text">住宅ローンや自動車ローン金利が約3年ぶりの高水準</span><a class="src" href="https://www.npr.org/2026/10/07/nx-s1-5991910/interest-rates-economy-inflation-bonds" target="_blank" rel="noopener noreferrer" aria-label="出典:NPR(新しいタブで開く)">出典</a></div>
+        </li>
+      </ol>
+    </section>
+    <section class="block" aria-labelledby="h-mk">
+      <h2 id="h-mk">主な数値</h2>
+      <ul class="cards">
+        <li class="card down" role="group" aria-label="S&amp;P 500、値の記載なし、前の取引日比0.2%下落、出典Associated Press">
+          <span class="card-name" aria-hidden="true">S&amp;P 500</span>
+          <span aria-hidden="true"><span class="card-value none">値の記載なし</span></span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▼ </span>−0.2%</span></span>
+          <span class="card-src" aria-hidden="true">Associated Press</span>
+        </li>
+        <li class="card down" role="group" aria-label="ナスダック総合、値の記載なし、前の取引日比0.2%下落、出典Associated Press">
+          <span class="card-name" aria-hidden="true">ナスダック総合</span>
+          <span aria-hidden="true"><span class="card-value none">値の記載なし</span></span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▼ </span>−0.2%</span></span>
+          <span class="card-src" aria-hidden="true">Associated Press</span>
+        </li>
+        <li class="card down" role="group" aria-label="ダウ平均、値の記載なし、前の取引日比0.7%下落、出典Associated Press">
+          <span class="card-name" aria-hidden="true">ダウ平均</span>
+          <span aria-hidden="true"><span class="card-value none">値の記載なし</span></span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▼ </span>−0.7%</span></span>
+          <span class="card-src" aria-hidden="true">Associated Press</span>
+        </li>
       </ul>
-    </div>
-  </div>
-
-  <div id="tab-major" role="tabpanel" aria-labelledby="tab-btn-major" hidden>
-    <p class="major-intro">トランプ政権・国際情勢・AI/半導体など、経済以外の主要ニュースをピックアップ</p>
-    <div class="major-list">
-      <div class="major-card">
-        <span class="major-num">NEWS 01</span>
-        <h3 class="major-title">トランプ氏、死刑執行方法を承認</h3>
-        <p class="major-body">トランプ大統領は、2009年にフォート・フッドで13人を殺害した兵士ニダル・ハサンの死刑執行方法として、銃殺刑を承認しました。これは1961年以来、米国軍による初の銃殺刑執行となります。この決定は、死刑執行のあり方や人権問題に関する議論を再燃させる可能性があります。</p>
-      </div>
-      <div class="major-card">
-        <span class="major-num">NEWS 02</span>
-        <h3 class="major-title">AI広告詐欺、個人情報・認証コード窃取</h3>
-        <p class="major-body">サイバーセキュリティ研究者は、ChatGPTやGeminiなどのAIチャットボットになりすましたフィッシングプラットフォームが、ユーザーの認証情報や多要素認証（MFA）コードを窃取していることを明らかにしました。この手口は、AI技術の普及に伴う新たなセキュリティリスクを示唆しており、対策が急務となっています。</p>
-      </div>
-      <div class="major-card">
-        <span class="major-num">NEWS 03</span>
-        <h3 class="major-title">メタ、AIボット取引標準化へ協力</h3>
-        <p class="major-body">Metaは、OpenAIのBret Taylor氏が率いるSierraなどの企業と協力し、AIボットとのビジネス取引を円滑にするための技術標準を策定すると発表しました。AIのビジネス利用が拡大する中、相互運用性の向上と「カオス」の軽減を目指す動きであり、今後のAIエコシステムに影響を与える可能性があります。</p>
-      </div>
-    </div>
-  </div>
+      <p class="note">※報道時点の値で、終値とは限りません</p>
+    </section>
+    <section class="block" id="major" aria-labelledby="h-major">
+      <h2 id="h-major">主要ニュース</h2>
+      <ul class="heads">
+        <li><a href="#major-1">マイクロソフト、Nvidia製AIチップ搭載PC発売</a></li>
+        <li><a href="#major-2">MetaのAIアシスタントがアプリチャートを席巻</a></li>
+      </ul>
+    </section>
+    <nav class="jump" aria-label="分野へ移動"><a href="#sec-stock">株式</a><a href="#sec-fed">FRB</a><a href="#sec-earnings">決算</a><a href="#major-detail">主要ニュース</a></nav>
+    <section class="block" id="sec-stock" aria-labelledby="h-sec-stock">
+      <h2 id="h-sec-stock"><span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 17 9 11 13 15 21 6"/><polyline points="14 6 21 6 21 13"/></svg></span>株式市場</h2>
+      <ul class="lines">
+        <li><span>米国株は最高値から後退。S&amp;P500は0.2%下落した。</span><a class="src" href="https://apnews.com/article/stocks-markets-rates-oil-earnings-44b75c188756038371cf3112ede9cee8" target="_blank" rel="noopener noreferrer" aria-label="出典:Associated Press(新しいタブで開く)">出典</a></li>
+        <li><span>高金利が投資家の意欲をそぐ中、株式市場は底堅さを維持。</span><a class="src" href="https://www.cnbc.com/2026/10/07/stock-market-today-live-updates-.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></li>
+        <li><span>SKハイニックスのフラッシュメモリ事業、来年の米国IPOに向け銀行を選定。</span><a class="src" href="https://www.bloomberg.com/news/articles/2026-10-07/sk-hynix-s-solidigm-is-said-to-pick-banks-for-us-ipo-next-year" target="_blank" rel="noopener noreferrer" aria-label="出典:Bloomberg(新しいタブで開く)">出典</a></li>
+      </ul>
+    </section>
+    <section class="block" id="sec-fed" aria-labelledby="h-sec-fed">
+      <h2 id="h-sec-fed"><span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="21" x2="21" y2="21"/><line x1="5" y1="21" x2="5" y2="10"/><line x1="19" y1="21" x2="19" y2="10"/><line x1="12" y1="21" x2="12" y2="10"/><polygon points="12 3 21 8 3 8"/></svg></span>FRB・金融政策</h2>
+      <ul class="lines">
+        <li><span>FRB高官は追加利上げの可能性を示唆。時期は不明。</span><a class="src" href="https://www.cnbc.com/2026/10/07/fed-officials-see-another-hike-coming-but-no-sign-as-to-when-minutes-show.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></li>
+      </ul>
+    </section>
+    <section class="block" id="sec-earnings" aria-labelledby="h-sec-earnings">
+      <h2 id="h-sec-earnings"><span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></span>企業決算</h2>
+      <ul class="lines">
+        <li><span>サムスン電子、AIブームで第3四半期利益が過去最高に達する見通し。</span><a class="src" href="https://www.cnbc.com/2026/10/08/samsung-q3-earnings.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></li>
+        <li><span>コロナビール親会社のコンステレーション・ブランズ、ビールブランドがシェアを伸ばす。</span><a class="src" href="https://www.cnbc.com/2026/10/07/constellation-brands-earnings-beer-demand.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></li>
+      </ul>
+    </section>
+    <section class="block" id="major-detail" aria-labelledby="h-major-detail">
+      <h2 id="h-major-detail"><span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h13a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a3 3 0 0 1-3-3V4z"/><path d="M18 8h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="8" y1="8" x2="14" y2="8"/><line x1="8" y1="12" x2="14" y2="12"/><line x1="8" y1="16" x2="11" y2="16"/></svg></span>主要ニュース 詳細</h2>
+      <article class="story" id="major-1" aria-labelledby="h-major-1">
+        <h3 id="h-major-1"><span class="tag">AI・テック</span>マイクロソフト、Nvidia製AIチップ搭載PC発売</h3>
+        <p class="lead">マイクロソフトはNvidia製AIチップ搭載の新Surface Laptop Ultraを発売する。</p>
+        <ul class="lines">
+          <li><span>価格は2,599ドルで、自社製PCへのコミットメントを示す。</span><a class="src" href="https://www.cnbc.com/2026/10/07/microsoft-starts-taking-preorders-for-2599-surface-laptop-ultra.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></li>
+        </ul>
+      </article>
+      <article class="story" id="major-2" aria-labelledby="h-major-2">
+        <h3 id="h-major-2"><span class="tag">AI・テック</span>MetaのAIアシスタントがアプリチャートを席巻</h3>
+        <p class="lead">MetaのAIアシスタント「Muse」がアプリチャートで首位を獲得した。</p>
+        <ul class="lines">
+          <li><span>現在は無料で提供され、収益化の方法を模索中。</span><a class="src" href="https://www.cnbc.com/2026/10/07/meta-muse-personal-ai-agents-dazzle.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></li>
+          <li><span>パーソナルAIエージェントのビジネスモデル構築を目指す。</span><a class="src" href="https://www.cnbc.com/2026/10/07/meta-muse-personal-ai-agents-dazzle.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></li>
+        </ul>
+      </article>
+    </section>
+    <details class="block sources">
+      <summary>元記事一覧(9本)</summary>
+      <ul class="src-list">
+        <li><a href="https://apnews.com/article/stocks-markets-rates-oil-earnings-44b75c188756038371cf3112ede9cee8" target="_blank" rel="noopener noreferrer"><span class="src-name">Associated Press</span><span class="src-title" lang="en">Wall Street retreats from its record as stocks fall worldwide - AP News</span></a></li>
+        <li><a href="https://www.cnbc.com/2026/10/07/fed-officials-see-another-hike-coming-but-no-sign-as-to-when-minutes-show.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC</span><span class="src-title" lang="en">Fed officials see another hike coming, but no sign as to when, minutes show</span></a></li>
+        <li><a href="https://www.npr.org/2026/10/07/nx-s1-5991910/interest-rates-economy-inflation-bonds" target="_blank" rel="noopener noreferrer"><span class="src-name">NPR</span><span class="src-title" lang="en">Here&#x27;s the latest sticker shock: Borrowing for a mortgage -- or a car</span></a></li>
+        <li><a href="https://www.cnbc.com/2026/10/07/stock-market-today-live-updates-.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC</span><span class="src-title" lang="en">Stock market today: Live updates</span></a></li>
+        <li><a href="https://www.bloomberg.com/news/articles/2026-10-07/sk-hynix-s-solidigm-is-said-to-pick-banks-for-us-ipo-next-year" target="_blank" rel="noopener noreferrer"><span class="src-name">Bloomberg</span><span class="src-title" lang="en">SK Hynix’s Flash Memory Unit Said to Pick Banks for 2027 US IPO - Bloomberg.com</span></a></li>
+        <li><a href="https://www.cnbc.com/2026/10/08/samsung-q3-earnings.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC</span><span class="src-title" lang="en">Samsung forecasts record third-quarter profit of $80 billion on the back of AI boom - CNBC</span></a></li>
+        <li><a href="https://www.cnbc.com/2026/10/07/constellation-brands-earnings-beer-demand.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC</span><span class="src-title" lang="en">Modelo owner Constellation is getting creative to bring back beer drinkers as overall demand weakens</span></a></li>
+        <li><a href="https://www.cnbc.com/2026/10/07/microsoft-starts-taking-preorders-for-2599-surface-laptop-ultra.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC</span><span class="src-title" lang="en">Microsoft to sell $2,599 Surface Laptop Ultra containing Nvidia AI chip</span></a></li>
+        <li><a href="https://www.cnbc.com/2026/10/07/meta-muse-personal-ai-agents-dazzle.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC</span><span class="src-title" lang="en">Meta&#x27;s Muse assistant tops app charts. Now it needs to become a habit</span></a></li>
+      </ul>
+    </details>
 </main>
 <footer>
-  <p>EconoBot ｜ 本コンテンツはAIが自動生成したものです。投資判断の根拠にしないでください。</p>
+  <p>EconoBot。この内容はAIが自動で作成したものです。誤りを含むことがあるため、投資判断の根拠にしないでください。</p>
 </footer>
-<script>
-(function () {
-  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
-  function byId(id) { return document.getElementById(id); }
-  function activate(tab, opts) {
-    tabs.forEach(function (t) {
-      var selected = t === tab;
-      t.setAttribute('aria-selected', selected ? 'true' : 'false');
-      t.tabIndex = selected ? 0 : -1;
-      byId(t.getAttribute('aria-controls')).hidden = !selected;
-    });
-    if (!opts || opts.focus !== false) tab.focus();
-  }
-  tabs.forEach(function (tab, i) {
-    tab.addEventListener('click', function () { activate(tab); });
-    tab.addEventListener('keydown', function (e) {
-      var idx = i;
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') idx = (i + 1) % tabs.length;
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') idx = (i - 1 + tabs.length) % tabs.length;
-      else return;
-      e.preventDefault();
-      activate(tabs[idx]);
-    });
-  });
-  // "#major" 付きリンク（Slack投稿等から）で開いた場合は主要ニュースタブを自動表示
-  document.querySelectorAll('[data-open-tab]').forEach(function (el) {
-    el.addEventListener('click', function (e) {
-      e.preventDefault();
-      var target = byId('tab-btn-' + el.getAttribute('data-open-tab'));
-      if (target) activate(target);
-    });
-  });
-  if (location.hash === '#major') {
-    var majorTab = byId('tab-btn-major');
-    if (majorTab) activate(majorTab, { focus: false });
-  }
-})();
-</script>
 </body>
 </html>
