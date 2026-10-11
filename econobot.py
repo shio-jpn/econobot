@@ -682,6 +682,82 @@ def _check_market(m, articles):
     }
 
 
+
+# ========================================
+# 1c. 主な数値を公的統計(FRED=セントルイス連邦準備銀行)から取得(2026-10-09追加)
+# ========================================
+# ニュース本文から数値を拾う方式では、記事に値が書かれていない日に「値の記載なし」になる(10/9の本番で発生)。
+# 指数の終値・変動は公式の統計から直接取り、記事から拾ったカードは統計が取れない項目の補完にだけ使う。
+FRED_SERIES = [
+    ("S&P 500", "SP500", "index"),
+    ("ダウ平均", "DJIA", "index"),
+    ("ナスダック総合", "NASDAQCOM", "index"),
+    ("米10年債利回り", "DGS10", "yield"),
+    ("ドル円", "DEXJPUS", "fx"),
+]
+
+
+def _fred_last_two(series_id):
+    """FREDのCSVから、値のある直近2日分 [(日付, 値), ...] を返す(取れなければ空)"""
+    start = (datetime.now(timezone.utc) - timedelta(days=21)).strftime("%Y-%m-%d")
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
+    req = urllib.request.Request(url, headers={"User-Agent": "EconoBot/1.0"})
+    with urllib.request.urlopen(req, timeout=15) as res:
+        text = res.read().decode("utf-8", "replace")
+    rows = []
+    for line in text.strip().splitlines()[1:]:
+        parts = line.split(",")
+        if len(parts) != 2:
+            continue
+        try:
+            rows.append((parts[0], float(parts[1])))
+        except ValueError:
+            continue  # 祝日などは「.」で値が無い
+    return rows[-2:]
+
+
+def _official_card(name, kind, rows):
+    (d0, v0), (d1, v1) = rows
+    if kind == "yield":
+        value_text = f"{v1:.2f}%"
+        change, unit = round((v1 - v0) * 100), "bp"
+    elif kind == "fx":
+        value_text = f"{v1:.2f}円"
+        change, unit = round((v1 - v0) / v0 * 100, 2), "%"
+    else:
+        value_text = f"{v1:,.2f}"
+        change, unit = round((v1 - v0) / v0 * 100, 2), "%"
+    direction = "flat" if change == 0 else (1 if change > 0 else -1)
+    md = f"{int(d1[5:7])}/{int(d1[8:10])}"
+    return {"name": name, "value_text": value_text, "change": change, "unit": unit,
+            "direction": direction, "source": None, "source_name": f"FRED {md}終値", "official": True}
+
+
+def fetch_official_markets():
+    """公式統計の数値カード。1系列ずつ失敗しても他は続ける(全滅なら空リスト)"""
+    cards = []
+    for name, sid, kind in FRED_SERIES:
+        try:
+            rows = _fred_last_two(sid)
+            if len(rows) == 2:
+                age = (datetime.now(timezone.utc).date() - datetime.strptime(rows[1][0], "%Y-%m-%d").date()).days
+                if age > 5:  # 公表が遅い系列(ドル円は約1週間遅れ)の古い値は「今日の数値」として出さない
+                    print(f"    [FRED {sid}] 最新が{rows[1][0]}で古いため除外")
+                    continue
+                cards.append(_official_card(name, kind, rows))
+        except Exception as e:  # 統計が取れない日もページは止めない
+            print(f"    [FRED {sid}] 取得失敗: {e}")
+    print(f"  公式統計の数値カード: {len(cards)}枚")
+    return cards
+
+
+def merge_markets(official, ai_cards):
+    """公式統計を優先し、公式で取れなかった項目だけ記事由来のカードで補う。並びはMARKET_NAMESの順"""
+    by = {c["name"]: c for c in ai_cards}
+    by.update({c["name"]: c for c in official})
+    return [by[n] for n in MARKET_NAMES if n in by]
+
+
 SECTION_KEYS = [("stock", 5), ("fed", 3), ("jobs", 3), ("earnings", 3)]
 DEFAULT_HEADLINE = "本日の米国経済まとめ"
 
@@ -696,8 +772,16 @@ def parse_summary(raw, econ_articles):
                 "key_points": [], "markets": [], "sections": {k: [] for k, _ in SECTION_KEYS}}
 
     headline = data.get("headline")
-    if not isinstance(headline, str) or _is_empty(headline) or len(headline.strip()) > 20:
+    if not isinstance(headline, str) or _is_empty(headline):
         headline = DEFAULT_HEADLINE
+    elif len(headline.strip()) > 20:
+        # 20字を少し超えただけで既定文に置き換えると、その日の見出しが消えてしまう(10/9の初回本番で発生)。
+        # 30字までは許し、それを超える時は読点で切る。切れなければ既定文
+        h = headline.strip()
+        if len(h) > 30:
+            cut = max(h.rfind("、", 0, 30), h.rfind("。", 0, 30))
+            h = h[:cut] if cut >= 8 else ""
+        headline = h or DEFAULT_HEADLINE
     headline = headline.replace("**", "").strip()
 
     key_points = []
@@ -875,7 +959,8 @@ def _source_list(econ, econ_articles, major, major_articles):
             for n in kp["sources"]:
                 add(econ_articles[n - 1])
         for c in econ["markets"]:
-            add(econ_articles[c["source"] - 1])
+            if c.get("source"):
+                add(econ_articles[c["source"] - 1])
         for key, _ in SECTION_KEYS:
             for l in econ["sections"][key]:
                 for n in l["sources"]:
@@ -912,14 +997,17 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
 
     # ── 主な数値 ──
     mk_html = ""
-    if econ["ok"] and econ["markets"]:
+    if econ["markets"]:
         cards = "".join(_market_card(c) for c in econ["markets"])
+        mk_note = ("※FREDの数値はセントルイス連邦準備銀行が公表する終値(前の取引日比)。"
+                   "その他は報道時点の値" if any(c.get("official") for c in econ["markets"])
+                   else "※報道時点の値で、終値とは限りません")
         mk_html = f"""
     <section class="block" aria-labelledby="h-mk">
       <h2 id="h-mk">主な数値</h2>
       <ul class="cards">{cards}
       </ul>
-      <p class="note">※報道時点の値で、終値とは限りません</p>
+      <p class="note">{mk_note}</p>
     </section>"""
 
     # ── 主要ニュース(見出しのみ) ──
@@ -1282,6 +1370,10 @@ def main():
 
         print("🤖 Geminiで経済ニュース要約中...")
         econ = parse_summary(summarize_with_gemini(econ_articles), econ_articles)
+
+        print("📈 公式統計(FRED)から主な数値を取得中...")
+        official = fetch_official_markets()
+        econ["markets"] = merge_markets(official, econ["markets"] if econ["ok"] else [])
         print(f"  見出し: {econ['headline']}")
 
         print("🤖 Geminiで主要ニュース要約中...")

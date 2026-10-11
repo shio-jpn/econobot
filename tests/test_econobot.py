@@ -300,9 +300,12 @@ class TestEconobot(unittest.TestCase):
             self.assertNotIn(w, page)
 
     def test_headline_too_long(self):
-        j = dict(ECON_JSON, headline="あ" * 21)
-        econ = eb.parse_summary(json.dumps(j, ensure_ascii=False), ECON)
-        self.assertEqual(econ["headline"], eb.DEFAULT_HEADLINE)
+        def h(text):
+            j = dict(ECON_JSON, headline=text)
+            return eb.parse_summary(json.dumps(j, ensure_ascii=False), ECON)["headline"]
+        self.assertEqual(h("あ" * 25), "あ" * 25)                        # 30字までは残す
+        self.assertEqual(h("い" * 12 + "、" + "う" * 25), "い" * 12)      # 30字超は読点で切る
+        self.assertEqual(h("え" * 40), eb.DEFAULT_HEADLINE)              # 切れなければ既定文
 
     def test_gemini_calls(self):
         """13: 通常は経済1回+主要1回=2回。スキーマが400で拒否されると1回だけ送り直し、2回目は最初からスキーマ無し"""
@@ -384,3 +387,31 @@ class TrustedSourceTest(unittest.TestCase):
               {"url": "https://news.google.com/rss/b"}, {"url": ""}]
         self.assertTrue(all(e._is_trusted(a) for a in ok))
         self.assertFalse(any(e._is_trusted(a) for a in ng))
+
+
+class OfficialMarketsTest(unittest.TestCase):
+    def test_card_values(self):
+        c = eb._official_card("S&P 500", "index", [("2026-10-07", 7801.77), ("2026-10-08", 7765.36)])
+        self.assertEqual((c["value_text"], c["change"], c["direction"], c["source_name"]),
+                         ("7,765.36", -0.47, -1, "FRED 10/8終値"))
+        y = eb._official_card("米10年債利回り", "yield", [("2026-10-06", 5.27), ("2026-10-07", 5.28)])
+        self.assertEqual((y["value_text"], y["change"], y["unit"], y["direction"]), ("5.28%", 1, "bp", 1))
+
+    def test_merge_prefers_official_and_keeps_order(self):
+        ai = [{"name": "S&P 500", "x": "ai"}, {"name": "ビットコイン", "x": "ai"}]
+        off = [{"name": "ダウ平均", "x": "off"}, {"name": "S&P 500", "x": "off"}]
+        m = eb.merge_markets(off, ai)
+        self.assertEqual([(c["name"], c["x"]) for c in m],
+                         [("S&P 500", "off"), ("ダウ平均", "off"), ("ビットコイン", "ai")])
+
+    def test_render_official_card_without_article(self):
+        econ = eb.parse_summary(json.dumps(ECON_JSON, ensure_ascii=False), ECON)
+        econ["markets"] = eb.merge_markets(
+            [eb._official_card("S&P 500", "index", [("2026-10-07", 7801.77), ("2026-10-08", 7765.36)])],
+            econ["markets"])
+        major = eb.parse_major_news(json.dumps(MAJOR_JSON, ensure_ascii=False), MAJOR)
+        page = eb.generate_html(econ, ECON, major, MAJOR, now=NOW)
+        text = visible(page)
+        self.assertIn("7,765.36", text)
+        self.assertIn("FRED 10/8終値", text)
+        self.assertNotIn("値の記載なし", text.split("ナスダック")[0])
