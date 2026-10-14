@@ -415,3 +415,88 @@ class OfficialMarketsTest(unittest.TestCase):
         self.assertIn("7,765.36", text)
         self.assertIn("FRED 10/8終値", text)
         self.assertNotIn("値の記載なし", text.split("ナスダック")[0])
+
+
+class IndexTrendTest(unittest.TestCase):
+    def test_trend_row(self):
+        rows = [("2025-10-15", 7000.0), ("2025-12-31", 6000.0), ("2026-09-13", 7500.0),
+                ("2026-10-06", 8000.0), ("2026-10-12", 7900.0), ("2026-10-13", 7821.0)]
+        r = eb.index_trend_row("S&P 500", rows)
+        self.assertEqual(r["date"], "10/13")
+        self.assertEqual(r["d1"], -1.0)                       # 7900→7821
+        self.assertEqual(r["w1"], -2.24)                      # 10/6の8000から
+        self.assertEqual(r["m1"], 4.28)                       # 9/13の7500から
+        self.assertEqual(r["ytd"], 30.35)                     # 前年末6000から
+        self.assertEqual(r["from_high"], -2.24)               # 1年の高値8000から
+
+    def test_table_renders(self):
+        econ = eb.parse_summary(json.dumps(ECON_JSON, ensure_ascii=False), ECON)
+        econ["trends"] = [eb.index_trend_row("ダウ平均", [("2026-10-12", 100.0), ("2026-10-13", 101.0)])]
+        major = eb.parse_major_news(json.dumps(MAJOR_JSON, ensure_ascii=False), MAJOR)
+        text = visible(eb.generate_html(econ, ECON, major, MAJOR, now=NOW))
+        self.assertIn("株価指数の推移(公式統計)", text)
+        self.assertIn("+1.00%", text)
+        for w in BANNED:
+            self.assertNotIn(w, text)
+
+
+class TrendHighWindowTest(unittest.TestCase):
+    def test_high_only_within_one_year(self):
+        rows = [("2025-09-10", 9999.0), ("2025-12-31", 6000.0), ("2026-10-12", 7900.0), ("2026-10-13", 7821.0)]
+        r = eb.index_trend_row("S&P 500", rows)   # 13か月前の9999は1年の高値に含めない
+        self.assertEqual(r["from_high"], -1.0)
+
+    def test_news_get_failure_is_empty(self):
+        orig = eb.urllib.request.urlopen
+        def boom(*a, **k):
+            raise eb.urllib.error.URLError("down")
+        eb.urllib.request.urlopen = boom
+        try:
+            self.assertEqual(eb._news_get(eb.urllib.request.Request("https://newsapi.org/x")), {"articles": []})
+        finally:
+            eb.urllib.request.urlopen = orig
+
+
+class MacroTest(unittest.TestCase):
+    def test_macro_rows(self):
+        cpi = [("2025-07-01", 100.0), ("2025-08-01", 101.0), ("2026-07-01", 103.0), ("2026-08-01", 104.03)]
+        r = eb.macro_row("CPI", "yoy", "前年同月比", cpi)
+        self.assertEqual((r["latest"], r["prev"], r["period"]), ("+3.0%", "+3.0%", "8月分"))
+        nfp = [("2026-07-01", 158882.0), ("2026-08-01", 159015.0), ("2026-09-01", 159044.0)]
+        r = eb.macro_row("雇用者数", "mom_k", "", nfp)
+        self.assertEqual((r["latest"], r["prev"]), ("+2.9万人", "+13.3万人"))
+        down = [("2026-07-01", 159100.0), ("2026-08-01", 159015.0), ("2026-09-01", 158900.0)]
+        self.assertEqual(eb.macro_row("雇用者数", "mom_k", "", down)["latest"], "−11.5万人")
+        r = eb.macro_row("CPI", "yoy", "前年同月比", cpi[2:] + [("2026-09-01", 105.0)])  # 前年が無い月も行は残す
+        self.assertEqual((r["latest"], r["note"]), ("―", "前年同月の統計が無いため比較不可"))
+
+    def test_macro_table_renders(self):
+        econ = eb.parse_summary(json.dumps(ECON_JSON, ensure_ascii=False), ECON)
+        econ["macro"] = [{"name": "失業率", "latest": "4.2%", "prev": "4.1%", "period": "9月分", "note": "毎月"}]
+        major = eb.parse_major_news(json.dumps(MAJOR_JSON, ensure_ascii=False), MAJOR)
+        text = visible(eb.generate_html(econ, ECON, major, MAJOR, now=NOW))
+        self.assertIn("最新の指標(公式統計)", text)
+        self.assertIn("4.2%", text)
+
+
+class StoryItemTest(unittest.TestCase):
+    def test_title_body_items(self):
+        j = json.loads(json.dumps(ECON_JSON))
+        j["sections"]["stock"] = [
+            {"title": "S&P500が最高値", "body": "S&P500は0.85%上昇し最高値を更新した。ハイテク株が買われた。", "sources": [1]},
+            {"title": "作り話", "body": "ダウは9.99%急騰した。", "sources": [1]},       # 記事に無い% → 捨てる
+            {"title": "見出しだけ", "body": "", "sources": [1]},                        # 本文なし → 捨てる
+        ]
+        econ = eb.parse_summary(json.dumps(j, ensure_ascii=False), ECON)
+        st = econ["sections"]["stock"]
+        self.assertEqual(len(st), 1)
+        self.assertEqual((st[0]["title"], st[0]["text"][:6]), ("S&P500が最高値", "S&P500"))
+        major = eb.parse_major_news(json.dumps(MAJOR_JSON, ensure_ascii=False), MAJOR)
+        page = eb.generate_html(econ, ECON, major, MAJOR, now=NOW)
+        self.assertIn('class="l-title"', page)
+        self.assertIn("ハイテク株が買われた", visible(page))
+
+    def test_content_used(self):
+        a = {"title": "T", "description": "Desc.", "content": "Stocks rose 1.23% on Monday"}
+        self.assertIn("1.23%", eb._body_of(a))
+        self.assertEqual(eb._body_of({"title": "T", "description": "Same text here", "content": "Same text here"}), "Same text here")

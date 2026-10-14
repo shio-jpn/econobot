@@ -86,6 +86,16 @@ def _only_trusted(articles, label):
     return kept
 
 
+def _news_get(req):
+    """NewsAPIを1回呼ぶ。1つの検索が失敗しても実行全体は止めず、空の結果として続ける(2026-10-14)"""
+    try:
+        with urllib.request.urlopen(req, timeout=10) as res:
+            return json.loads(res.read().decode())
+    except Exception as e:
+        print(f"    [NewsAPI] 取得失敗(この検索は飛ばす): {type(e).__name__}")
+        return {"articles": []}
+
+
 def fetch_news():
     """経済ニュースを取得：top-headlines（常に最新）+ everything（キーワード検索）を併用"""
     articles = []
@@ -102,14 +112,14 @@ def fetch_news():
             params["q"] = q
         url = f"https://newsapi.org/v2/top-headlines?{urllib.parse.urlencode(params)}"
         req = urllib.request.Request(url, headers={"User-Agent": "EconoBot/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as res:
-            data = json.loads(res.read().decode())
+        data = _news_get(req)
         fetched = data.get("articles", [])
         print(f"    [top-headlines/{category}] {len(fetched)}件")
         for a in fetched:
             articles.append({
                 "title": a.get("title", ""),
                 "description": _clean_desc(a.get("description", "")),
+                "content": _clean_desc(a.get("content") or ""),
                 "source": a.get("source", {}).get("name", ""),
                 "url": a.get("url", ""),
                 "publishedAt": a.get("publishedAt", ""),
@@ -119,8 +129,11 @@ def fetch_news():
     from_date = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
     queries = [
         "S&P 500 Nasdaq stock market",
+        "stocks biggest movers shares surge plunge",
+        "Wall Street sector technology energy bank stocks",
         "Federal Reserve interest rate",
         "inflation CPI jobs unemployment",
+        "jobless claims layoffs hiring labor market wages",
         "earnings revenue quarterly results",
     ]
     for query in queries:
@@ -135,14 +148,14 @@ def fetch_news():
         })
         url = f"https://newsapi.org/v2/everything?{params}"
         req = urllib.request.Request(url, headers={"User-Agent": "EconoBot/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as res:
-            data = json.loads(res.read().decode())
+        data = _news_get(req)
         fetched = data.get("articles", [])
         print(f"    [{query[:25]}...] {len(fetched)}件")
         for a in fetched:
             articles.append({
                 "title": a.get("title", ""),
                 "description": _clean_desc(a.get("description", "")),
+                "content": _clean_desc(a.get("content") or ""),
                 "source": a.get("source", {}).get("name", ""),
                 "url": a.get("url", ""),
                 "publishedAt": a.get("publishedAt", ""),
@@ -176,14 +189,14 @@ def fetch_major_news():
     })
     url = f"https://newsapi.org/v2/top-headlines?{params}"
     req = urllib.request.Request(url, headers={"User-Agent": "EconoBot/1.0"})
-    with urllib.request.urlopen(req, timeout=10) as res:
-        data = json.loads(res.read().decode())
+    data = _news_get(req)
     fetched = data.get("articles", [])
     print(f"    [top-headlines/us] {len(fetched)}件")
     for a in fetched:
         articles.append({
             "title": a.get("title", ""),
             "description": _clean_desc(a.get("description", "")),
+            "content": _clean_desc(a.get("content") or ""),
             "source": a.get("source", {}).get("name", ""),
             "url": a.get("url", ""),
             "publishedAt": a.get("publishedAt", ""),
@@ -208,12 +221,12 @@ def fetch_major_news():
         })
         url = f"https://newsapi.org/v2/everything?{params}"
         req = urllib.request.Request(url, headers={"User-Agent": "EconoBot/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as res:
-            data = json.loads(res.read().decode())
+        data = _news_get(req)
         for a in data.get("articles", []):
             articles.append({
                 "title": a.get("title", ""),
                 "description": _clean_desc(a.get("description", "")),
+                "content": _clean_desc(a.get("content") or ""),
                 "source": a.get("source", {}).get("name", ""),
                 "url": a.get("url", ""),
                 "publishedAt": a.get("publishedAt", ""),
@@ -302,10 +315,18 @@ def _call_gemini(prompt, schema, label):
     raise RuntimeError("全モデルで失敗しました")
 
 
+def _body_of(a):
+    """説明文+本文の冒頭(NewsAPIの無料枠は本文が約200字で切れる)。重複していれば説明文だけ"""
+    d, c = a.get("description", "") or "", a.get("content", "") or ""
+    if c and c[:60] not in d:
+        return f"{d} {c}".strip()
+    return d
+
+
 def _numbered(articles):
-    """記事を「[1] [WSJ] タイトル: 説明文」の形に並べる(AIに出典を番号で答えさせるため)"""
+    """記事を「[1] [WSJ] タイトル: 説明文 本文冒頭」の形に並べる(AIに出典を番号で答えさせるため)"""
     return "\n".join(
-        f"[{i}] [{a['source']}] {a['title']}: {a['description']}"
+        f"[{i}] [{a['source']}] {a['title']}: {_body_of(a)}"
         for i, a in enumerate(articles, 1)
     )
 
@@ -325,8 +346,15 @@ _LINE = {
     "properties": {"text": {"type": "STRING"}, "sources": _SRC_ARRAY},
     "required": ["text", "sources"],
 }
+# 分野別(株式・FRB・雇用・決算)の1項目:見出し+2〜3文の説明(2026-10-14、Shio「ここもしっかり記載」)
+_STORY = {
+    "type": "OBJECT",
+    "properties": {"title": {"type": "STRING"}, "body": {"type": "STRING"}, "sources": _SRC_ARRAY},
+    "required": ["title", "body", "sources"],
+}
 
-MARKET_NAMES = ["S&P 500", "ナスダック総合", "ダウ平均", "米10年債利回り", "ドル円", "WTI原油", "ビットコイン"]
+MARKET_NAMES = ["S&P 500", "ナスダック総合", "ダウ平均", "VIX(恐怖指数)", "米10年債利回り", "米2年債利回り",
+                "ドル円", "WTI原油", "ビットコイン"]
 KEY_CATEGORIES = ["株式", "金融政策", "雇用・物価", "決算", "企業", "その他"]
 MAJOR_CATEGORIES = ["政治・政策", "国際", "AI・テック", "半導体", "経済"]
 
@@ -364,10 +392,10 @@ ECON_SCHEMA = {
         "sections": {
             "type": "OBJECT",
             "properties": {
-                "stock": {"type": "ARRAY", "items": _LINE},
-                "fed": {"type": "ARRAY", "items": _LINE},
-                "jobs": {"type": "ARRAY", "items": _LINE},
-                "earnings": {"type": "ARRAY", "items": _LINE},
+                "stock": {"type": "ARRAY", "items": _STORY},
+                "fed": {"type": "ARRAY", "items": _STORY},
+                "jobs": {"type": "ARRAY", "items": _STORY},
+                "earnings": {"type": "ARRAY", "items": _STORY},
             },
             "required": ["stock", "fed", "jobs", "earnings"],
         },
@@ -408,8 +436,9 @@ ECON_PROMPT = """あなたは米国経済ニュースの編集者です。忙し
   "markets": [{{"name": "S&P 500|ナスダック総合|ダウ平均|米10年債利回り|ドル円|WTI原油|ビットコイン",
                "value_text": "記事にある値 または null", "change_value": 変動の数値 または null,
                "change_unit": "%|bp", "quote": "その数値が書かれた英語の文をそのまま", "source": 記事番号}}],
-  "sections": {{"stock": [{{"text": "60字以内", "sources": [記事番号]}}], "fed": [], "jobs": [], "earnings": []}}}}
-件数:key_points 1〜3、markets 0〜7、stock 最大5、fed・jobs・earnings 各最大3。
+  "sections": {{"stock": [{{"title": "25字以内の見出し", "body": "2〜3文・150字以内の説明", "sources": [記事番号]}}],
+               "fed": [], "jobs": [], "earnings": []}}}}
+件数:key_points 1〜3、markets 0〜9、stock 3〜6、jobs 最大5、fed・earnings 各最大3。
 
 ■ 数値のルール(最重要。読者はこの数値をそのまま信じるため)
 1. 数値は記事の文中に書かれているものだけを使う。計算・換算・四捨五入・推測はしない。
@@ -422,12 +451,23 @@ ECON_PROMPT = """あなたは米国経済ニュースの編集者です。忙し
 ■ 文章のルール
 - key_points は今日いちばん重要な出来事を最大3つ。1つの要点に1つの事実だけ。
   「誰が/何が + どうなった」を先に書き、45字以内。数字が記事にあれば1つだけ入れる。
-- sections の各項目は1行60字以内の箇条書き。主語から書き始め、1行に1つの事実だけ。
+- sections の各項目は「title(25字以内の見出し)」と「body(2〜3文・150字以内の説明)」で書く。
+  body は「何が起きたか(数字は記事にあるものだけ)→ なぜか(記事に書かれた理由・背景)→ どんな影響があるか(記事に書かれていれば)」の順。
+  1つの項目では1つの話題だけを扱う。似た記事は1つの項目にまとめ、sources に両方の番号を入れる。
+  記事に理由や影響が書かれていなければ、その文は書かずに短く終える(推測で補わない)。
 - 「注目が集まる」「動向が注視される」のような中身のない締めの言葉は書かない。
 - 記事に書かれていない見通し・理由づけは書かない。記事に書かれている場合だけ「〜と報じられた」と書く。
 - 「本日」は使わない。日付は記事にある場合だけ書く。
 - 企業名・指数名は日本で通じる表記にする(例:Nvidia→エヌビディア、Fed→FRB)。
 - headline は全体を一言で表す20字以内。
+- stock(株式市場)は読者が最も知りたい欄なので、記事にある範囲でできるだけ厚く書く。次の順に、それぞれ記事があれば1〜2行ずつ:
+  (1) 主な指数の動きとその理由 (2) 大きく動いた個別銘柄と理由(銘柄名と変動率) (3) 業種(テック・エネルギー・金融など)の動き
+  (4) 金利・原油・ドル・AIなど相場に影響した材料 (5) 記事で触れられている今後の予定(決算・指標発表など)。
+  記事に無い項目は書かない(水増ししない)。
+- jobs(雇用・物価)も厚く書く。次の順に、記事があれば1〜2行ずつ:
+  (1) 発表された指標の名前と数値(雇用者数・失業率・CPI・PCE・新規失業保険申請など) (2) 市場予想や前回との比較
+  (3) 雇用の中身(増えた/減った業種、賃金、解雇・採用の動き、企業の人員削減の報道) (4) FRBの金利判断への影響として記事に書かれていること。
+  記事に無い項目は書かない。
 - fed(FRBの金利決定・FOMC・FRB高官の発言)、jobs(雇用統計・失業率・CPI・PCE・賃金)、
   earnings(大手企業の決算発表)は、該当する記事が無ければ空の配列 [] にする。
   関係の薄い記事で無理に埋めない。
@@ -530,7 +570,7 @@ def _norm(s):
 
 
 def _article_text(a):
-    return _norm(f"{a.get('title', '')} {a.get('description', '')}")
+    return _norm(f"{a.get('title', '')} {_body_of(a)}")
 
 
 def _valid_sources(srcs, articles):
@@ -564,15 +604,23 @@ def _check_line(item, articles, max_len=None):
     """箇条書き1行を検証する。ダメなら None(その1行だけ捨てる)"""
     if not isinstance(item, dict):
         return None
-    text = item.get("text")
+    title = item.get("title") if isinstance(item.get("title"), str) else ""
+    body = item.get("body") if isinstance(item.get("body"), str) else ""
+    title, body = title.replace("**", "").strip(), body.replace("**", "").strip()
+    if _is_empty(title):
+        title = ""
+    if _is_empty(body):
+        body = ""
+    text = body or item.get("text")
     if not isinstance(text, str) or _is_empty(text):
         return None
     text = text.replace("**", "").strip()
+    check = f"{title} {text}".strip()
     srcs = _valid_sources(item.get("sources"), articles)
     if not srcs:
         print(f"    [drop] 出典なし: {text[:30]}")
         return None
-    nt = unicodedata.normalize("NFKC", text)
+    nt = unicodedata.normalize("NFKC", check)
     if _CUT_NUM_RE.search(nt):
         print(f"    [drop] 途切れた数値: {text[:30]}")
         return None
@@ -582,6 +630,8 @@ def _check_line(item, articles, max_len=None):
             print(f"    [drop] 元記事に無い%({num}%): {text[:30]}")
             return None
     out = {"text": text, "sources": srcs}
+    if title:
+        out["title"] = title
     if "category" in item:
         out["category"] = item.get("category")
     return out
@@ -693,13 +743,19 @@ FRED_SERIES = [
     ("ダウ平均", "DJIA", "index"),
     ("ナスダック総合", "NASDAQCOM", "index"),
     ("米10年債利回り", "DGS10", "yield"),
+    ("VIX(恐怖指数)", "VIXCLS", "level"),
+    ("米2年債利回り", "DGS2", "yield"),
     ("ドル円", "DEXJPUS", "fx"),
+    ("WTI原油", "DCOILWTICO", "usd"),  # 公表が約1週間遅れるので許容日数を長くする(日付はカードに表示)
+    ("ビットコイン", "CBBTCUSD", "usd"),
 ]
+# 株式の推移表に使う指数(1年分を取得し、1週間・1か月・年初来・1年の高値からの距離を計算する)
+INDEX_TABLE = [("S&P 500", "SP500"), ("ダウ平均", "DJIA"), ("ナスダック総合", "NASDAQCOM")]
 
 
-def _fred_last_two(series_id):
-    """FREDのCSVから、値のある直近2日分 [(日付, 値), ...] を返す(取れなければ空)"""
-    start = (datetime.now(timezone.utc) - timedelta(days=21)).strftime("%Y-%m-%d")
+def _fred_rows(series_id, days=21):
+    """FREDのCSVから、値のある行 [(日付, 値), ...] を古い順に返す"""
+    start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
     req = urllib.request.Request(url, headers={"User-Agent": "EconoBot/1.0"})
     with urllib.request.urlopen(req, timeout=15) as res:
@@ -713,7 +769,11 @@ def _fred_last_two(series_id):
             rows.append((parts[0], float(parts[1])))
         except ValueError:
             continue  # 祝日などは「.」で値が無い
-    return rows[-2:]
+    return rows
+
+
+def _fred_last_two(series_id):
+    return _fred_rows(series_id)[-2:]
 
 
 def _official_card(name, kind, rows):
@@ -724,6 +784,12 @@ def _official_card(name, kind, rows):
     elif kind == "fx":
         value_text = f"{v1:.2f}円"
         change, unit = round((v1 - v0) / v0 * 100, 2), "%"
+    elif kind == "usd":
+        value_text = f"${v1:,.2f}" if v1 < 1000 else f"${v1:,.0f}"
+        change, unit = round((v1 - v0) / v0 * 100, 2), "%"
+    elif kind == "level":
+        value_text = f"{v1:.2f}"
+        change, unit = round((v1 - v0) / v0 * 100, 2), "%"
     else:
         value_text = f"{v1:,.2f}"
         change, unit = round((v1 - v0) / v0 * 100, 2), "%"
@@ -733,15 +799,27 @@ def _official_card(name, kind, rows):
             "direction": direction, "source": None, "source_name": f"FRED {md}終値", "official": True}
 
 
+MAX_AGE_DAYS = {"DCOILWTICO": 10}
+_FRED_CACHE = {}
+
+
+def _fred_cached(series_id, days):
+    key = (series_id, days)
+    if key not in _FRED_CACHE:
+        _FRED_CACHE[key] = _fred_rows(series_id, days)
+    return _FRED_CACHE[key]
+
+
 def fetch_official_markets():
     """公式統計の数値カード。1系列ずつ失敗しても他は続ける(全滅なら空リスト)"""
     cards = []
+    index_ids = {sid for _, sid in INDEX_TABLE}
     for name, sid, kind in FRED_SERIES:
         try:
-            rows = _fred_last_two(sid)
+            rows = (_fred_cached(sid, 400) if sid in index_ids else _fred_rows(sid))[-2:]
             if len(rows) == 2:
                 age = (datetime.now(timezone.utc).date() - datetime.strptime(rows[1][0], "%Y-%m-%d").date()).days
-                if age > 5:  # 公表が遅い系列(ドル円は約1週間遅れ)の古い値は「今日の数値」として出さない
+                if age > MAX_AGE_DAYS.get(sid, 5):  # 公表が遅い系列(ドル円は約1週間遅れ)の古い値は「今日の数値」として出さない
                     print(f"    [FRED {sid}] 最新が{rows[1][0]}で古いため除外")
                     continue
                 cards.append(_official_card(name, kind, rows))
@@ -751,6 +829,110 @@ def fetch_official_markets():
     return cards
 
 
+def _pct(a, b):
+    return round((a - b) / b * 100, 2) if b else None
+
+
+def _value_on_or_before(rows, day):
+    """day(YYYY-MM-DD)以前で最も新しい値"""
+    cand = [v for d, v in rows if d <= day]
+    return cand[-1] if cand else None
+
+
+def index_trend_row(name, rows):
+    """1年分の終値から、前日比・1週間・1か月・年初来・1年の高値からの距離を計算する"""
+    if len(rows) < 2:
+        return None
+    last_d, last_v = rows[-1]
+    last = datetime.strptime(last_d, "%Y-%m-%d").date()
+    def back(days):
+        v = _value_on_or_before(rows, (last - timedelta(days=days)).isoformat())
+        return _pct(last_v, v) if v is not None else None
+    ytd_base = _value_on_or_before(rows, f"{last.year - 1}-12-31")
+    try:
+        cutoff = last.replace(year=last.year - 1).isoformat()
+    except ValueError:  # 2/29
+        cutoff = (last - timedelta(days=365)).isoformat()
+    high = max(v for d, v in rows if d > cutoff)
+    return {"name": name, "date": f"{last.month}/{last.day}", "close": last_v,
+            "d1": _pct(last_v, rows[-2][1]), "w1": back(7), "m1": back(30),
+            "ytd": _pct(last_v, ytd_base) if ytd_base else None,
+            "from_high": _pct(last_v, high)}
+
+
+def fetch_index_trends():
+    out = []
+    for name, sid in INDEX_TABLE:
+        try:
+            r = index_trend_row(name, _fred_cached(sid, 400))
+            if r:
+                out.append(r)
+        except Exception as e:
+            print(f"    [FRED {sid} 推移] 取得失敗: {e}")
+    print(f"  株式の推移表: {len(out)}行")
+    return out
+
+
+MACRO_SERIES = [
+    # (表示名, FRED系列, 種類, 説明)
+    ("失業率", "UNRATE", "rate", "毎月・労働統計局"),
+    ("非農業部門の雇用者数", "PAYEMS", "mom_k", "前月からの増減"),
+    ("平均時給", "CES0500000003", "yoy", "前年同月比"),
+    ("消費者物価(CPI)", "CPIAUCSL", "yoy", "前年同月比"),
+    ("コアCPI(食品・エネルギー除く)", "CPILFESL", "yoy", "前年同月比"),
+    ("コアPCE物価(FRBが重視)", "PCEPILFE", "yoy", "前年同月比"),
+    ("新規失業保険申請", "ICSA", "weekly", "毎週"),
+    ("求人件数", "JTSJOL", "level_k", "毎月"),
+]
+
+
+def _yoy(rows, i):
+    """rows[i]の前年同月比(%)。1年前の同じ月の行が無ければNone"""
+    d, v = rows[i]
+    target = f"{int(d[:4]) - 1}{d[4:]}"
+    base = dict(rows).get(target)
+    return round((v - base) / base * 100, 1) if base else None
+
+
+def macro_row(name, kind, note, rows):
+    if len(rows) < 3:
+        return None
+    d, v = rows[-1]
+    period = f"{int(d[5:7])}月分" if kind != "weekly" else f"{int(d[5:7])}/{int(d[8:10])}までの週"
+    if kind == "rate":
+        latest, prev = f"{v:.1f}%", f"{rows[-2][1]:.1f}%"
+    elif kind == "mom_k":  # 千人単位 → 万人
+        latest = f"{(v - rows[-2][1]) / 10:+.1f}万人"
+        prev = f"{(rows[-2][1] - rows[-3][1]) / 10:+.1f}万人"
+    elif kind == "yoy":
+        a, b = _yoy(rows, len(rows) - 1), _yoy(rows, len(rows) - 2)
+        # 前年同月の統計が欠けている月(2025年10月は政府閉鎖で欠測)も、行は消さずに「―」で出す
+        latest = f"{a:+.1f}%" if a is not None else "―"
+        prev = f"{b:+.1f}%" if b is not None else "―"
+        if a is None:
+            note = "前年同月の統計が無いため比較不可"
+    elif kind == "weekly":  # 件 → 万件
+        latest, prev = f"{v / 10000:.1f}万件", f"{rows[-2][1] / 10000:.1f}万件"
+    else:  # level_k:千件 → 万件
+        latest, prev = f"{v / 10:,.0f}万件", f"{rows[-2][1] / 10:,.0f}万件"
+    latest = latest.replace("-", "−")
+    prev = prev.replace("-", "−")
+    return {"name": name, "latest": latest, "prev": prev, "period": period, "note": note}
+
+
+def fetch_macro():
+    out = []
+    for name, sid, kind, note in MACRO_SERIES:
+        try:
+            r = macro_row(name, kind, note, _fred_rows(sid, days=520))
+            if r:
+                out.append(r)
+        except Exception as e:
+            print(f"    [FRED {sid} 指標] 取得失敗: {e}")
+    print(f"  雇用・物価の指標: {len(out)}行")
+    return out
+
+
 def merge_markets(official, ai_cards):
     """公式統計を優先し、公式で取れなかった項目だけ記事由来のカードで補う。並びはMARKET_NAMESの順"""
     by = {c["name"]: c for c in ai_cards}
@@ -758,7 +940,7 @@ def merge_markets(official, ai_cards):
     return [by[n] for n in MARKET_NAMES if n in by]
 
 
-SECTION_KEYS = [("stock", 5), ("fed", 3), ("jobs", 3), ("earnings", 3)]
+SECTION_KEYS = [("stock", 6), ("fed", 3), ("jobs", 5), ("earnings", 3)]
 DEFAULT_HEADLINE = "本日の米国経済まとめ"
 
 
@@ -974,6 +1156,52 @@ def _source_list(econ, econ_articles, major, major_articles):
     return picked[:10]
 
 
+def _pct_cell(v):
+    if v is None:
+        return '<td class="na">―</td>'
+    if v == 0:
+        return '<td>±0.00%</td>'
+    cls, arrow, sign = ("up", "▲", "+") if v > 0 else ("down", "▼", "−")
+    return f'<td class="{cls}"><span aria-hidden="true">{arrow}</span>{sign}{abs(v):.2f}%</td>'
+
+
+def _trend_table(trends):
+    """主要3指数の推移表(公的統計FREDの終値から計算)"""
+    rows = "".join(f"""
+          <tr><th scope="row">{_esc(t['name'])}<span class="tt-date">{_esc(t['date'])}終値</span></th>
+            <td class="num col-close">{t['close']:,.2f}</td>{_pct_cell(t['d1'])}{_pct_cell(t['w1'])}{_pct_cell(t['m1'])}{_pct_cell(t['ytd'])}{_pct_cell(t['from_high'])}</tr>"""
+                   for t in trends)
+    return f"""
+      <h3 class="sub-h" id="h-tt">株価指数の推移(公式統計)</h3>
+      <div class="tt-wrap" role="region" aria-labelledby="h-tt" tabindex="0">
+        <table class="tt">
+          <thead><tr><th scope="col">指数</th><th scope="col" class="col-close">終値</th><th scope="col">前日比</th><th scope="col">1週間</th>
+            <th scope="col">1か月</th><th scope="col">年初来</th><th scope="col">1年の高値から</th></tr></thead>
+          <tbody>{rows}
+          </tbody>
+        </table>
+      </div>
+      <p class="tt-hint">表は横に動かせます(年初来・1年の高値から)</p>
+      <p class="note">※セントルイス連邦準備銀行(FRED)が公表する終値から計算</p>"""
+
+
+def _macro_table(macro):
+    rows = "".join(f"""
+          <tr><th scope="row">{_esc(m['name'])}<span class="tt-date">{_esc(m['note'])}</span></th>
+            <td class="num strong">{_esc(m['latest'])}</td><td class="num">{_esc(m['prev'])}</td><td class="num">{_esc(m['period'])}</td></tr>"""
+                   for m in macro)
+    return f"""
+      <h3 class="sub-h" id="h-mc">最新の指標(公式統計)</h3>
+      <div class="tt-wrap" role="region" aria-labelledby="h-mc" tabindex="0">
+        <table class="tt mc">
+          <thead><tr><th scope="col">指標</th><th scope="col">最新</th><th scope="col">前回</th><th scope="col">対象</th></tr></thead>
+          <tbody>{rows}
+          </tbody>
+        </table>
+      </div>
+      <p class="note">※セントルイス連邦準備銀行(FRED)が公表する米政府統計。発表は月1回(申請件数は週1回)のため、毎日は変わりません</p>"""
+
+
 def generate_html(econ, econ_articles, major, major_articles, now=None):
     """静的HTML1枚を返す(JSなし。外部読み込みはGoogle Fontsのみ)"""
     now = now or datetime.now(JST)
@@ -1010,6 +1238,7 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
       <p class="note">{mk_note}</p>
     </section>"""
 
+
     # ── 主要ニュース(見出しのみ) ──
     if major["ok"]:
         heads = "".join(
@@ -1032,19 +1261,31 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
 
     # ── 分野別(3分層) ──
     sec_html, nav_links = "", []
-    if econ["ok"]:
-        for key, _ in SECTION_KEYS:
-            lines = econ["sections"][key]
-            if not lines:
-                continue  # 該当なしの日はセクションごと出さない
-            sid, title, short, icon = SECTION_META[key]
-            nav_links.append((sid, short))
-            lis = "".join(f'\n        <li><span>{_esc(l["text"])}</span>{_src_links(l["sources"], econ_articles)}</li>' for l in lines)
-            sec_html += f"""
-    <section class="block" id="{sid}" aria-labelledby="h-{sid}">
-      <h2 id="h-{sid}"><span class="h-icon">{_ICONS[icon]}</span>{_esc(title)}</h2>
+    for key, _ in SECTION_KEYS:
+        lines = econ["sections"][key] if econ["ok"] else []
+        table = ""
+        if key == "stock" and econ.get("trends"):
+            table = _trend_table(econ["trends"])
+        elif key == "jobs" and econ.get("macro"):
+            table = _macro_table(econ["macro"])
+        if not lines and not table:
+            continue  # 該当なしの日はセクションごと出さない
+        sid, title, short, icon = SECTION_META[key]
+        nav_links.append((sid, short))
+        news = ""
+        if lines:
+            lis = "".join(
+                (f'\n        <li class="story-item"><span class="l-title">{_esc(l["title"])}</span>'
+                 f'<span class="l-body">{_esc(l["text"])}</span>{_src_links(l["sources"], econ_articles)}</li>')
+                if l.get("title") else
+                f'\n        <li><span>{_esc(l["text"])}</span>{_src_links(l["sources"], econ_articles)}</li>'
+                for l in lines)
+            news = (f'\n      <h3 class="sub-h">ニュースから</h3>' if table else "") + f"""
       <ul class="lines">{lis}
-      </ul>
+      </ul>"""
+        sec_html += f"""
+    <section class="block" id="{sid}" aria-labelledby="h-{sid}">
+      <h2 id="h-{sid}"><span class="h-icon">{_ICONS[icon]}</span>{_esc(title)}</h2>{table}{news}
     </section>"""
 
     detail_html = ""
@@ -1140,6 +1381,23 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
   .kp-body {{ font-size: 17px; font-weight: 500; line-height: 1.6; color: var(--ink); }}
   .tag {{ display: inline-block; font-size: 12px; font-weight: 500; line-height: 1.5; color: var(--muted); border: 1px solid #cfd4da; border-radius: 4px; padding: 0 6px; margin-right: 8px; vertical-align: 2px; white-space: nowrap; }}
 
+  .tt-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
+  .tt {{ width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; white-space: nowrap; }}
+  .tt th, .tt td {{ padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; }}
+  .tt th[scope="row"], .tt thead th:first-child {{ text-align: left; position: sticky; left: 0; background: #fff; }}
+  .tt thead th {{ font-size: 12px; font-weight: 600; color: var(--muted); }}
+  .tt .tt-date {{ display: block; font-size: 11px; font-weight: 400; color: var(--muted); }}
+  .tt td.up {{ color: var(--up); }} .tt td.down {{ color: var(--down); }} .tt td.na {{ color: var(--muted); }}
+  .sub-h {{ font-size: 14px; font-weight: 700; color: var(--muted); margin: 14px 0 6px; }}
+  .tt.mc th[scope="row"] {{ white-space: normal; min-width: 9em; }}
+  .tt td.strong {{ font-weight: 700; color: var(--ink); }}
+  .tt-hint {{ display: none; font-size: 12px; color: var(--muted); margin-top: 4px; }}
+  @media (max-width: 480px) {{
+    .tt {{ font-size: 13px; }}
+    .tt th, .tt td {{ padding: 7px 6px; }}
+    .tt .col-close {{ display: none; }}
+    .tt-hint {{ display: block; }}
+  }}
   .cards {{ list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }}
   .card {{ display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; font-variant-numeric: tabular-nums; }}
   .card.up {{ background: var(--up-bg); }} .card.up .card-chg {{ color: var(--up); }}
@@ -1166,6 +1424,10 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
 
   .lines {{ list-style: none; display: grid; gap: 12px; }}
   .lines li {{ position: relative; padding-left: 16px; font-size: 16px; line-height: 1.8; }}
+  .lines li.story-item {{ padding-left: 0; padding-bottom: 12px; border-bottom: 1px solid var(--line); }}
+  .lines li.story-item::before {{ display: none; }}
+  .l-title {{ display: block; font-size: 16px; font-weight: 700; color: var(--ink); line-height: 1.6; margin-bottom: 2px; }}
+  .l-body {{ font-size: 15px; line-height: 1.85; }}
   .lines li::before {{ content: ""; position: absolute; left: 2px; top: 0.8em; width: 5px; height: 5px; border-radius: 50%; background: #9aa1ac; }}
   .src {{ display: inline-block; margin-left: 8px; font-size: 12px; color: var(--muted); text-underline-offset: 2px; white-space: nowrap; }}
   .src + .src {{ margin-left: 6px; }}
@@ -1374,6 +1636,8 @@ def main():
         print("📈 公式統計(FRED)から主な数値を取得中...")
         official = fetch_official_markets()
         econ["markets"] = merge_markets(official, econ["markets"] if econ["ok"] else [])
+        econ["trends"] = fetch_index_trends()
+        econ["macro"] = fetch_macro()
         print(f"  見出し: {econ['headline']}")
 
         print("🤖 Geminiで主要ニュース要約中...")
