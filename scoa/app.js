@@ -14,6 +14,23 @@
   const PACE = 30; // 本番ペース:1問30秒
   const EXAM_SEC = 60 * 60;
 
+  const svg = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+  const IC = {
+    home: svg('<path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/>'),
+    history: svg('<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M8 3v4M16 3v4M4 10h16"/>'),
+    review: svg('<path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/>'),
+    exam: svg('<circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.5 2M9.5 3h5"/>'),
+    settings: svg('<path d="M4 7h10M18 7h2M4 12h3M11 12h9M4 17h12M20 17h0"/><circle cx="16" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="18" cy="17" r="2"/>'),
+    plus: svg('<path d="M12 5v14M5 12h14"/>'),
+    chev: svg('<path d="M9 6l6 6-6 6"/>'),
+    menu: svg('<path d="M5 9h14M5 15h14"/>'),
+    言語: svg('<path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-7l-4 4v-4H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><path d="M8 9h8M8 12h5"/>'),
+    数理: svg('<path d="M5 7h5M7.5 4.5v5M14 7h5M5.5 15l4 4M9.5 15l-4 4M14 15.5h5M14 18.5h5"/>'),
+    論理: svg('<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/><path d="M11 7.5h3.5a2 2 0 0 1 2 2V13M7.5 11v5.5a2 2 0 0 0 2 2H13"/>'),
+    常識: svg('<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c2.5 2.5 2.5 13.5 0 16M12 4c-2.5 2.5-2.5 13.5 0 16"/>'),
+    英語: svg('<path d="M4 19l5-14 5 14M6 14h6M17 10v9M17 13.5a2.5 2.5 0 1 1 0 5"/>'),
+  };
+
   /* ---------- 小道具 ---------- */
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -165,16 +182,20 @@
 
   /* ---------- 画面 ---------- */
   function vHome() {
-    const today = Store.days[dayKey(Date.now())] || [], all = Store.all(), tk = today.filter((r) => r.ok).length, weak = weakRecs().length;
+    const now = new Date(), today = Store.days[dayKey(now)] || [], all = Store.all(), tk = today.filter((r) => r.ok).length, weak = weakRecs().length;
     const strip = []; const d = new Date(); d.setDate(d.getDate() - 13);
     for (let i = 0; i < 14; i++) { const k = dayKey(d), n = (Store.days[k] || []).length; strip.push(`<i class="lv${n === 0 ? 0 : n < 10 ? 1 : n < 30 ? 2 : 3}" title="${dayLabel(k)} ${n}問"></i>`); d.setDate(d.getDate() + 1); }
-    return `<header class="top"><p class="eyebrow">SCOA-A 基礎能力検査</p><h1>きょうの学習</h1></header>
-    <section class="today"><div class="today-num"><b>${today.length}</b><span>問</span></div>
-      <dl class="today-meta"><div><dt>きょうの正答率</dt><dd>${today.length ? pct(tk, today.length) + '%' : '—'}</dd></div><div><dt>連続学習</dt><dd>${streak()}日</dd></div><div><dt>累計</dt><dd>${all.length}問</dd></div></dl>
-      <div class="strip" aria-label="直近14日の学習量">${strip.join('')}</div><p class="strip-cap">直近14日(右端がきょう)</p></section>
-    <h2>教科を選ぶ</h2>
-    <div class="subjects">${SUBJ.map((s) => { const st = subjStat(s.k); return `<button class="subject ${s.cls}" data-act="setup" data-s="${s.k}"><span class="s-mark" aria-hidden="true">${s.k[0]}</span><span class="s-main"><b>${s.k}</b><small>${s.d}</small>${scoreBar(st.ok, st.n)}</span><span class="s-rate">${st.n ? pct(st.ok, st.n) + '<small>%</small>' : '<small>未学習</small>'}</span></button>`; }).join('')}</div>
-    <h2>本番形式・復習</h2>
+    const memo = today.length ? `きょうは${today.length}問を解いて${tk}問正解(正答率${pct(tk, today.length)}%)。${weak ? `解き直したい問題が${weak}問あります。` : '苦手問題は残っていません。'}` : all.length ? `きょうはまだ解いていません。${weak ? `解き直したい問題が${weak}問あります。` : '右下の「+」ですぐに10問はじめられます。'}` : '教科のカードから分野を選ぶか、右下の「+」でおまかせ10問をはじめましょう。';
+    const card = (s) => {
+      const st = subjStat(s.k), cats = catsOf(s.k), nb = BANK.filter((b) => b.s === s.k).length;
+      return `<section class="card ${s.cls}"><button class="card-head subject-head" data-act="setup" data-s="${s.k}" aria-label="${s.k}の出題設定へ">${IC[s.k]}<b>${s.k}</b><span class="count">${nb ? nb + '問' : '自動生成'}${IC.chev}</span></button>
+        <div class="tiles"><button class="tile rate" data-act="setup" data-s="${s.k}"><b>${st.n ? pct(st.ok, st.n) + '%' : '—'}</b><small>${st.n ? '正答率・' + st.n + '問' : 'まだ未学習'}</small></button>${cats.map(([c, n]) => `<button class="tile" data-act="setup" data-s="${s.k}" data-c="${esc(c)}"><span>${esc(c)}</span><small>${n === '∞' ? '自動生成' : n + '問'}</small></button>`).join('')}</div></section>`;
+    };
+    return `<div class="topbar"><button class="round" data-act="go" data-v="settings" aria-label="設定を開く">${IC.menu}</button><div class="statpill"><span><b>${streak()}</b>日連続</span><span><b>${all.length}</b>問</span></div></div>
+    <section class="hero"><p class="hero-label">SCOA-A きょうの学習</p><div class="hero-num"><b>${today.length}</b><span>問</span></div>
+      <div><div class="strip" aria-label="直近14日の学習量">${strip.join('')}</div></div><p class="hero-date">${dayLabel(dayKey(now))} ${pad(now.getHours())}:${pad(now.getMinutes())}</p></section>
+    <section class="memo"><p>${memo}</p><small>直近14日の学習量は上の帯(右端がきょう)</small></section>
+    ${SUBJ.map(card).join('')}
     <div class="actions"><button class="action" data-act="examintro"><b>模擬試験</b><small>120問・60分。5教科を本番の配分で</small></button>
       <button class="action" data-act="go" data-v="review"><b>苦手を復習</b><small>${weak ? `直近で間違えた問題が${weak}問` : '間違えた問題がここにたまります'}</small></button></div>`;
   }
@@ -241,7 +262,7 @@
     return `<header class="top"><p class="eyebrow">間違えた問題の解き直し</p><h1>復習</h1></header>
     <p class="lead">最後に解いたとき不正解だった問題が${weak.length}問あります。解き直して正解すると、ここから消えます。</p>
     <div class="actions"><button class="action" data-act="redo-weak" data-s=""><b>全教科まとめて復習</b><small>${Math.min(20, weak.length)}問を出題</small></button></div>
-    <div class="subjects">${rows.map((x) => `<button class="subject ${x.s.cls}" data-act="redo-weak" data-s="${x.s.k}" ${x.n ? '' : 'disabled'}><span class="s-mark" aria-hidden="true">${x.s.k[0]}</span><span class="s-main"><b>${x.s.k}</b><small>${x.n ? '苦手問題を解き直す' : '苦手問題なし'}</small></span><span class="s-rate">${x.n}<small>問</small></span></button>`).join('')}</div>
+    <div class="subjects">${rows.map((x) => `<button class="subject ${x.s.cls}" data-act="redo-weak" data-s="${x.s.k}" ${x.n ? '' : 'disabled'}>${IC[x.s.k]}<span class="s-main"><b>${x.s.k}</b><small>${x.n ? '苦手問題を解き直す' : '苦手問題なし'}</small></span><span class="s-rate">${x.n}<small>問</small></span></button>`).join('')}</div>
     <h2>最近間違えた問題</h2><div class="recs">${weak.sort((a, b) => b.t - a.t).slice(0, 30).map(recItem).join('')}</div>`;
   }
   function vExamIntro() {
@@ -269,14 +290,14 @@
   }
 
   const VIEWS = { home: vHome, setup: vSetup, quiz: vQuiz, result: vResult, history: vHistory, day: vDay, review: vReview, examintro: vExamIntro, settings: vSettings };
-  const TABS = [['home', 'ホーム'], ['history', '履歴'], ['review', '復習'], ['settings', '設定']];
+  const TABS = [[['home', 'ホーム', 'home'], ['history', '履歴', 'history']], [['review', '復習', 'review'], ['examintro', '模試', 'exam'], ['settings', '設定', 'settings']]];
   function render() {
     const keep = S.view === 'settings' && $('#io') ? $('#io').value : null;
     $('#app').innerHTML = VIEWS[S.view]();
     if (keep !== null && $('#io')) $('#io').value = keep;
-    const tabOf = { setup: 'home', examintro: 'home', result: 'home', day: 'history' }[S.view] || S.view;
+    const tabOf = { setup: 'home', result: 'home', day: 'history' }[S.view] || S.view;
     $('#nav').hidden = S.view === 'quiz';
-    $('#nav').innerHTML = TABS.map(([v, l]) => `<button class="${tabOf === v ? 'on' : ''}" data-act="go" data-v="${v}" ${tabOf === v ? 'aria-current="page"' : ''}>${l}</button>`).join('');
+    $('#nav').innerHTML = `<div class="dock">${TABS.map((g) => `<div class="pill">${g.map(([v, l, ic]) => `<button class="${tabOf === v ? 'on' : ''}" data-act="go" data-v="${v}" ${tabOf === v ? 'aria-current="page"' : ''}>${IC[ic]}<span>${l}</span></button>`).join('')}</div>`).join('')}<button class="fab" data-act="quick" aria-label="おまかせ10問をはじめる">${IC.plus}</button></div>`;
     document.body.classList.toggle('in-quiz', S.view === 'quiz');
   }
 
@@ -284,7 +305,8 @@
   const twice = (key, fn) => { if (S.confirm === key) { S.confirm = ''; fn(); } else { S.confirm = key; render(); } };
   const A = {
     go: (d) => go(d.v),
-    setup: (d) => { S.setup = { s: d.s, cats: [], n: 10, order: 'new', timed: false }; go('setup'); },
+    setup: (d) => { S.setup = { s: d.s, cats: d.c ? [d.c] : [], n: 10, order: 'new', timed: false }; go('setup'); },
+    quick: () => startQuiz(shuffle(SUBJ.flatMap((x) => buildSet(x.k, [], 2, 'new'))), 'practice', 'おまかせ10問(5教科)', false),
     cat: (d) => { const c = S.setup.cats, i = c.indexOf(d.c); if (i < 0) c.push(d.c); else c.splice(i, 1); render(); },
     set: (d) => { const u = S.setup; if (d.k === 'n') u.n = +d.v; else if (d.k === 'timed') u.timed = d.v === '1'; else u.order = d.v; render(); },
     start: () => { const u = S.setup; startQuiz(buildSet(u.s, u.cats, u.n, u.order), 'practice', u.s + (u.cats.length ? '(' + u.cats.join('・') + ')' : ''), u.timed); },
