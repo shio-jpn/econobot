@@ -59,14 +59,19 @@
   const LIVE = BANK.filter((q) => !q.x);
   const LATEST = UPD.length ? UPD[UPD.length - 1].date : '';
 
+  const PREF_KEY = 'scoa-a.prefs', P = { goal: 50 };
+  try { Object.assign(P, JSON.parse(localStorage.getItem(PREF_KEY) || '{}')); } catch (e) { /* 既定値で開始 */ }
+  const savePrefs = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify(P)); } catch (e) { /* 保存できなくても動作は続ける */ } };
+  const TARGET = 70; // 習得率の目安
+
   /* ---------- 保存(端末 + 対応環境ではアカウント) ---------- */
   const KEY = 'scoa-a.v1';
   const Store = {
-    days: {}, col: null, cloudIds: new Set(), dirty: new Set(), busy: false, timer: 0, status: 'local', seq: 0,
+    days: {}, rev: 0, col: null, cloudIds: new Set(), dirty: new Set(), busy: false, timer: 0, status: 'local', seq: 0,
     load() { try { const o = JSON.parse(localStorage.getItem(KEY) || '{}'); if (o && o.days) this.days = o.days; } catch (e) { /* 保存領域が使えない場合は空で開始 */ } },
     saveLocal() { try { localStorage.setItem(KEY, JSON.stringify({ v: 1, days: this.days })); return true; } catch (e) { return false; } },
     stamp() { return Date.now() * 10 + (this.seq++ % 10); },
-    add(rec) { const k = dayKey(rec.t / 10); (this.days[k] = this.days[k] || []).push(rec); this.saveLocal(); this.dirty.add(k); this.flushSoon(); },
+    add(rec) { const k = dayKey(rec.t / 10); (this.days[k] = this.days[k] || []).push(rec); this.rev++; this.saveLocal(); this.dirty.add(k); this.flushSoon(); },
     all() { return Object.keys(this.days).sort().flatMap((k) => this.days[k]); },
     flushSoon() { clearTimeout(this.timer); this.timer = setTimeout(() => this.flush(), 3000); },
     async flush() {
@@ -99,20 +104,50 @@
           if (extra.length || (!cl.length && loc.length)) this.dirty.add(k);
           this.days[k] = cl.concat(extra).sort((a, b) => a.t - b.t);
         });
-        this.col = col; this.status = 'cloud'; this.saveLocal(); this.flush();
+        this.col = col; this.status = 'cloud'; this.rev++; this.saveLocal(); this.flush();
         if (S.view !== 'quiz') render();
       } catch (e) { /* アカウント保存が使えない場合は端末保存のまま */ }
     },
     async clear() {
-      this.days = {}; this.dirty.clear(); this.saveLocal();
+      this.days = {}; this.rev++; this.dirty.clear(); this.saveLocal();
       if (this.col) { for (const id of [...this.cloudIds]) { try { await this.col.doc(id).delete(); this.cloudIds.delete(id); } catch (e) { /* 次回に再試行 */ } } }
     },
   };
 
   /* ---------- 集計 ---------- */
   const recKey = (r) => r.id || 'g:' + hash(r.q + (r.f || ''));
-  function latestMap() { const m = new Map(); Store.all().forEach((r) => m.set(recKey(r), r)); return m; }
-  function weakRecs(subj) { return [...latestMap().values()].filter((r) => !r.ok && (!subj || r.s === subj) && recToQ(r)); }
+  /* 問題ごとの状態:最後の回答、連続正解数、過去に間違えたか */
+  let stCache = null, stRev = -1;
+  function states() {
+    if (stCache && stRev === Store.rev) return stCache;
+    const m = new Map();
+    Store.all().forEach((r) => { const k = recKey(r), s = m.get(k) || { streak: 0, wrong: false }; s.r = r; if (r.ok) s.streak++; else { s.streak = 0; s.wrong = true; } m.set(k, s); });
+    stCache = m; stRev = Store.rev; return m;
+  }
+  function latestMap() { const m = new Map(); states().forEach((s, k) => m.set(k, s.r)); return m; }
+  const alive = (r) => !(r.id && BY_ID[r.id] && BY_ID[r.id].x) && (r.id ? !!BY_ID[r.id] : !!(r.q && r.ch));
+  const dnum = (ms) => { const d = new Date(ms); return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000); };
+  /* 間隔をあけた復習:間違えた問題は 1→3→7→21→60日後、初回から正解の問題は 14→45→90日後に再出題 */
+  const IV_W = [1, 3, 7, 21, 60], IV_C = [1, 14, 45, 90, 90];
+  function dueRecs(subj) {
+    const today = dnum(Date.now());
+    return [...states().values()].filter((s) => (!subj || s.r.s === subj) && alive(s.r) && today - dnum(s.r.t / 10) >= (s.wrong ? IV_W : IV_C)[Math.min(s.streak, 4)]).sort((a, b) => a.r.ok - b.r.ok || a.r.t - b.r.t).map((s) => s.r);
+  }
+  function weakRecs(subj) { return [...states().values()].filter((s) => !s.r.ok && (!subj || s.r.s === subj) && alive(s.r)).map((s) => s.r); }
+  /* 習得率:固定問題は「最後の回答が正解」、自動生成は分野ごとに「直近3回中2回以上正解」で習得とみなす */
+  function mastery(k) {
+    const st = states(), fixed = LIVE.filter((b) => b.s === k);
+    let got = fixed.filter((b) => { const x = st.get(b.id); return x && x.r.ok; }).length, tot = fixed.length;
+    const gens = [...new Set((GEN[k] || []).map((g) => g.c))];
+    if (gens.length) { const by = {}; Store.all().forEach((r) => { if (r.s === k && !r.id) (by[r.c] = by[r.c] || []).push(r.ok); }); gens.forEach((c) => { tot++; const a = (by[c] || []).slice(-3); if (a.length >= 3 && a.filter(Boolean).length >= 2) got++; }); }
+    return { got, tot, p: pct(got, tot) };
+  }
+  function overall() { let a = 0, w = 0; SUBJ.forEach((s) => { a += mastery(s.k).p * s.n; w += s.n; }); return Math.round(a / w); }
+  function weakCats() {
+    const m = new Map();
+    Store.all().forEach((r) => { const k = r.s + '|' + r.c, o = m.get(k) || { s: r.s, c: r.c, n: 0, ok: 0, t: 0, tn: 0 }; o.n++; if (r.ok) o.ok++; if (r.d) { o.t += r.d; o.tn++; } m.set(k, o); });
+    return [...m.values()].filter((o) => o.n >= 4 && o.ok / o.n < 0.8 && catsOf(o.s).some(([c]) => c === o.c)).sort((a, b) => a.ok / a.n - b.ok / b.n).slice(0, 5);
+  }
   function subjStat(k) { const rs = Store.all().filter((r) => r.s === k); return { n: rs.length, ok: rs.filter((r) => r.ok).length }; }
   function streak() { let n = 0; const d = new Date(); if (!Store.days[dayKey(d)]) d.setDate(d.getDate() - 1); while ((Store.days[dayKey(d)] || []).length) { n++; d.setDate(d.getDate() - 1); } return n; }
 
@@ -144,6 +179,12 @@
     return shuffle(out);
   }
   function newUnseen() { if (!LATEST) return []; const m = latestMap(); return LIVE.filter((b) => b.since === LATEST && !m.has(b.id)); }
+  function dailyMenu() {
+    const N = 20, due = dueRecs().slice(0, 12).map(recToQ).filter(Boolean), out = due.slice(), seen = new Set(due.map((q) => q.id).filter(Boolean));
+    const order = SUBJ.map((x) => ({ k: x.k, p: mastery(x.k).p })).sort((a, b) => a.p - b.p), rest = N - due.length;
+    [0.4, 0.3, 0.3].forEach((w, i) => buildSet(order[i].k, [], Math.ceil(rest * w), 'new').forEach((q) => { if (out.length < N && !(q.id && seen.has(q.id))) { out.push(q); if (q.id) seen.add(q.id); } }));
+    return shuffle(out);
+  }
   function buildExam() { return SUBJ.flatMap((s) => { const set = buildSet(s.k, [], s.n, 'rand'); return set; }); }
 
   /* ---------- 状態 ---------- */
@@ -153,7 +194,7 @@
 
   function startQuiz(qs, mode, title, timed) {
     if (!qs.length) { S.msg = '出題できる問題がありません。'; render(); return; }
-    S.quiz = { qs, mode, title, timed, i: 0, picked: null, recs: [], answers: qs.map(() => null), left: mode === 'exam' ? EXAM_SEC : PACE, open: false };
+    S.quiz = { qs, mode, title, timed, i: 0, picked: null, recs: [], answers: qs.map(() => null), spent: qs.map(() => 0), t0: Date.now(), left: mode === 'exam' ? EXAM_SEC : PACE, open: false };
     S.view = 'quiz'; S.confirm = ''; render(); window.scrollTo(0, 0); startTimer();
   }
   function startTimer() {
@@ -163,22 +204,24 @@
     paintTimer();
   }
   function paintTimer() { const el = $('#timer'), z = S.quiz; if (!el || !z) return; el.textContent = z.mode === 'exam' ? mmss(z.left) : z.left + '秒'; el.classList.toggle('hot', z.mode === 'exam' ? z.left <= 300 : z.left <= 10); }
-  function mkRec(q, disp, mode) {
+  function lap() { const z = S.quiz; if (!z) return; z.spent[z.i] += (Date.now() - z.t0) / 1000; z.t0 = Date.now(); }
+  function mkRec(q, disp, mode, sec) {
     const u = disp < 0 ? -1 : q.order[disp];
     const r = { t: Store.stamp(), s: q.s, c: q.c, u, ok: u === 0, m: mode };
+    if (sec >= 1) r.d = Math.min(999, Math.round(sec));
     if (q.id) r.id = q.id; else { r.q = q.q; r.ch = q.ch; r.e = q.e; if (q.f) r.f = q.f; }
     return r;
   }
   function answer(disp) {
     const z = S.quiz; if (!z || z.picked !== null) return;
     clearInterval(tick); z.picked = disp;
-    const r = mkRec(z.qs[z.i], disp, z.mode === 'review' ? 'r' : 'p'); z.recs.push(r); Store.add(r);
+    lap(); const r = mkRec(z.qs[z.i], disp, z.mode === 'review' ? 'r' : 'p', z.spent[z.i]); z.recs.push(r); Store.add(r);
     render();
     const fb = $('#feedback'); if (fb && fb.scrollIntoView) fb.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
-  function next() { const z = S.quiz; if (z.i + 1 >= z.qs.length) return finish(); z.i++; z.picked = null; render(); window.scrollTo(0, 0); startTimer(); }
+  function next() { const z = S.quiz; if (z.i + 1 >= z.qs.length) return finish(); z.i++; z.picked = null; z.t0 = Date.now(); render(); window.scrollTo(0, 0); startTimer(); }
   function finish() { const z = S.quiz; clearInterval(tick); Store.flush(); S.result = { title: z.title, recs: z.recs, mode: z.mode }; S.quiz = null; go('result'); }
-  function finishExam() { const z = S.quiz; if (!z) return; clearInterval(tick); z.qs.forEach((q, i) => { const r = mkRec(q, z.answers[i] === null ? -1 : z.answers[i], 'e'); z.recs.push(r); Store.add(r); }); finish(); }
+  function finishExam() { const z = S.quiz; if (!z) return; clearInterval(tick); lap(); z.qs.forEach((q, i) => { const r = mkRec(q, z.answers[i] === null ? -1 : z.answers[i], 'e', z.spent[i]); z.recs.push(r); Store.add(r); }); finish(); }
 
   /* ---------- 部品 ---------- */
   const chip = (s) => `<span class="chip ${CLS[s] || ''}">${esc(s)}</span>`;
@@ -187,7 +230,7 @@
   function recItem(r, i) {
     const q = r.id ? BY_ID[r.id] : r; if (!q) return '';
     const ch = q.ch, body = ch.map((c, j) => `<li class="${j === 0 ? 'is-ok' : j === r.u ? 'is-ng' : ''}">${esc(c)}${j === 0 ? '<b>正解</b>' : ''}${j === r.u ? '<b>あなたの回答</b>' : ''}</li>`).join('');
-    return `<details class="rec ${r.ok ? 'ok' : 'ng'}"><summary><span class="judge">${r.ok ? '○' : '×'}</span><span class="rec-q">${chip(r.s)}<span class="rec-cat">${esc(r.c)}</span><span class="rec-t">${esc(q.q)}</span></span></summary>
+    return `<details class="rec ${r.ok ? 'ok' : 'ng'}"><summary><span class="judge">${r.ok ? '○' : '×'}</span><span class="rec-q">${chip(r.s)}<span class="rec-cat">${esc(r.c)}</span>${r.d ? `<span class="rec-cat ${r.d > PACE ? 'slow' : ''}">${r.d}秒</span>` : ''}<span class="rec-t">${esc(q.q)}</span></span></summary>
       <div class="rec-body"><p class="q-text">${qText(q.q)}</p>${figHtml(q.fig || q.f)}<ul class="rec-ch">${body}</ul>${r.u < 0 ? '<p class="note">時間切れ・未回答</p>' : ''}<div class="expl"><h4>解説</h4><p>${esc(q.e)}</p></div></div></details>`;
   }
   function scoreBar(ok, n) { return `<div class="bar" role="img" aria-label="正答率${pct(ok, n)}%"><i style="width:${pct(ok, n)}%"></i></div>`; }
@@ -195,22 +238,26 @@
 
   /* ---------- 画面 ---------- */
   function vHome() {
-    const now = new Date(), today = Store.days[dayKey(now)] || [], all = Store.all(), tk = today.filter((r) => r.ok).length, weak = weakRecs().length, nu = newUnseen().length;
+    const now = new Date(), today = Store.days[dayKey(now)] || [], all = Store.all(), tk = today.filter((r) => r.ok).length, due = dueRecs().length, nu = newUnseen().length, ov = overall();
     const strip = []; const d = new Date(); d.setDate(d.getDate() - 13);
     for (let i = 0; i < 14; i++) { const k = dayKey(d), n = (Store.days[k] || []).length; strip.push(`<i class="lv${n === 0 ? 0 : n < 10 ? 1 : n < 30 ? 2 : 3}" title="${dayLabel(k)} ${n}問"></i>`); d.setDate(d.getDate() + 1); }
-    const memo = today.length ? `きょうは${today.length}問を解いて${tk}問正解(正答率${pct(tk, today.length)}%)。${weak ? `解き直したい問題が${weak}問あります。` : '苦手問題は残っていません。'}` : all.length ? `きょうはまだ解いていません。${weak ? `解き直したい問題が${weak}問あります。` : '右下の「+」ですぐに10問はじめられます。'}` : '教科のカードから分野を選ぶか、右下の「+」でおまかせ10問をはじめましょう。';
+    const C = 2 * Math.PI * 42, prog = Math.min(1, today.length / P.goal), left = Math.max(0, P.goal - today.length);
+    const memo = !all.length ? '右下の「+」を押すと、5教科からおすすめの20問が始まります。教科のカードから分野を選んで解くこともできます。'
+      : `${due ? `きょう復習する問題が${due}問あります。` : 'きょう復習する問題はありません。'}${left ? `目標まであと${left}問。` : 'きょうの目標は達成です。'}右下の「+」で、${due ? '復習と新しい問題を混ぜた' : '習得率の低い教科を中心にした'}20問を始められます。`;
     const card = (s) => {
-      const st = subjStat(s.k), cats = catsOf(s.k), nb = LIVE.filter((b) => b.s === s.k).length;
+      const m = mastery(s.k), cats = catsOf(s.k), nb = LIVE.filter((b) => b.s === s.k).length;
       return `<section class="card ${s.cls}"><button class="card-head subject-head" data-act="setup" data-s="${s.k}" aria-label="${s.k}の出題設定へ">${IC[s.k]}<b>${s.k}</b><span class="count">${nb ? nb + '問' : '自動生成'}${IC.chev}</span></button>
-        <div class="tiles"><button class="tile rate" data-act="setup" data-s="${s.k}"><b>${st.n ? pct(st.ok, st.n) + '%' : '—'}</b><small>${st.n ? '正答率・' + st.n + '問' : 'まだ未学習'}</small></button>${cats.map(([c, n]) => `<button class="tile" data-act="setup" data-s="${s.k}" data-c="${esc(c)}"><span>${esc(c)}</span><small>${n === '∞' ? '自動生成' : n + '問'}</small></button>`).join('')}</div></section>`;
+        <div class="tiles"><button class="tile rate" data-act="setup" data-s="${s.k}"><b>${m.p}%</b><small>習得 ${m.got}/${m.tot}</small></button>${cats.map(([c, n]) => `<button class="tile" data-act="setup" data-s="${s.k}" data-c="${esc(c)}"><span>${esc(c)}</span><small>${n === '∞' ? '自動生成' : n + '問'}</small></button>`).join('')}</div></section>`;
     };
     return `<div class="topbar"><button class="round" data-act="go" data-v="settings" aria-label="設定を開く">${IC.menu}</button><div class="statpill"><span><b>${streak()}</b>日連続</span><span><b>${all.length}</b>問</span></div></div>
-    <section class="hero"><p class="hero-label">SCOA-A きょうの学習</p><div class="hero-num"><b>${today.length}</b><span>問</span></div>
-      <div><div class="strip" aria-label="直近14日の学習量">${strip.join('')}</div></div><p class="hero-date">${dayLabel(dayKey(now))} ${pad(now.getHours())}:${pad(now.getMinutes())}</p></section>
-    <section class="memo"><p>${memo}</p><small>直近14日の学習量は上の帯(右端がきょう)</small></section>
+    <section class="hero"><p class="hero-label">SCOA-A きょうの学習</p>
+      <div class="hero-row"><div class="ring" role="img" aria-label="きょう${today.length}問、目標${P.goal}問"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" class="ring-bg"/><circle cx="50" cy="50" r="42" class="ring-fg" stroke-dasharray="${(C * prog).toFixed(1)} ${C.toFixed(1)}"/></svg><div class="ring-in"><b>${today.length}</b><span>/ ${P.goal}問</span></div></div>
+        <dl class="hero-meta"><div><dt>習得率</dt><dd><b>${ov}%</b><small>目安 ${TARGET}%</small></dd></div><div><dt>きょうの復習</dt><dd><b>${due}</b><small>問</small></dd></div><div><dt>きょうの正答率</dt><dd><b>${today.length ? pct(tk, today.length) + '%' : '—'}</b></dd></div></dl></div>
+      <div class="strip" aria-label="直近14日の学習量">${strip.join('')}</div><p class="hero-date">${dayLabel(dayKey(now))} ${pad(now.getHours())}:${pad(now.getMinutes())}</p></section>
+    <section class="memo"><p>${memo}</p><small>習得率は、収録問題のうち直近で正解できている割合です</small></section>
+    ${nu || due ? `<div class="actions">${due ? `<button class="action" data-act="redo-due" data-s=""><b>きょうの復習をはじめる</b><small>間隔をあけて出し直す${due}問(最大30問ずつ)</small></button>` : ''}${nu ? `<button class="action" data-act="newq"><b>新着問題を解く <span class="chip new">NEW</span></b><small>${dayLabel(LATEST)}の更新で追加・未回答の${nu}問</small></button>` : ''}</div>` : ''}
     ${SUBJ.map(card).join('')}
-    <div class="actions">${nu ? `<button class="action" data-act="newq"><b>新着問題を解く <span class="chip new">NEW</span></b><small>${dayLabel(LATEST)}の更新で追加・未回答の${nu}問</small></button>` : ''}<button class="action" data-act="examintro"><b>模擬試験</b><small>120問・60分。5教科を本番の配分で</small></button>
-      <button class="action" data-act="go" data-v="review"><b>苦手を復習</b><small>${weak ? `直近で間違えた問題が${weak}問` : '間違えた問題がここにたまります'}</small></button></div>`;
+    <div class="actions"><button class="action" data-act="examintro"><b>模擬試験</b><small>120問・60分。5教科を本番の配分で</small></button></div>`;
   }
   function vSetup() {
     const u = S.setup, cats = catsOf(u.s), st = LIVE.filter((b) => b.s === u.s).length, hasGen = (GEN[u.s] || []).length;
@@ -242,14 +289,14 @@
     return `<header class="quizbar"><button class="back" data-act="quit" aria-label="中断する">${S.confirm === 'quit' ? '中断する?' : '×'}</button>
       <div class="progress"><span>${z.i + 1}<small> / ${z.qs.length}</small></span><div class="bar"><i style="width:${((z.i + (done ? 1 : 0)) / z.qs.length) * 100}%"></i></div></div>
       ${exam || z.timed ? `<span id="timer" class="timer">${exam ? mmss(z.left) : z.left + '秒'}</span>` : '<span class="timer off"></span>'}</header>
-    ${exam ? `<p class="exam-info">回答済み ${answered} / ${z.qs.length}<button class="link" data-act="grade">${S.confirm === 'grade' ? 'もう一度押して採点' : '終了して採点'}</button></p>` : ''}
+    ${exam ? `<p class="exam-info"><span>回答済み ${answered} / ${z.qs.length}</span><span><button class="link" data-act="grid">${z.open ? '一覧を閉じる' : '問題一覧'}</button><button class="link" data-act="grade">${S.confirm === 'grade' ? 'もう一度押して採点' : '終了して採点'}</button></span></p>${z.open ? `<div class="grid">${z.qs.map((_, i) => `<button class="${i === z.i ? 'cur' : ''} ${z.answers[i] !== null ? 'done' : ''}" data-act="jump" data-i="${i}" aria-label="${i + 1}問目${z.answers[i] !== null ? '(回答済み)' : '(未回答)'}">${i + 1}</button>`).join('')}</div>` : ''}` : ''}
     <article class="question"><p class="q-meta">${chip(q.s)}<span>${esc(q.c)}</span>${q.nw ? '<span class="chip new">NEW</span>' : ''}</p><p class="q-text">${qText(q.q)}</p>${figHtml(q.f)}</article>
     <div class="choices">${choices}</div>${fb}${foot}`;
   }
   function vResult() {
-    const r = S.result, ok = r.recs.filter((x) => x.ok).length, n = r.recs.length, ng = n - ok, bs = bySubj(r.recs);
+    const r = S.result, ok = r.recs.filter((x) => x.ok).length, n = r.recs.length, ng = n - ok, bs = bySubj(r.recs), tm = r.recs.filter((x) => x.d), avg = tm.length ? Math.round(tm.reduce((a, x) => a + x.d, 0) / tm.length) : 0, slow = tm.filter((x) => x.d > PACE).length;
     return `<header class="top"><p class="eyebrow">${esc(r.title)}</p><h1>結果</h1></header>
-    <section class="score"><div class="score-num"><b>${ok}</b><span>/ ${n}問 正解</span></div><p class="score-rate">正答率 ${pct(ok, n)}%</p>${scoreBar(ok, n)}</section>
+    <section class="score"><div class="score-num"><b>${ok}</b><span>/ ${n}問 正解</span></div><p class="score-rate">正答率 ${pct(ok, n)}%${avg ? `・1問あたり平均${avg}秒(本番の目安は30秒)${slow ? `・30秒を超えた問題 ${slow}問` : ''}` : ''}</p>${scoreBar(ok, n)}</section>
     ${bs.length > 1 ? `<table class="tbl"><thead><tr><th>教科</th><th>正解</th><th>正答率</th></tr></thead><tbody>${bs.map((x) => `<tr><td>${chip(x.s.k)}</td><td>${x.ok} / ${x.n}</td><td>${pct(x.ok, x.n)}%</td></tr>`).join('')}</tbody></table>` : ''}
     <div class="actions">${ng ? `<button class="action" data-act="retry-result"><b>間違えた${ng}問を解き直す</b><small>正解するまで繰り返すのが近道です</small></button>` : ''}<button class="action" data-act="go" data-v="home"><b>ホームへ戻る</b><small>この結果はきょうの履歴に保存済みです</small></button></div>
     <h2>解答と解説</h2><div class="recs">${r.recs.map(recItem).join('')}</div>`;
@@ -270,13 +317,15 @@
     <h2>解いた問題</h2><div class="recs">${rs.slice().reverse().map(recItem).join('')}</div>`;
   }
   function vReview() {
-    const weak = weakRecs(), rows = SUBJ.map((s) => ({ s, n: weak.filter((r) => r.s === s.k).length }));
-    if (!weak.length) return `<header class="top"><p class="eyebrow">間違えた問題の解き直し</p><h1>復習</h1></header><div class="empty"><p>いま復習が必要な問題はありません。</p><p>間違えた問題は自動でここに集まり、正解すると消えます。日ごとの解き直しは「履歴」からできます。</p><button class="primary" data-act="go" data-v="history">履歴を見る</button></div>`;
-    return `<header class="top"><p class="eyebrow">間違えた問題の解き直し</p><h1>復習</h1></header>
-    <p class="lead">最後に解いたとき不正解だった問題が${weak.length}問あります。解き直して正解すると、ここから消えます。</p>
-    <div class="actions"><button class="action" data-act="redo-weak" data-s=""><b>全教科まとめて復習</b><small>${Math.min(20, weak.length)}問を出題</small></button></div>
-    <div class="subjects">${rows.map((x) => `<button class="subject ${x.s.cls}" data-act="redo-weak" data-s="${x.s.k}" ${x.n ? '' : 'disabled'}>${IC[x.s.k]}<span class="s-main"><b>${x.s.k}</b><small>${x.n ? '苦手問題を解き直す' : '苦手問題なし'}</small></span><span class="s-rate">${x.n}<small>問</small></span></button>`).join('')}</div>
-    <h2>最近間違えた問題</h2><div class="recs">${weak.sort((a, b) => b.t - a.t).slice(0, 30).map(recItem).join('')}</div>`;
+    const due = dueRecs(), weak = weakRecs(), cs = weakCats(), head = `<header class="top"><p class="eyebrow">忘れかけた頃に解き直す</p><h1>復習</h1></header>`;
+    if (!Store.all().length) return `${head}<div class="empty"><p>まだ復習する問題がありません。</p><p>解いた問題は自動でここに回ります。間違えた問題は翌日・3日後・7日後…に、正解した問題も2週間後にもう一度出題します。</p><button class="primary" data-act="quick">おすすめの20問をはじめる</button></div>`;
+    return `${head}
+    <p class="lead">間違えた問題は翌日・3日後・7日後・21日後に、正解した問題も2週間後に出し直します。続けて正解するほど間隔が延びます。</p>
+    <div class="actions"><button class="action" data-act="redo-due" data-s="" ${due.length ? '' : 'disabled'}><b>きょうの復習 ${due.length}問</b><small>${due.length ? `全教科まとめて(${Math.min(30, due.length)}問を出題)` : 'きょうの分は終わりました'}</small></button></div>
+    <div class="subjects">${SUBJ.map((x) => { const n = due.filter((r) => r.s === x.k).length, m = mastery(x.k); return `<button class="subject ${x.cls}" data-act="redo-due" data-s="${x.k}" ${n ? '' : 'disabled'}>${IC[x.k]}<span class="s-main"><b>${x.k}</b><small>習得 ${m.got} / ${m.tot}(${m.p}%)</small>${scoreBar(m.got, m.tot)}</span><span class="s-rate">${n}<small>問</small></span></button>`; }).join('')}</div>
+    <h2>弱点分野</h2>
+    ${cs.length ? `<div class="subjects">${cs.map((o) => `<button class="subject ${CLS[o.s]}" data-act="weakcat" data-s="${o.s}" data-c="${esc(o.c)}">${IC[o.s]}<span class="s-main"><b>${esc(o.c)}</b><small>${o.s}・${o.n}問回答${o.tn ? `・平均${Math.round(o.t / o.tn)}秒` : ''}・タップで10問</small>${scoreBar(o.ok, o.n)}</span><span class="s-rate">${pct(o.ok, o.n)}<small>%</small></span></button>`).join('')}</div>` : '<p class="lead">4問以上解いた分野のうち、正答率が80%未満のものがここに並びます。いまは該当なしです。</p>'}
+    <h2>最近間違えた問題</h2>${weak.length ? `<div class="recs">${weak.sort((a, b) => b.t - a.t).slice(0, 30).map(recItem).join('')}</div>` : '<p class="lead">直近で間違えたままの問題はありません。</p>'}`;
   }
   function vExamIntro() {
     return `<header class="top sub"><button class="back" data-act="go" data-v="home" aria-label="ホームへ戻る">←</button><div><p class="eyebrow">本番形式</p><h1>模擬試験</h1></div></header>
@@ -288,6 +337,8 @@
   function vSettings() {
     const where = Store.status === 'cloud' ? 'アカウントとこの端末の両方に保存中。別の端末で開いても同じ履歴を使えます。' : Store.status === 'clouderr' ? 'アカウントへの保存に失敗しました。履歴はこの端末には保存されています。' : 'この端末のブラウザに保存中。ブラウザのデータを消去すると履歴も消えるため、ときどきバックアップを取ってください。';
     return `<header class="top"><p class="eyebrow">データと出題について</p><h1>設定</h1></header>
+    <h2>1日の目標</h2><div class="seg" role="group">${[30, 50, 100, 150].map((v) => `<button class="${P.goal === v ? 'on' : ''}" data-act="set" data-k="goal" data-v="${v}">${v}問</button>`).join('')}</div>
+    <p class="lead">ホームの輪がこの問題数で1周します。習得率の目安${TARGET}%は、このアプリの収録問題に対する学習の目標で、実際の合格ラインは受験先によって異なります。</p>
     <h2>履歴の保存先</h2><p class="lead">${where}</p>
     <h2>バックアップ</h2>
     <p class="lead">履歴をテキストにして書き出します。メモアプリなどに貼り付けて保管してください。</p>
@@ -313,7 +364,7 @@
     if (keep !== null && $('#io')) $('#io').value = keep;
     const tabOf = { setup: 'home', result: 'home', day: 'history' }[S.view] || S.view;
     $('#nav').hidden = S.view === 'quiz';
-    $('#nav').innerHTML = `<div class="dock">${TABS.map((g) => `<div class="pill">${g.map(([v, l, ic]) => `<button class="${tabOf === v ? 'on' : ''}" data-act="go" data-v="${v}" ${tabOf === v ? 'aria-current="page"' : ''}>${IC[ic]}<span>${l}</span></button>`).join('')}</div>`).join('')}<button class="fab" data-act="quick" aria-label="おまかせ10問をはじめる">${IC.plus}</button></div>`;
+    $('#nav').innerHTML = `<div class="dock">${TABS.map((g) => `<div class="pill">${g.map(([v, l, ic]) => `<button class="${tabOf === v ? 'on' : ''}" data-act="go" data-v="${v}" ${tabOf === v ? 'aria-current="page"' : ''}>${IC[ic]}<span>${l}</span></button>`).join('')}</div>`).join('')}<button class="fab" data-act="quick" aria-label="きょうのメニュー(おすすめの20問)をはじめる">${IC.plus}</button></div>`;
     document.body.classList.toggle('in-quiz', S.view === 'quiz');
   }
 
@@ -322,14 +373,16 @@
   const A = {
     go: (d) => go(d.v),
     setup: (d) => { S.setup = { s: d.s, cats: d.c ? [d.c] : [], n: 10, order: 'new', timed: false }; go('setup'); },
-    quick: () => startQuiz(shuffle(SUBJ.flatMap((x) => buildSet(x.k, [], 2, 'new'))), 'practice', 'おまかせ10問(5教科)', false),
+    quick: () => startQuiz(dailyMenu(), 'practice', 'きょうのメニュー', false),
     cat: (d) => { const c = S.setup.cats, i = c.indexOf(d.c); if (i < 0) c.push(d.c); else c.splice(i, 1); render(); },
-    set: (d) => { const u = S.setup; if (d.k === 'n') u.n = +d.v; else if (d.k === 'timed') u.timed = d.v === '1'; else u.order = d.v; render(); },
+    set: (d) => { if (d.k === 'goal') { P.goal = +d.v; savePrefs(); return render(); } const u = S.setup; if (d.k === 'n') u.n = +d.v; else if (d.k === 'timed') u.timed = d.v === '1'; else u.order = d.v; render(); },
     start: () => { const u = S.setup; startQuiz(buildSet(u.s, u.cats, u.n, u.order), 'practice', u.s + (u.cats.length ? '(' + u.cats.join('・') + ')' : ''), u.timed); },
     pick: (d) => { const z = S.quiz; if (z.mode === 'exam') { z.answers[z.i] = z.answers[z.i] === +d.d ? null : +d.d; S.confirm = ''; render(); paintTimer(); } else answer(+d.d); },
-    next, prev: () => { S.quiz.i--; S.confirm = ''; render(); paintTimer(); window.scrollTo(0, 0); },
-    enext: () => { S.quiz.i++; S.confirm = ''; render(); paintTimer(); window.scrollTo(0, 0); },
+    next, prev: () => { lap(); S.quiz.i--; S.confirm = ''; render(); paintTimer(); window.scrollTo(0, 0); },
+    enext: () => { lap(); S.quiz.i++; S.confirm = ''; render(); paintTimer(); window.scrollTo(0, 0); },
     grade: () => twice('grade', finishExam),
+    grid: () => { S.quiz.open = !S.quiz.open; render(); paintTimer(); },
+    jump: (d) => { lap(); S.quiz.i = +d.i; S.quiz.open = false; S.confirm = ''; render(); paintTimer(); window.scrollTo(0, 0); },
     quit: () => { const z = S.quiz; if (z.mode !== 'exam' && !z.recs.length) return go('home'); twice('quit', () => { if (z.mode === 'exam') { clearInterval(tick); S.quiz = null; go('home'); } else finish(); }); paintTimer(); },
     examintro: () => go('examintro'),
     newq: () => startQuiz(shuffle(newUnseen()).slice(0, 30).map(fromBank), 'practice', '新着問題', false),
@@ -338,14 +391,15 @@
     day: (d) => { S.day = d.k; S.dayFilter = ''; go('day'); },
     dayfilter: (d) => { S.dayFilter = d.s; render(); },
     'redo-day': (d) => { const seen = new Set(); const rs = (Store.days[S.day] || []).filter((r) => (!S.dayFilter || r.s === S.dayFilter) && (d.w === 'all' || !r.ok)).filter((r) => { const k = recKey(r); if (seen.has(k)) return false; seen.add(k); return true; }); startQuiz(shuffle(rs.map(recToQ).filter(Boolean)), 'review', dayLabel(S.day) + 'の解き直し', false); },
-    'redo-weak': (d) => startQuiz(shuffle(weakRecs(d.s)).slice(0, 20).map(recToQ).filter(Boolean), 'review', (d.s || '全教科') + 'の苦手復習', false),
+    'redo-due': (d) => startQuiz(shuffle(dueRecs(d.s).slice(0, 30)).map(recToQ).filter(Boolean), 'review', (d.s || '全教科') + 'の復習', false),
+    weakcat: (d) => startQuiz(buildSet(d.s, [d.c], 10, 'weak'), 'practice', `${d.s}(${d.c})`, false),
     export: () => { $('#io').value = JSON.stringify({ app: 'scoa-a', v: 1, days: Store.days }); S.msg = '書き出しました。「コピー」を押して保管してください。'; render(); },
     copy: () => { const el = $('#io'); el.select(); const done = (ok) => { S.msg = ok ? 'コピーしました。' : 'コピーできませんでした。テキストを長押しして手動でコピーしてください。'; render(); }; try { navigator.clipboard.writeText(el.value).then(() => done(true), () => done(false)); } catch (e) { done(false); } },
     import: () => {
       try {
         const o = JSON.parse($('#io').value); if (!o || typeof o.days !== 'object') throw 0; let n = 0;
         Object.keys(o.days).forEach((k) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(k) || !Array.isArray(o.days[k])) return; const cur = Store.days[k] || [], seen = new Set(cur.map((r) => r.t)); const add = o.days[k].filter((r) => r && typeof r.t === 'number' && typeof r.s === 'string' && !seen.has(r.t)); if (add.length) { Store.days[k] = cur.concat(add).sort((a, b) => a.t - b.t); Store.dirty.add(k); n += add.length; } });
-        Store.saveLocal(); Store.flush(); S.msg = n ? `${n}問分の履歴を読み込みました。` : '新しく読み込む履歴はありませんでした。';
+        Store.rev++; Store.saveLocal(); Store.flush(); S.msg = n ? `${n}問分の履歴を読み込みました。` : '新しく読み込む履歴はありませんでした。';
       } catch (e) { S.msg = '読み込めませんでした。書き出したテキスト全体を貼り付けてください。'; }
       render();
     },
