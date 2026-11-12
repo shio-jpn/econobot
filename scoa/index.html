@@ -107,6 +107,9 @@ h3 small { font-weight: 400; color: var(--muted); }
 .bar { height: 6px; background: var(--tile); border-radius: 3px; overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--c, var(--ink)); border-radius: 3px; }
 .chip { display: inline-block; font-size: 12px; font-weight: 600; line-height: 1.7; padding: 0 9px; background: color-mix(in srgb, var(--c, var(--muted)) 14%, transparent); color: var(--c, var(--muted)); border-radius: 11px; white-space: nowrap; }
+.chip.new { background: var(--ink); color: var(--on-ink); font-size: 10.5px; letter-spacing: .04em; vertical-align: 2px; }
+.upd { background: var(--surface); border-radius: 22px; box-shadow: var(--shadow-s); padding: 14px 18px; display: flex; flex-direction: column; gap: 2px; }
+.upd b small { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 12px; } .upd p { font-size: 15px; } .upd > small { color: var(--muted); font-size: 12.5px; }
 .action { width: 100%; min-height: 64px; padding: 14px 20px; background: var(--surface); border-radius: 24px; box-shadow: var(--shadow-s); display: flex; flex-direction: column; }
 .action b { font-weight: 700; } .action small { color: var(--muted); font-size: 13px; }
 
@@ -209,6 +212,7 @@ textarea { width: 100%; font: 13px/1.5 ui-monospace, Menlo, monospace; color: va
 <main id="app"><p class="lead">読み込み中…</p></main>
 <nav id="nav" aria-label="メニュー"></nav>
 <script src="questions.js"></script>
+<script src="updates.js"></script>
 <script src="gen.js"></script>
 <script src="app.js"></script>
 </body>

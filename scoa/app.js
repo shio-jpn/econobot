@@ -44,8 +44,20 @@
   const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
   const mmss = (s) => `${Math.floor(s / 60)}:${pad(s % 60)}`;
 
-  BANK.forEach((q) => { q.id = hash(q.s + '|' + q.q + '|' + (q.fig || '') + '|' + q.ch[0]); });
+  /* 定期更新(updates.js)の反映:追加問題は since つきで加え、引退した問題は出題だけ止めて履歴用に残す */
+  const idOf = (q) => hash(q.s + '|' + q.q + '|' + (q.fig || '') + '|' + q.ch[0]);
+  const UPD = (Array.isArray(window.SCOA_UPDATES) ? window.SCOA_UPDATES : []).filter((u) => u && u.date).sort((a, b) => (a.date < b.date ? -1 : 1));
+  const asofLabel = (a) => { const [y, m] = a.split('-').map(Number); return `${y}年${m}月時点`; };
+  BANK.forEach((q) => { q.id = idOf(q); });
   const BY_ID = Object.fromEntries(BANK.map((q) => [q.id, q]));
+  UPD.forEach((u) => (u.add || []).forEach((q) => {
+    if (!q || !CLS[q.s] || !q.q || !q.e || !Array.isArray(q.ch) || q.ch.length !== 5 || new Set(q.ch).size !== 5) return;
+    const b = { s: q.s, c: q.c, q: q.q, ch: q.ch, e: q.asof ? `${q.e}(${asofLabel(q.asof)}の情報)` : q.e, fig: q.fig, since: u.date };
+    b.id = idOf(b); if (BY_ID[b.id]) return; BANK.push(b); BY_ID[b.id] = b;
+  }));
+  UPD.forEach((u) => (u.retire || []).forEach((id) => { if (BY_ID[id]) BY_ID[id].x = true; }));
+  const LIVE = BANK.filter((q) => !q.x);
+  const LATEST = UPD.length ? UPD[UPD.length - 1].date : '';
 
   /* ---------- 保存(端末 + 対応環境ではアカウント) ---------- */
   const KEY = 'scoa-a.v1';
@@ -105,7 +117,7 @@
   function streak() { let n = 0; const d = new Date(); if (!Store.days[dayKey(d)]) d.setDate(d.getDate() - 1); while ((Store.days[dayKey(d)] || []).length) { n++; d.setDate(d.getDate() - 1); } return n; }
 
   /* ---------- 出題 ---------- */
-  function fromBank(b) { return { s: b.s, c: b.c, id: b.id, q: b.q, ch: b.ch, e: b.e, f: b.fig, order: shuffle([0, 1, 2, 3, 4]) }; }
+  function fromBank(b) { return { s: b.s, c: b.c, id: b.id, q: b.q, ch: b.ch, e: b.e, f: b.fig, nw: !!LATEST && b.since === LATEST, order: shuffle([0, 1, 2, 3, 4]) }; }
   function fromGen(s, g) { for (let i = 0; i < 60; i++) { const r = g.f(); if (r && r.ch && r.ch.length === 5 && new Set(r.ch).size === 5) return { s, c: g.c, q: r.q, ch: r.ch, e: r.e, f: r.fig, order: shuffle([0, 1, 2, 3, 4]) }; } return null; }
   function recToQ(r) {
     if (r.id) { const b = BY_ID[r.id]; return b ? fromBank(b) : null; }
@@ -113,13 +125,13 @@
   }
   function catsOf(subj) {
     const m = new Map();
-    BANK.filter((b) => b.s === subj).forEach((b) => m.set(b.c, (m.get(b.c) || 0) + 1));
+    LIVE.filter((b) => b.s === subj).forEach((b) => m.set(b.c, (m.get(b.c) || 0) + 1));
     (GEN[subj] || []).forEach((g) => { if (!m.has(g.c)) m.set(g.c, '∞'); });
     return [...m.entries()];
   }
   function buildSet(subj, cats, n, order) {
     const inCat = (c) => !cats.length || cats.includes(c);
-    let st = BANK.filter((b) => b.s === subj && inCat(b.c));
+    let st = LIVE.filter((b) => b.s === subj && inCat(b.c));
     const gens = (GEN[subj] || []).filter((g) => inCat(g.c));
     const last = latestMap();
     const rank = (b) => { const r = last.get(b.id); const state = !r ? 0 : r.ok ? 2 : 1; return order === 'weak' ? [1, 0, 2][state] : order === 'new' ? state : 0; };
@@ -131,6 +143,7 @@
     for (let i = 0; i < g; i++) { if (!pool.length) pool = shuffle(gens); const q = fromGen(subj, pool.pop()); if (q) out.push(q); }
     return shuffle(out);
   }
+  function newUnseen() { if (!LATEST) return []; const m = latestMap(); return LIVE.filter((b) => b.since === LATEST && !m.has(b.id)); }
   function buildExam() { return SUBJ.flatMap((s) => { const set = buildSet(s.k, [], s.n, 'rand'); return set; }); }
 
   /* ---------- 状態 ---------- */
@@ -182,12 +195,12 @@
 
   /* ---------- 画面 ---------- */
   function vHome() {
-    const now = new Date(), today = Store.days[dayKey(now)] || [], all = Store.all(), tk = today.filter((r) => r.ok).length, weak = weakRecs().length;
+    const now = new Date(), today = Store.days[dayKey(now)] || [], all = Store.all(), tk = today.filter((r) => r.ok).length, weak = weakRecs().length, nu = newUnseen().length;
     const strip = []; const d = new Date(); d.setDate(d.getDate() - 13);
     for (let i = 0; i < 14; i++) { const k = dayKey(d), n = (Store.days[k] || []).length; strip.push(`<i class="lv${n === 0 ? 0 : n < 10 ? 1 : n < 30 ? 2 : 3}" title="${dayLabel(k)} ${n}問"></i>`); d.setDate(d.getDate() + 1); }
     const memo = today.length ? `きょうは${today.length}問を解いて${tk}問正解(正答率${pct(tk, today.length)}%)。${weak ? `解き直したい問題が${weak}問あります。` : '苦手問題は残っていません。'}` : all.length ? `きょうはまだ解いていません。${weak ? `解き直したい問題が${weak}問あります。` : '右下の「+」ですぐに10問はじめられます。'}` : '教科のカードから分野を選ぶか、右下の「+」でおまかせ10問をはじめましょう。';
     const card = (s) => {
-      const st = subjStat(s.k), cats = catsOf(s.k), nb = BANK.filter((b) => b.s === s.k).length;
+      const st = subjStat(s.k), cats = catsOf(s.k), nb = LIVE.filter((b) => b.s === s.k).length;
       return `<section class="card ${s.cls}"><button class="card-head subject-head" data-act="setup" data-s="${s.k}" aria-label="${s.k}の出題設定へ">${IC[s.k]}<b>${s.k}</b><span class="count">${nb ? nb + '問' : '自動生成'}${IC.chev}</span></button>
         <div class="tiles"><button class="tile rate" data-act="setup" data-s="${s.k}"><b>${st.n ? pct(st.ok, st.n) + '%' : '—'}</b><small>${st.n ? '正答率・' + st.n + '問' : 'まだ未学習'}</small></button>${cats.map(([c, n]) => `<button class="tile" data-act="setup" data-s="${s.k}" data-c="${esc(c)}"><span>${esc(c)}</span><small>${n === '∞' ? '自動生成' : n + '問'}</small></button>`).join('')}</div></section>`;
     };
@@ -196,11 +209,11 @@
       <div><div class="strip" aria-label="直近14日の学習量">${strip.join('')}</div></div><p class="hero-date">${dayLabel(dayKey(now))} ${pad(now.getHours())}:${pad(now.getMinutes())}</p></section>
     <section class="memo"><p>${memo}</p><small>直近14日の学習量は上の帯(右端がきょう)</small></section>
     ${SUBJ.map(card).join('')}
-    <div class="actions"><button class="action" data-act="examintro"><b>模擬試験</b><small>120問・60分。5教科を本番の配分で</small></button>
+    <div class="actions">${nu ? `<button class="action" data-act="newq"><b>新着問題を解く <span class="chip new">NEW</span></b><small>${dayLabel(LATEST)}の更新で追加・未回答の${nu}問</small></button>` : ''}<button class="action" data-act="examintro"><b>模擬試験</b><small>120問・60分。5教科を本番の配分で</small></button>
       <button class="action" data-act="go" data-v="review"><b>苦手を復習</b><small>${weak ? `直近で間違えた問題が${weak}問` : '間違えた問題がここにたまります'}</small></button></div>`;
   }
   function vSetup() {
-    const u = S.setup, cats = catsOf(u.s), st = BANK.filter((b) => b.s === u.s).length, hasGen = (GEN[u.s] || []).length;
+    const u = S.setup, cats = catsOf(u.s), st = LIVE.filter((b) => b.s === u.s).length, hasGen = (GEN[u.s] || []).length;
     const seg = (name, val, items) => `<div class="seg" role="group">${items.map(([v, l]) => `<button class="${String(val) === String(v) ? 'on' : ''}" data-act="set" data-k="${name}" data-v="${v}">${l}</button>`).join('')}</div>`;
     return `<header class="top sub"><button class="back" data-act="go" data-v="home" aria-label="ホームへ戻る">←</button><div><p class="eyebrow">${chip(u.s)}</p><h1>${u.s}の出題設定</h1></div></header>
     <p class="lead">固定問題${st}問${hasGen ? '+ 数値が毎回変わる自動生成問題' : ''}。本番は${SUBJ.find((x) => x.k === u.s).n}問前後が出題されます。</p>
@@ -230,7 +243,7 @@
       <div class="progress"><span>${z.i + 1}<small> / ${z.qs.length}</small></span><div class="bar"><i style="width:${((z.i + (done ? 1 : 0)) / z.qs.length) * 100}%"></i></div></div>
       ${exam || z.timed ? `<span id="timer" class="timer">${exam ? mmss(z.left) : z.left + '秒'}</span>` : '<span class="timer off"></span>'}</header>
     ${exam ? `<p class="exam-info">回答済み ${answered} / ${z.qs.length}<button class="link" data-act="grade">${S.confirm === 'grade' ? 'もう一度押して採点' : '終了して採点'}</button></p>` : ''}
-    <article class="question"><p class="q-meta">${chip(q.s)}<span>${esc(q.c)}</span></p><p class="q-text">${qText(q.q)}</p>${figHtml(q.f)}</article>
+    <article class="question"><p class="q-meta">${chip(q.s)}<span>${esc(q.c)}</span>${q.nw ? '<span class="chip new">NEW</span>' : ''}</p><p class="q-text">${qText(q.q)}</p>${figHtml(q.f)}</article>
     <div class="choices">${choices}</div>${fb}${foot}`;
   }
   function vResult() {
@@ -284,9 +297,12 @@
     <div class="row"><button class="ghost" data-act="copy">コピー</button><button class="ghost" data-act="import">貼り付けたテキストを読み込む</button></div>
     ${S.msg ? `<p class="msg">${esc(S.msg)}</p>` : ''}
     <h2>履歴の消去</h2><button class="danger wide" data-act="wipe">${S.confirm === 'wipe' ? 'もう一度押すとすべて消去します' : 'すべての履歴を消去する'}</button>
+    <h2>問題データの更新</h2>
+    <p class="lead">約3週間ごとに、最新の時事や出題傾向に合わせて問題を追加・入れ替えます。内容が古くなった問題は出題を止めますが、解いた履歴は残ります。</p>
+    ${UPD.length ? `<div class="recs">${UPD.slice().reverse().slice(0, 8).map((u) => `<div class="upd"><b>${dayLabel(u.date)}<small>${u.date.slice(0, 4)}年</small></b><p>${esc(u.note || '')}</p><small>追加${(u.add || []).length}問${(u.retire || []).length ? '・出題停止' + u.retire.length + '問' : ''}</small></div>`).join('')}</div>` : '<p class="lead">まだ更新はありません。</p>'}
     <h2>SCOA-A の出題について</h2>
     <p class="lead">5分野・120問を60分で解く五肢択一の試験です。1問あたり約30秒。内容は中学〜高校の基礎ですが範囲が広く、速く正確に解く力が問われます。下の配分は参考書などで一般的とされるもので、実施先により異なる場合があります。</p>
-    <table class="tbl"><thead><tr><th>教科</th><th>目安</th><th>収録</th></tr></thead><tbody>${SUBJ.map((s) => `<tr><td>${chip(s.k)}</td><td>${s.n}問</td><td>${BANK.filter((b) => b.s === s.k).length}問${(GEN[s.k] || []).length ? ' + 自動生成' + GEN[s.k].length + '種' : ''}</td></tr>`).join('')}</tbody></table>`;
+    <table class="tbl"><thead><tr><th>教科</th><th>目安</th><th>収録</th></tr></thead><tbody>${SUBJ.map((s) => `<tr><td>${chip(s.k)}</td><td>${s.n}問</td><td>${LIVE.filter((b) => b.s === s.k).length}問${(GEN[s.k] || []).length ? ' + 自動生成' + GEN[s.k].length + '種' : ''}</td></tr>`).join('')}</tbody></table>`;
   }
 
   const VIEWS = { home: vHome, setup: vSetup, quiz: vQuiz, result: vResult, history: vHistory, day: vDay, review: vReview, examintro: vExamIntro, settings: vSettings };
@@ -316,6 +332,7 @@
     grade: () => twice('grade', finishExam),
     quit: () => { const z = S.quiz; if (z.mode !== 'exam' && !z.recs.length) return go('home'); twice('quit', () => { if (z.mode === 'exam') { clearInterval(tick); S.quiz = null; go('home'); } else finish(); }); paintTimer(); },
     examintro: () => go('examintro'),
+    newq: () => startQuiz(shuffle(newUnseen()).slice(0, 30).map(fromBank), 'practice', '新着問題', false),
     exam: () => startQuiz(buildExam(), 'exam', '模擬試験(120問・60分)', true),
     'retry-result': () => startQuiz(S.result.recs.filter((r) => !r.ok).map(recToQ).filter(Boolean), 'review', '解き直し', false),
     day: (d) => { S.day = d.k; S.dayFilter = ''; go('day'); },
