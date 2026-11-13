@@ -42,6 +42,15 @@ ok('応用・実戦レッスンが5つの章に入り、ケース演習は章に
   K.cases.forEach(function (c) { assert(!seen[c.id] && /^c-[a-z-]+$/.test(c.id), c.id); seen[c.id] = 1; assert.strictEqual(new Set(c.a).size, 4, c.id); assert(c.e && c.q, c.id); });
   lessons.forEach(function (l) { assert(!l.lv || l.lv === '応用' || l.lv === '実戦', l.id); });
 });
+ok('5つの章の基礎レッスン全てに「プロはここまで見る」の深掘りと追加問題がある', function () {
+  ['macro', 'fundamentals', 'technical', 'risk', 'strategy'].forEach(function (id) {
+    K.stages.filter(function (x) { return x.id === id; })[0].lessons.filter(function (l) { return !l.lv; }).forEach(function (l) {
+      assert(l.deep && l.body.indexOf('## プロはここまで見る') > 0, l.id);
+      assert(l.body.split('## プロはここまで見る')[1].length > 500, l.id + ' 深掘りが短い');
+    });
+  });
+  K.deepIds.forEach(function (id) { assert(ids[id], '存在しないレッスン: ' + id); });
+});
 ok('本文が参照するチャートと図は存在する', function () {
   lessons.forEach(function (l) {
     (l.body.match(/\{chart:([\w-]+)\}/g) || []).forEach(function (m) { assert(charts[m.slice(7, -1)], l.id + ' ' + m); });
