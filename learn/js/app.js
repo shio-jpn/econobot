@@ -8,7 +8,7 @@
 
   /* ================= 保存(ブラウザ内) ================= */
   var KEY = 'kabu-dojo-v1';
-  var state = { done: {}, srs: {}, journal: [], candle: 'us', last: null };
+  var state = { done: {}, srs: {}, candle: 'us', last: null };
   try { var raw = localStorage.getItem(KEY); if (raw) Object.assign(state, JSON.parse(raw)); } catch (e) { /* 保存領域が使えなくても動かす */ }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* noop */ } }
 
@@ -191,13 +191,13 @@
   function viewSearch(q) {
     var h = '<div class="page-head"><h1>検索</h1><p class="lead">調べたい言葉を入れると、用語・因果マップ・レッスン・チャート・トレーダー研究をまとめて探します。</p></div>';
     if (!q) {
-      h += '<div class="chips">' + SUGGEST.map(function (s) { return '<button type="button" class="chip" data-q="' + esc(s) + '">' + esc(s) + '</button>'; }).join('') + '</div>';
+      h += '<section><h2>よく調べられる言葉</h2><div class="chips">' + SUGGEST.map(function (s) { return '<button type="button" class="chip" data-q="' + esc(s) + '">' + esc(s) + '</button>'; }).join('') + '</div></section>';
       return h;
     }
     var r = search(q);
     if (!r.hits.length) {
-      return h + '<p class="empty">「' + esc(q) + '」に一致する内容は見つかりませんでした。別の言い方(例: 「物価」→「CPI」)や、短い単語で試してください。</p>' +
-        '<div class="chips">' + SUGGEST.map(function (s) { return '<button type="button" class="chip" data-q="' + esc(s) + '">' + esc(s) + '</button>'; }).join('') + '</div>';
+      return h + '<section><p class="empty">「' + esc(q) + '」に一致する内容は見つかりませんでした。別の言い方(例: 「物価」→「CPI」)や、短い単語で試してください。</p>' +
+        '<div class="chips">' + SUGGEST.map(function (s) { return '<button type="button" class="chip" data-q="' + esc(s) + '">' + esc(s) + '</button>'; }).join('') + '</div></section>';
     }
     h += '<p class="count">「' + esc(q) + '」に関する内容 ' + r.hits.length + '件</p>';
     // いちばん近い用語は大きく見せ、関連語をたどれるようにする
@@ -275,45 +275,93 @@
   function progress() { var n = lessons.filter(function (l) { return state.done[l.id]; }).length; return { n: n, total: lessons.length, pct: Math.round(n / lessons.length * 100) }; }
   function nextLesson() { for (var i = 0; i < lessons.length; i++) if (!state.done[lessons[i].id]) return lessons[i]; return null; }
 
+  /* アイコン(線画) */
+  var ICON = {
+    home: '<path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/>',
+    book: '<path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/>',
+    flow: '<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="12" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M8.5 6.8l7 4M8.5 17.2l7-4"/>',
+    candle: '<path d="M7 3v18M17 5v16"/><rect x="4.5" y="7" width="5" height="8" rx="1"/><rect x="14.5" y="9" width="5" height="7" rx="1"/>',
+    person: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.200 1.900 7 5.500"/>',
+    play: '<path d="M8 5.500v13l11-6.500z"/>',
+    redo: '<path d="M4 12a8 8 0 1 0 2.600-5.900M4 4v5h5"/>',
+    compass: '<circle cx="12" cy="12" r="8.500"/><path d="M15.500 8.500l-2 5-5 2 2-5z"/>',
+    coin: '<circle cx="12" cy="12" r="8.500"/><path d="M9 9l3 4 3-4M12 13v4M9.500 14h5"/>',
+    globe: '<circle cx="12" cy="12" r="8.500"/><path d="M3.500 12h17M12 3.500c3 3 3 14 0 17M12 3.500c-3 3-3 14 0 17"/>',
+    doc: '<path d="M7 3.500h7l4 4V20a.5.5 0 0 1-.5.5h-10.500a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z"/><path d="M9.500 12h5M9.500 15.500h5"/>',
+    shield: '<path d="M12 3.500l7 2.500v5.500c0 4.500-3 7.500-7 9-4-1.500-7-4.500-7-9V6z"/>',
+    target: '<circle cx="12" cy="12" r="8.500"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="0.600"/>',
+    heart: '<path d="M12 20s-7.500-4.500-7.500-10a4.200 4.200 0 0 1 7.500-2.600 4.200 4.200 0 0 1 7.500 2.600c0 5.500-7.500 10-7.500 10z"/>',
+    tool: '<rect x="5" y="3.500" width="14" height="17" rx="2.500"/><path d="M8.500 8h7M8.500 12h2M13.500 12h2M8.500 16h2M13.500 16h2"/>',
+    abc: '<path d="M5 6.500h14M5 12h14M5 17.500h9"/>'
+  };
+  function ico(name, cls) { return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" aria-hidden="true">' + ICON[name].replace(/(\d)00\b/g, '$1') + '</svg>'; }
+  var STAGE_ICON = ['compass', 'coin', 'globe', 'doc', 'candle', 'shield', 'target', 'heart'];
+  function chapterNo(i) { return i === 0 ? '序章' : '第' + i + '章'; }
+  function lessonChart(l) { var m = /\{chart:([\w-]+)\}/.exec(l.body); return m ? chartById[m[1]] : null; }
+
+  /* 章の棚: 見出し行と、横に流れるレッスンの小さなタイル */
+  function shelf(st, i) {
+    var d = st.lessons.filter(function (l) { return state.done[l.id]; }).length;
+    var tiles = '';
+    st.lessons.forEach(function (l) {
+      var c = lessonChart(l);
+      if (c) tiles += '<a class="mini pic" href="#lesson-' + l.id + '" aria-label="' + esc(l.t) + '(チャート)" data-spark="' + c.id + '"></a>';
+      tiles += '<a class="mini' + (state.done[l.id] ? ' done' : '') + '" href="#lesson-' + l.id + '"><span>' + esc(l.t) + '</span></a>';
+    });
+    return '<section class="shelf"><a class="shelf-head" href="#course-' + st.id + '">' + ico(STAGE_ICON[i], 'hue-' + i) + '<strong>' + esc(st.title) + '</strong><span class="shelf-n">' + d + ' / ' + st.lessons.length + ' ›</span></a><div class="shelf-row">' + tiles + '</div></section>';
+  }
+
   function viewHome() {
     var p = progress(), nx = nextLesson(), due = dueList().length;
-    var h = '<section class="home-top"><div class="home-main"><p class="eyebrow">実績ある投資家の原則から学ぶ、日本株・米国株の学習帳</p><h1>株トレ道場</h1>' +
-      '<p class="lead">金利やCPIが株をどう動かすか。チャートと出来高をどう読むか。どれだけ買い、いつ切るか。基礎から順に、読んで・解いて・忘れた頃にもう一度解いて身につけます。</p>' +
-      '<div class="actions">' + (nx ? '<a class="btn" href="#lesson-' + nx.id + '">' + (p.n ? '続きから: ' : '最初のレッスン: ') + esc(nx.t) + '</a>' : '<a class="btn" href="#review">全レッスン修了。復習する</a>') +
-      (due ? '<a class="btn ghost" href="#review">今日の復習 ' + due + '問</a>' : '') + '</div></div>' +
-      '<div class="meter"><div class="meter-n"><span>' + p.n + '</span> / ' + p.total + '</div><div class="meter-l">レッスン修了</div><div class="pbar"><i style="width:' + p.pct + '%"></i></div>' +
-      '<dl><div><dt>復習待ち</dt><dd>' + due + '問</dd></div><div><dt>学習済みの問題</dt><dd>' + Object.keys(state.srs).length + ' / ' + questions.length + '</dd></div><div><dt>日誌の記録</dt><dd>' + state.journal.length + '件</dd></div></dl></div></section>';
-
+    var h = '<section class="hero"><div class="chart" id="hero-chart"></div><p class="hero-title">株トレ道場<small>日本株・米国株を、基礎から</small></p><p class="hero-cap">' + p.n + ' / ' + p.total + ' レッスン修了' + (due ? ' ・ 復習待ち ' + due + '問' : '') + '</p></section>';
+    h += '<section class="say"><p>' + (nx ? (p.n ? '続きは「' + esc(nx.t) + '」。' : 'まずは「' + esc(nx.t) + '」から。') + esc(nx.sum) : '全レッスンを修了しました。あとは復習で定着させましょう。') + '</p>' +
+      '<div class="actions">' + (nx ? '<a class="btn" href="#lesson-' + nx.id + '">' + (p.n ? '続きから学ぶ' : '学習を始める') + '</a>' : '') + (due ? '<a class="btn ghost" href="#review">今日の復習 ' + due + '問</a>' : '') + '</div>' +
+      '<p class="stamp">' + chapterNo(nx ? nx.stageNo : 7) + ' ' + esc((nx || lessons[lessons.length - 1]).stage.title) + '</p></section>';
+    K.stages.forEach(function (st, i) { h += shelf(st, i); });
     h += '<section><h2>勝ち残る人に共通する5つの原則</h2><p class="sub">片山晃、テスタ、オニール、ミネルヴィニ、ドラッケンミラーなど、手法も時間軸も違う投資家が同じことを語っています。<a href="#traders">トレーダー研究へ</a></p><ol class="principles">' +
       K.principles.map(function (x) { return '<li><strong>' + esc(x[0]) + '</strong><span>' + esc(x[1]) + '</span></li>'; }).join('') + '</ol></section>';
-
-    h += '<section><h2>学習の道すじ</h2><div class="road">' + K.stages.map(function (st, i) {
-      var d = st.lessons.filter(function (l) { return state.done[l.id]; }).length;
-      return '<a class="road-item' + (d === st.lessons.length ? ' done' : '') + '" href="#course-' + st.id + '"><span class="road-no">' + (i === 0 ? '序' : i) + '</span><span class="road-body"><strong>' + esc(st.title) + '</strong><span>' + esc(st.goal) + '</span></span><span class="road-n">' + d + '/' + st.lessons.length + '</span></a>';
-    }).join('') + '</div></section>';
-
     h += '<section><h2>調べる・試す</h2><div class="tiles">' +
-      tile('#macro', '因果マップ', '「金利が下がると」「CPIが高いと」何がどう動くかを、連鎖で確認する') +
-      tile('#charts', 'チャート図鑑', K.charts.length + '種類の形と出来高の読み方。インジケーター実験室つき') +
-      tile('#traders', 'トレーダー研究', K.traders.length + '人の実績者の考え方と、そこから取り入れること') +
-      tile('#tools', 'ツール', '株数の計算、期待値シミュレーター、トレード日誌') +
-      tile('#glossary', '用語集', K.glossary.length + '語。本文中の用語はタップで意味を表示') +
+      tile('#macro', '因果マップ', '「金利が下がると」「CPIが高いと」何がどう動くか') +
+      tile('#charts', 'チャート図鑑', K.charts.length + '種類の形と出来高の読み方') +
+      tile('#traders', 'トレーダー研究', K.traders.length + '人の実績者の考え方') +
+      tile('#tools', 'ツール', '株数の計算、期待値シミュレーター') +
+      tile('#glossary', '用語集', K.glossary.length + '語。本文の用語はタップで意味を表示') +
       tile('#review', '復習', '間隔を空けて出題。チャート当てクイズも') + '</div></section>';
     h += '<p class="disclaimer">この教材は学習を目的としたもので、特定の銘柄の売買をすすめるものではありません。掲載するチャートは学習用に作成したもので、実在の銘柄ではありません。投資の判断と結果の責任はご自身にあります。</p>';
     return h;
   }
   function tile(href, t, s) { return '<a class="tile" href="' + href + '"><strong>' + t + '</strong><span>' + esc(s) + '</span></a>'; }
 
-  function viewCourse(focus) {
-    var h = '<div class="page-head"><h1>カリキュラム</h1><p class="lead">上から順に進めるのがおすすめです。各レッスンは5〜10分。最後の確認問題に答えると修了になり、問題は復習に入ります。</p></div>';
-    K.stages.forEach(function (st, i) {
-      var d = st.lessons.filter(function (l) { return state.done[l.id]; }).length;
-      h += '<section class="stage" id="stage-' + st.id + '"><div class="stage-head"><span class="road-no">' + (i === 0 ? '序' : i) + '</span><div><h2>' + esc(st.title) + '</h2><p class="sub">' + esc(st.goal) + '</p></div><span class="road-n">' + d + '/' + st.lessons.length + '</span></div><ul class="lesson-list">' +
-        st.lessons.map(function (l) {
-          return '<li><a href="#lesson-' + l.id + '" class="' + (state.done[l.id] ? 'done' : '') + '"><span class="check" aria-hidden="true">' + (state.done[l.id] ? '✓' : '') + '</span><span class="ll-body"><strong>' + esc(l.t) + '</strong><span>' + esc(l.sum) + '</span></span></a></li>';
-        }).join('') + '</ul></section>';
-    });
-    setTimeout(function () { var el = focus && $('#stage-' + focus); if (el) el.scrollIntoView(); }, 0);
+  /* 章の一覧、または1つの章(レッスンと、その章に関連する因果マップ・チャート・人物・用語) */
+  function chapterNav(cur) {
+    return '<div class="chapter-nav"><a class="chip' + (!cur ? ' on' : '') + '" href="#course">すべての章</a>' + K.stages.map(function (st, i) {
+      return '<a class="chip' + (st.id === cur ? ' on' : '') + '" href="#course-' + st.id + '">' + chapterNo(i) + ' ' + esc(st.title) + '</a>';
+    }).join('') + '</div>';
+  }
+  function viewCourse(id) {
+    var st = K.stages.filter(function (x) { return x.id === id; })[0];
+    if (!st) {
+      return '<div class="page-head"><h1>カリキュラム</h1><p class="lead">全' + K.stages.length + '章・' + lessons.length + 'レッスン。上から順に進めるのがおすすめです。各レッスンは5〜10分で、最後の確認問題に答えると修了になり、問題は復習に入ります。</p></div>' +
+        chapterNav('') + K.stages.map(shelf).join('');
+    }
+    var i = K.stages.indexOf(st), inCh = {};
+    st.lessons.forEach(function (l) { inCh[l.id] = 1; });
+    var d = st.lessons.filter(function (l) { return state.done[l.id]; }).length;
+    var hit = function (x) { return x.lessons.some(function (y) { return inCh[y]; }); };
+    var macros = K.macro.filter(hit), who = K.traders.filter(hit), cs = [], body = st.lessons.map(function (l) { return l.body; }).join('\n');
+    K.charts.forEach(function (c) { if (body.indexOf('{chart:' + c.id + '}') >= 0) cs.push(c); });
+    var counts = termNames.map(function (n) { return [n, body.split(n).length - 1]; }).filter(function (x) { return x[1] > 0; }).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 14);
+    var h = chapterNav(st.id) + '<div class="page-head"><p class="eyebrow">' + chapterNo(i) + ' ・ ' + st.lessons.length + 'レッスン</p><h1>' + ico(STAGE_ICON[i], 'hue-' + i) + ' ' + esc(st.title) + '</h1><p class="lead">' + esc(st.goal) + '</p>' +
+      '<div class="pbar"><i style="width:' + Math.round(d / st.lessons.length * 100) + '%"></i></div><p class="sub">' + d + ' / ' + st.lessons.length + ' 修了</p></div>';
+    h += '<section><h2>レッスン</h2><ul class="lesson-list">' + st.lessons.map(function (l) {
+      return '<li><a href="#lesson-' + l.id + '" class="' + (state.done[l.id] ? 'done' : '') + '"><span class="check" aria-hidden="true">' + (state.done[l.id] ? '✓' : '') + '</span><span class="ll-body"><strong>' + esc(l.t) + '</strong><span>' + esc(l.sum) + '</span></span></a></li>';
+    }).join('') + '</ul></section>';
+    if (macros.length) h += '<section><h2>この章の因果マップ</h2><div class="chips">' + macros.map(function (m) { return '<a class="chip" href="#macro-' + m.id + '">' + esc(m.title) + '</a>'; }).join('') + '</div></section>';
+    if (cs.length) h += '<section><h2>この章のチャート</h2><div class="chart-grid">' + cs.map(function (c) { return '<a class="chart-card" href="#chart-' + c.id + '"><div class="chart" data-chart="' + c.id + '" data-plain="1"></div><strong>' + esc(c.name) + '</strong></a>'; }).join('') + '</div></section>';
+    if (who.length) h += '<section><h2>この章で参考にする投資家</h2><div class="trader-grid">' + who.map(function (t) { return '<a class="trader-card" href="#trader-' + t.id + '"><strong>' + esc(t.name) + '</strong><span>' + esc(t.style) + '</span></a>'; }).join('') + '</div></section>';
+    if (counts.length) h += '<section><h2>この章の重要語</h2><div class="chips">' + counts.map(function (x) { return '<button type="button" class="chip" data-term="' + esc(x[0]) + '">' + esc(x[0]) + '</button>'; }).join('') + '</div></section>';
+    var prev = K.stages[i - 1], next = K.stages[i + 1];
+    h += '<nav class="pager">' + (prev ? '<a href="#course-' + prev.id + '">← ' + chapterNo(i - 1) + ' ' + esc(prev.title) + '</a>' : '<span></span>') + (next ? '<a href="#course-' + next.id + '">' + chapterNo(i + 1) + ' ' + esc(next.title) + ' →</a>' : '<span></span>') + '</nav>';
     return h;
   }
 
@@ -324,10 +372,11 @@
     var prev = lessons[l.no - 1], next = lessons[l.no + 1];
     var related = K.macro.filter(function (m) { return m.lessons.indexOf(id) >= 0; });
     var who = K.traders.filter(function (t) { return t.lessons.indexOf(id) >= 0; });
-    var h = '<article class="lesson"><p class="crumb"><a href="#course-' + l.stage.id + '">' + esc(l.stage.title) + '</a> ・ ' + (l.no + 1) + ' / ' + lessons.length + (state.done[id] ? ' ・ <span class="up">修了済み</span>' : '') + '</p>' +
-      '<h1>' + esc(l.t) + '</h1><p class="lead">' + esc(l.sum) + '</p><div class="prose">' + md(l.body) + '</div>';
+    var inCh = l.stage.lessons.indexOf(l) + 1;
+    var h = '<article class="lesson"><div class="lesson-head"><p class="crumb"><a href="#course-' + l.stage.id + '">' + chapterNo(l.stageNo) + ' ' + esc(l.stage.title) + '</a> ・ ' + inCh + ' / ' + l.stage.lessons.length + (state.done[id] ? ' ・ <span class="up">修了済み</span>' : '') + '</p>' +
+      '<h1>' + esc(l.t) + '</h1><p class="lead">' + esc(l.sum) + '</p></div><div class="prose">' + md(l.body) + '</div>';
     if (related.length || who.length) {
-      h += '<aside class="related"><h3>あわせて見る</h3><ul class="plain">' +
+      h += '<aside class="card related"><h3>あわせて見る</h3><ul class="plain">' +
         related.map(function (m) { return '<li><span class="res-k">因果マップ</span> <a href="#macro-' + m.id + '">' + esc(m.title) + '</a></li>'; }).join('') +
         who.map(function (t) { return '<li><span class="res-k">トレーダー研究</span> <a href="#trader-' + t.id + '">' + esc(t.name) + '</a></li>'; }).join('') + '</ul></aside>';
     }
@@ -353,9 +402,9 @@
     var h = '<div class="page-head"><h1>因果マップ</h1><p class="lead">「何かが起きると、何がどう動きやすいか」の典型的な連鎖です。出来事を選んでください。必ず「ただし」まで読むこと。相場は期待との差で動くため、教科書どおりにならない場面にこそ理由があります。</p></div>';
     var groups = {};
     K.macro.forEach(function (m) { (groups[m.group] = groups[m.group] || []).push(m); });
-    h += '<div class="macro-pick">' + Object.keys(groups).map(function (g) {
+    h += '<section><div class="macro-pick">' + Object.keys(groups).map(function (g) {
       return '<div class="pick-group"><span class="chips-label">' + esc(g) + '</span>' + groups[g].map(function (m) { return '<a class="chip' + (m.id === id ? ' on' : '') + '" href="#macro-' + m.id + '">' + esc(m.title) + '</a>'; }).join('') + '</div>';
-    }).join('') + '</div>';
+    }).join('') + '</div></section>';
     var m = macroById[id || 'rate-cut'];
     if (!m) return h;
     h += '<section class="macro-card" id="macro-detail"><p class="eyebrow">' + esc(m.group) + '</p><h2>' + esc(m.title) + '</h2>' +
@@ -408,10 +457,10 @@
     if (!c) return notFound();
     var i = K.charts.indexOf(c), prev = K.charts[i - 1], next = K.charts[i + 1];
     var uses = lessons.filter(function (l) { return l.body.indexOf('{chart:' + id + '}') >= 0; });
-    return '<article class="lesson"><p class="crumb"><a href="#charts">チャート図鑑</a> ・ ' + esc(c.cat) + '</p><h1>' + esc(c.name) + '</h1>' +
-      '<figure class="fig"><div class="chart" data-chart="' + id + '"></div></figure>' +
+    return '<article class="lesson"><div class="lesson-head"><p class="crumb"><a href="#charts">チャート図鑑</a> ・ ' + esc(c.cat) + '</p><h1>' + esc(c.name) + '</h1>' +
+      '<figure class="fig"><div class="chart" data-chart="' + id + '"></div></figure></div>' +
       '<div class="prose"><h3>何を表しているか</h3><p>' + esc(c.what) + '</p><h3>実績者はどう使うか</h3><p>' + esc(c.how) + '</p><h3>うまくいかない時</h3><p>' + esc(c.fail) + '</p></div>' +
-      (uses.length ? '<aside class="related"><h3>このチャートが出てくるレッスン</h3><ul class="plain">' + uses.map(function (l) { return '<li><a href="#lesson-' + l.id + '">' + esc(l.t) + '</a></li>'; }).join('') + '</ul></aside>' : '') +
+      (uses.length ? '<aside class="card related"><h3>このチャートが出てくるレッスン</h3><ul class="plain">' + uses.map(function (l) { return '<li><a href="#lesson-' + l.id + '">' + esc(l.t) + '</a></li>'; }).join('') + '</ul></aside>' : '') +
       '<nav class="pager">' + (prev ? '<a href="#chart-' + prev.id + '">← ' + esc(prev.name) + '</a>' : '<span></span>') + (next ? '<a href="#chart-' + next.id + '">' + esc(next.name) + ' →</a>' : '<a href="#review">チャート当てクイズ →</a>') + '</nav></article>';
   }
 
@@ -426,7 +475,7 @@
   function viewTrader(id) {
     var t = traderById[id];
     if (!t) return notFound();
-    return '<article class="lesson"><p class="crumb"><a href="#traders">トレーダー研究</a> ・ ' + esc(t.region) + '</p><h1>' + esc(t.name) + '</h1><p class="lead">' + esc(t.style) + '</p>' +
+    return '<article class="lesson"><div class="lesson-head"><p class="crumb"><a href="#traders">トレーダー研究</a> ・ ' + esc(t.region) + '</p><h1>' + esc(t.name) + '</h1><p class="lead">' + esc(t.style) + '</p></div>' +
       '<div class="prose"><h3>実績</h3><p>' + esc(t.record) + '</p><h3>考え方</h3><ul>' + t.ideas.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
       '<p class="note"><strong>取り入れること:</strong> ' + esc(t.takeaway) + '</p>' +
       '<h3>関連レッスン</h3><ul>' + t.lessons.filter(function (x) { return lessonById[x]; }).map(function (x) { return '<li><a href="#lesson-' + x + '">' + esc(lessonById[x].t) + '</a></li>'; }).join('') + '</ul>' +
@@ -451,10 +500,10 @@
   function viewReview() {
     var due = dueList(), learned = Object.keys(state.srs).length;
     var h = '<div class="page-head"><h1>復習</h1><p class="lead">解いた問題は、正解するたびに 1日 → 3日 → 7日 → 16日 → 35日 と間隔を広げて出題します。間違えると最初に戻ります。忘れかけた頃に思い出すのが、最も記憶に残る方法です。</p></div>';
-    h += '<div class="tiles three"><div class="tile static"><strong>今日の復習</strong><span>' + (due.length ? due.length + '問が出題待ちです。' : learned ? '今日の分は終わっています。' : 'レッスンの確認問題を解くと、ここに入ります。') + '</span>' +
+    h += '<section><div class="tiles three"><div class="tile static"><strong>今日の復習</strong><span>' + (due.length ? due.length + '問が出題待ちです。' : learned ? '今日の分は終わっています。' : 'レッスンの確認問題を解くと、ここに入ります。') + '</span>' +
       (due.length ? '<button type="button" class="btn" data-review="due">始める</button>' : '') + '</div>' +
       '<div class="tile static"><strong>ランダム10問</strong><span>全' + questions.length + '問から出題。まだ読んでいない範囲の腕試しにも。</span><button type="button" class="btn ghost" data-review="random">始める</button></div>' +
-      '<div class="tile static"><strong>チャート当てクイズ</strong><span>注釈を消したチャートを見て、形の名前を当てます。10問。</span><button type="button" class="btn ghost" data-review="chart">始める</button></div></div>';
+      '<div class="tile static"><strong>チャート当てクイズ</strong><span>注釈を消したチャートを見て、形の名前を当てます。10問。</span><button type="button" class="btn ghost" data-review="chart">始める</button></div></div></section>';
     var boxes = [0, 0, 0, 0, 0, 0];
     Object.keys(state.srs).forEach(function (id) { if (qById[id]) boxes[state.srs[id].box]++; });
     if (learned) {
@@ -498,7 +547,7 @@
 
   /* ---- ツール ---- */
   function viewTools() {
-    var h = '<div class="page-head"><h1>ツール</h1><p class="lead">知識を判断に変えるための3つの道具です。入力した内容と日誌は、このブラウザの中だけに保存されます。</p></div>';
+    var h = '<div class="page-head"><h1>ツール</h1><p class="lead">知識を判断に変えるための道具です。学習の進み具合は、このブラウザの中だけに保存されます。</p></div>';
     // ポジションサイズ
     h += '<section class="tool" id="tool-size"><h2>ポジションサイズ計算機</h2><p class="sub">1回の取引で失ってよい額から、買う株数を逆算します。<a href="#lesson-position-size">考え方のレッスン</a></p>' +
       '<div class="form">' +
@@ -512,25 +561,12 @@
       '<div class="form">' + field('sim-win', '勝率(%)', 40, 1) + field('sim-rr', '平均利益 ÷ 平均損失', 3, 0.1) + field('sim-risk', '1回のリスク(資金の%)', 1, 0.1) + field('sim-n', '取引回数', 100, 10) + '</div>' +
       '<p><button type="button" class="btn ghost" id="sim-run">もう一度試す</button></p>' +
       '<div class="result" id="sim-out" aria-live="polite"></div><figure class="fig"><div class="chart" id="sim-chart"></div><figcaption>細い線は個々の試行(30本を表示)、太い線は中央値。開始時の資産を100とした推移。</figcaption></figure></section>';
-    // 日誌
-    h += '<section class="tool" id="tool-journal"><h2>トレード日誌</h2><p class="sub">決済した取引を記録すると、勝率・損益比・期待値を集計します。<a href="#lesson-journal">考え方のレッスン</a></p>' +
-      '<form id="j-form" class="form" novalidate>' +
-      '<label>決済日<input type="date" id="j-date" value="' + today() + '"></label><label>銘柄<input type="text" id="j-sym" placeholder="例: 7203 / AAPL" autocomplete="off"></label>' +
-      '<label>通貨<select id="j-cur"><option value="JPY">円</option><option value="USD">ドル</option></select></label>' +
-      '<label>売買<select id="j-side"><option value="long">買い</option><option value="short">空売り</option></select></label>' +
-      '<label>型<select id="j-setup"><option>ブレイクアウト</option><option>押し目買い</option><option>決算ギャップ</option><option>中長期(業績)</option><option>逆張り</option><option>その他</option></select></label>' +
-      '<label>株数<input type="number" id="j-qty" step="1" min="1" inputmode="numeric"></label><label>買値(建値)<input type="number" id="j-entry" step="0.01" inputmode="decimal"></label>' +
-      '<label>当初の損切り価格<input type="number" id="j-stop" step="0.01" inputmode="decimal"></label><label>決済価格<input type="number" id="j-exit" step="0.01" inputmode="decimal"></label>' +
-      '<label>ルールを守れたか<select id="j-rule"><option value="1">守れた</option><option value="0">破った</option></select></label>' +
-      '<label class="wide">振り返り(買った理由、感情、次に活かすこと)<input type="text" id="j-memo" autocomplete="off"></label>' +
-      '<div class="wide"><button type="submit" class="btn">記録する</button> <span id="j-msg" class="form-msg" role="status"></span></div></form>' +
-      '<div id="j-out"></div></section>';
     // チェックリスト
     h += '<section class="tool"><h2>買う前のチェックリスト</h2><ul class="checklist">' + [
       '相場全体(指数)は上昇トレンドか', '業績の裏付け、または明確な理由(材料)があるか', '株価は上昇トレンド(ステージ2)にあるか', '買い場は自分の型に合っているか。飛びつきではないか',
       '損切り価格を決めたか。買値から8%以内か', '株数は許容リスク(資金の1%前後)から計算したか', '利益目標は損失の2倍以上あるか', '決算発表日を確認したか', '買うと同時に損切りの逆指値を入れるか'
     ].map(function (x, i) { return '<li><label><input type="checkbox" id="ck-' + i + '"> ' + x + '</label></li>'; }).join('') + '</ul></section>';
-    h += '<section class="tool"><h2>記録のバックアップ</h2><p class="sub">学習の進み具合と日誌は、このブラウザにだけ保存されています。別の端末に移す時は、下の文字列をコピーして、移行先で貼り付けて読み込んでください。</p>' +
+    h += '<section class="tool"><h2>記録のバックアップ</h2><p class="sub">学習の進み具合と復習の予定は、このブラウザにだけ保存されています。別の端末に移す時は、下の文字列をコピーして、移行先で貼り付けて読み込んでください。</p>' +
       '<textarea id="bk" rows="3" spellcheck="false" aria-label="バックアップ用の文字列"></textarea><p><button type="button" class="btn ghost" id="bk-out">現在の記録を書き出す</button> <button type="button" class="btn ghost" id="bk-in">貼り付けた記録を読み込む</button> <span id="bk-msg" class="form-msg" role="status"></span></p></section>';
     return h;
   }
@@ -605,56 +641,24 @@
   }
   function pct(v) { var x = v - 100; return (x >= 0 ? '+' : '') + x.toFixed(0) + '%'; }
 
-  K.tradeR = function (t) { var s = t.side === 'short' ? -1 : 1, risk = Math.abs(t.entry - t.stop); return { pnl: (t.exit - t.entry) * s * t.qty, r: risk ? (t.exit - t.entry) * s / risk : 0 }; };
-  K.journalStats = function (list) {
-    var rs = list.map(function (t) { return K.tradeR(t).r; }), wins = rs.filter(function (r) { return r > 0; }), losses = rs.filter(function (r) { return r <= 0; });
-    var sum = function (a) { return a.reduce(function (x, y) { return x + y; }, 0); };
-    var gw = sum(wins), gl = Math.abs(sum(losses));
-    return { n: rs.length, win: rs.length ? wins.length / rs.length * 100 : 0, avgWin: wins.length ? gw / wins.length : 0, avgLoss: losses.length ? gl / losses.length : 0, exp: rs.length ? sum(rs) / rs.length : 0, pf: gl ? gw / gl : (gw ? Infinity : 0), total: sum(rs) };
-  };
-  function journalUpdate() {
-    var out = $('#j-out'); if (!out) return;
-    var list = state.journal;
-    if (!list.length) { out.innerHTML = '<p class="empty">まだ記録がありません。決済した取引を上のフォームから記録すると、ここに成績が表示されます。最初の目標は、少額で50回分の記録を集めることです。</p>'; return; }
-    var s = K.journalStats(list), broke = list.filter(function (t) { return !t.rule; }).length;
-    var bySetup = {};
-    list.forEach(function (t) { (bySetup[t.setup] = bySetup[t.setup] || []).push(t); });
-    var h = '<div class="stats"><div><span class="st-n">' + s.n + '<small>回</small></span><span class="st-l">取引数</span></div>' +
-      '<div><span class="st-n">' + s.win.toFixed(0) + '<small>%</small></span><span class="st-l">勝率</span></div>' +
-      '<div><span class="st-n">' + (s.avgLoss ? (s.avgWin / s.avgLoss).toFixed(2) : '–') + '</span><span class="st-l">損益比(平均利益 ' + s.avgWin.toFixed(2) + 'R ÷ 平均損失 ' + s.avgLoss.toFixed(2) + 'R)</span></div>' +
-      '<div><span class="st-n ' + (s.exp > 0 ? 'up' : s.exp < 0 ? 'down' : '') + '">' + (s.exp > 0 ? '+' : '') + s.exp.toFixed(2) + '<small>R</small></span><span class="st-l">期待値(1回あたり)</span></div>' +
-      '<div><span class="st-n">' + (isFinite(s.pf) ? s.pf.toFixed(2) : '∞') + '</span><span class="st-l">プロフィットファクター</span></div>' +
-      '<div><span class="st-n">' + broke + '<small>回</small></span><span class="st-l">ルール違反</span></div></div>';
-    if (s.n < 30) h += '<p class="calc">取引数が30回未満のうちは、数字は運に大きく左右されます。まだ結論を出さず、記録を続けてください。</p>';
-    h += '<h3>型ごとの成績</h3><div class="table-wrap"><table><thead><tr><th>型</th><th>回数</th><th>勝率</th><th>期待値</th></tr></thead><tbody>' + Object.keys(bySetup).map(function (k) {
-      var x = K.journalStats(bySetup[k]); return '<tr><td>' + esc(k) + '</td><td>' + x.n + '</td><td>' + x.win.toFixed(0) + '%</td><td class="' + (x.exp > 0 ? 'up' : x.exp < 0 ? 'down' : '') + '">' + (x.exp > 0 ? '+' : '') + x.exp.toFixed(2) + 'R</td></tr>';
-    }).join('') + '</tbody></table></div>';
-    h += '<h3>記録</h3><div class="table-wrap"><table class="journal"><thead><tr><th>決済日</th><th>銘柄</th><th>型</th><th>損益</th><th>R</th><th>ルール</th><th>振り返り</th><th></th></tr></thead><tbody>' + list.slice().reverse().map(function (t) {
-      var r = K.tradeR(t), cls = r.pnl > 0 ? 'up' : r.pnl < 0 ? 'down' : '';
-      return '<tr><td>' + esc(t.date) + '</td><td>' + esc(t.sym) + (t.side === 'short' ? '(売)' : '') + '</td><td>' + esc(t.setup) + '</td><td class="' + cls + '">' + (r.pnl > 0 ? '+' : '') + (t.cur === 'USD' ? '$' + r.pnl.toFixed(2) : yen(r.pnl) + '円') + '</td><td class="' + cls + '">' + (r.r > 0 ? '+' : '') + r.r.toFixed(2) + '</td><td>' + (t.rule ? '○' : '<span class="down">×</span>') + '</td><td class="memo">' + esc(t.memo || '') + '</td><td><button type="button" class="link" data-del="' + t.id + '">削除</button></td></tr>';
-    }).join('') + '</tbody></table></div>';
-    out.innerHTML = h;
-  }
-  function journalAdd() {
-    var t = { id: Date.now(), date: $('#j-date').value || today(), sym: $('#j-sym').value.trim(), cur: $('#j-cur').value, side: $('#j-side').value, setup: $('#j-setup').value,
-      qty: num('j-qty'), entry: num('j-entry'), stop: num('j-stop'), exit: num('j-exit'), rule: $('#j-rule').value === '1', memo: $('#j-memo').value.trim() };
-    var msg = $('#j-msg');
-    if (!t.sym) { msg.textContent = '銘柄を入力してください。'; $('#j-sym').focus(); return; }
-    if (!(t.qty > 0 && t.entry > 0 && t.stop > 0 && t.exit > 0)) { msg.textContent = '株数・買値・損切り価格・決済価格を0より大きい数字で入力してください。'; return; }
-    if (t.stop === t.entry) { msg.textContent = '損切り価格が買値と同じだと、リスク(R)を計算できません。'; return; }
-    if ((t.side === 'long') !== (t.stop < t.entry)) { msg.textContent = t.side === 'long' ? '買いの損切り価格は、買値より低くしてください。' : '空売りの損切り価格は、建値より高くしてください。'; return; }
-    state.journal.push(t); save();
-    ['j-sym', 'j-qty', 'j-entry', 'j-stop', 'j-exit', 'j-memo'].forEach(function (id) { $('#' + id).value = ''; });
-    msg.textContent = '記録しました。';
-    journalUpdate();
-  }
-
   function notFound() { return '<div class="page-head"><h1>ページが見つかりません</h1><p class="lead"><a href="#home">ホームへ戻る</a></p></div>'; }
 
   /* ================= ルーティング ================= */
-  var NAV = [['home', 'ホーム'], ['course', 'カリキュラム'], ['macro', '因果マップ'], ['charts', 'チャート'], ['traders', 'トレーダー'], ['review', '復習'], ['tools', 'ツール'], ['glossary', '用語集']];
-  var NAV_OF = { lesson: 'course', chart: 'charts', trader: 'traders', search: '' };
+  var DOCK_L = [['home', 'ホーム', 'home'], ['course', '章', 'book']];
+  var DOCK_M = [['macro', '因果', 'flow'], ['charts', 'チャート', 'candle'], ['traders', '人物', 'person']];
+  var MENU = [['home', 'ホーム', 'home', ''], ['course', 'カリキュラム', 'book', '全8章'], ['macro', '因果マップ', 'flow', '金利・CPI・為替'], ['charts', 'チャート図鑑', 'candle', '形と出来高'], ['traders', 'トレーダー研究', 'person', '実績者の考え方'], ['review', '復習', 'redo', '間隔反復とクイズ'], ['tools', 'ツール', 'tool', '株数計算・期待値'], ['glossary', '用語集', 'abc', '']];
+  var NAV_OF = { lesson: 'course', chart: 'charts', trader: 'traders' };
   var query = '';
+  function dockHTML(cur) {
+    var grp = function (list) { return '<div class="dock-group">' + list.map(function (n) { return '<a href="#' + n[0] + '"' + (n[0] === cur ? ' aria-current="page"' : '') + '>' + ico(n[2]) + '<span>' + n[1] + '</span></a>'; }).join('') + '</div>'; };
+    var nx = nextLesson(), due = dueList().length;
+    var fab = due ? ['#review', '今日の復習を始める', 'redo'] : nx ? ['#lesson-' + nx.id, '続きから学ぶ: ' + nx.t, 'play'] : ['#review', '復習する', 'redo'];
+    return grp(DOCK_L) + grp(DOCK_M) + '<a class="fab" href="' + fab[0] + '" aria-label="' + esc(fab[1]) + '" title="' + esc(fab[1]) + '">' + ico(fab[2]) + '</a>';
+  }
+  function openMenu() {
+    $('#sheet-body').innerHTML = '<h2 id="sheet-title">メニュー</h2><ul class="menu">' + MENU.map(function (n) { return '<li><a href="#' + n[0] + '">' + ico(n[2]) + n[1] + '<span>' + n[3] + '</span></a></li>'; }).join('') + '</ul>';
+    $('#sheet').hidden = false; $('#sheet-close').focus();
+  }
   function route() {
     var hash = (location.hash || '#home').slice(1), cut = hash.indexOf('-'), name = cut < 0 ? hash : hash.slice(0, cut), arg = cut < 0 ? '' : hash.slice(cut + 1);
     var html;
@@ -676,16 +680,20 @@
     closeSheet();
     session = null;
     view.innerHTML = html;
-    var cur = NAV_OF[name] != null ? NAV_OF[name] : name;
-    $('#nav').innerHTML = NAV.map(function (n) { return '<a href="#' + n[0] + '"' + (n[0] === cur ? ' aria-current="page"' : '') + '>' + n[1] + '</a>'; }).join('');
-    var on = $('#nav [aria-current]'); if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'center' });
+    $('#dock').innerHTML = dockHTML(NAV_OF[name] || name);
+    var due = dueList().length, badge = $('#due-badge');
+    badge.hidden = !due; badge.textContent = due > 99 ? '99+' : due;
+    $('#top').classList.toggle('searching', name === 'search');
     if (name !== 'search') { $('#q').value = ''; query = ''; }
     document.documentElement.dataset.candle = state.candle;
+    var hero = $('#hero-chart');
+    if (hero) hero._draw = function (w) { hero.innerHTML = K.renderSpark(K.labSeries, w, Math.round(Math.max(190, Math.min(300, w * 0.5))), true); };
     if (name === 'charts') labUpdate();
-    if (name === 'tools') { sizeUpdate(); simUpdate(); journalUpdate(); }
+    if (name === 'tools') { sizeUpdate(); simUpdate(); }
     drawCharts(view);
+    Array.prototype.forEach.call(view.querySelectorAll('[data-spark]'), function (el) { el.innerHTML = K.renderSpark(chartById[el.dataset.spark], 96, 96); });
     if (name === 'macro' && arg) { var det = $('#macro-detail'); if (det) det.scrollIntoView({ block: 'start' }); }
-    else if (!(name === 'course' && arg) && name !== 'search') window.scrollTo(0, 0);
+    else if (name !== 'search') window.scrollTo(0, 0);
   }
   function goSearch(q) {
     query = q; $('#q').value = q;
@@ -699,25 +707,27 @@
   $('#search-form').addEventListener('submit', function (e) { e.preventDefault(); clearTimeout(st); goSearch($('#q').value.trim()); });
 
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-term],[data-q],.opt,[data-review],#next-q,button[data-candle],[data-del],#sim-run,#sheet-close,#bk-out,#bk-in,[data-reload]');
+    var t = e.target.closest('#menu-btn,#search-open,#search-close,[data-term],[data-q],.opt,[data-review],#next-q,button[data-candle],#sim-run,#sheet-close,#bk-out,#bk-in,[data-reload]');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
+    if (t.id === 'menu-btn') { openMenu(); return; }
+    if (t.id === 'search-open') { $('#top').classList.add('searching'); $('#q').focus(); if (location.hash !== '#search') location.hash = '#search'; return; }
+    if (t.id === 'search-close') { if (location.hash === '#search') { if (history.length > 1) history.back(); else location.hash = '#home'; } return; }
     if (t.dataset.term) { openTerm(t.dataset.term); return; }
     if (t.dataset.q) { closeSheet(); goSearch(t.dataset.q); return; }
     if (t.classList.contains('opt')) { answer(t); return; }
     if (t.dataset.review) { startSession(t.dataset.review); return; }
     if (t.id === 'next-q') { session.i++; showSession(); return; }
     if (t.dataset.candle) { state.candle = t.dataset.candle; save(); route(); return; }
-    if (t.dataset.del) { state.journal = state.journal.filter(function (x) { return String(x.id) !== t.dataset.del; }); save(); journalUpdate(); return; }
-    if (t.id === 'sim-run') { simUpdate(); return; }
+        if (t.id === 'sim-run') { simUpdate(); return; }
     if (t.id === 'sheet-close') { closeSheet(); return; }
     if (t.dataset.reload) { e.preventDefault(); route(); return; }
     if (t.id === 'bk-out') { $('#bk').value = JSON.stringify(state); $('#bk').select(); $('#bk-msg').textContent = '書き出しました。全体をコピーして保管してください。'; return; }
     if (t.id === 'bk-in') {
       try {
         var o = JSON.parse($('#bk').value);
-        if (!o || typeof o !== 'object' || !o.done || !o.srs || !Array.isArray(o.journal)) throw new Error('形式');
-        state = Object.assign({ done: {}, srs: {}, journal: [], candle: 'us', last: null }, o); save();
-        $('#bk-msg').textContent = '読み込みました。'; journalUpdate();
+        if (!o || typeof o !== 'object' || !o.done || !o.srs) throw new Error('形式');
+        state = { done: o.done, srs: o.srs, candle: o.candle === 'jp' ? 'jp' : 'us', last: o.last || null }; save();
+        $('#bk-msg').textContent = '読み込みました。';
       } catch (err) { $('#bk-msg').textContent = '読み込めませんでした。書き出した文字列を、欠けのないよう全て貼り付けてください。'; }
     }
   });
@@ -734,10 +744,9 @@
     else if (id.indexOf('lab-') === 0) labUpdate();
   });
   document.addEventListener('change', function (e) { var id = e.target.id || ''; if (id.indexOf('lab-') === 0) labUpdate(); else if (id === 'ps-mkt') { if (e.target.value === 'us') { $('#ps-entry').value = 100; $('#ps-stop').value = 94; } else { $('#ps-entry').value = 2000; $('#ps-stop').value = 1880; } sizeUpdate(); } });
-  document.addEventListener('submit', function (e) { if (e.target.id === 'j-form') { e.preventDefault(); journalAdd(); } });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') closeSheet();
-    if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $('#q').focus(); }
+    if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $('#search-open').click(); }
   });
 
   route();

@@ -262,4 +262,24 @@
     if (opt.xlabel) s += '<text class="c-axis" x="6" y="' + (h - 6) + '">' + esc(opt.xlabel) + '</text>';
     return s + '</svg>';
   };
+  /* 小さな絵としてのチャート(暗い地に、色の移ろう線)。hero=true でホームの大きな絵 */
+  var sparkN = 0;
+  K.renderSpark = function (def, w, h, hero) {
+    var d = build(def), n = d.length, lo = Infinity, hi = -Infinity, i, id = 'sg' + (++sparkN);
+    for (i = 0; i < n; i++) { lo = Math.min(lo, d[i].c); hi = Math.max(hi, d[i].c); }
+    var pad = hero ? 0.26 : 0.18, top = h * pad, bot = h * (hero ? 0.22 : 0.18);
+    var X = function (i) { return i / (n - 1) * w; }, Y = function (p) { return top + (hi - p) / (hi - lo) * (h - top - bot); };
+    var line = '';
+    for (i = 0; i < n; i++) line += (i ? 'L' : 'M') + f1(X(i)) + ' ' + f1(Y(d[i].c));
+    var s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true"><defs>' +
+      '<linearGradient id="' + id + '" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#5b7cff"/><stop offset="0.45" stop-color="#c05cf0"/><stop offset="0.75" stop-color="#ff5d8f"/><stop offset="1" stop-color="#ffb36b"/></linearGradient>' +
+      '<linearGradient id="' + id + 'f" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#b060f0" stop-opacity="0.42"/><stop offset="1" stop-color="#b060f0" stop-opacity="0"/></linearGradient></defs>';
+    s += '<path d="' + line + 'L' + w + ' ' + h + 'L0 ' + h + 'Z" fill="url(#' + id + 'f)"/>';
+    if (hero) {
+      var cw = Math.max(1.5, w / n * 0.5);
+      for (i = 0; i < n; i++) { var vh = d[i].v * h * 0.045; s += '<rect x="' + f1(X(i) - cw / 2) + '" y="' + f1(h - vh) + '" width="' + f1(cw) + '" height="' + f1(vh) + '" fill="#ffffff" fill-opacity="0.13"/>'; }
+    }
+    s += '<path d="' + line + '" fill="none" stroke="url(#' + id + ')" stroke-width="' + (hero ? 3 : 2.2) + '" stroke-linejoin="round" stroke-linecap="round"/>';
+    return s + '</svg>';
+  };
 })();

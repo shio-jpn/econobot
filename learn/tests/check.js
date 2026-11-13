@@ -4,7 +4,7 @@ var fs = require('fs'), path = require('path'), vm = require('vm'), assert = req
 var root = path.join(__dirname, '..');
 var store = {};
 var noop = function () {};
-var el = function () { return { addEventListener: noop, dataset: {}, style: {}, classList: { add: noop }, querySelectorAll: function () { return []; }, querySelector: function () { return null; }, scrollIntoView: noop, focus: noop, set innerHTML(v) {}, value: '' }; };
+var el = function () { return { addEventListener: noop, dataset: {}, style: {}, classList: { add: noop, toggle: noop }, querySelectorAll: function () { return []; }, querySelector: function () { return null; }, scrollIntoView: noop, focus: noop, set innerHTML(v) {}, value: '' }; };
 var win = { addEventListener: noop, scrollTo: noop, localStorage: { getItem: function (k) { return store[k] || null; }, setItem: function (k, v) { store[k] = v; } } };
 var ctx = { window: win, document: { querySelector: el, querySelectorAll: function () { return []; }, addEventListener: noop, documentElement: { dataset: {} }, activeElement: { tagName: 'BODY' } }, location: { hash: '' }, localStorage: win.localStorage, setTimeout: setTimeout, clearTimeout: clearTimeout, console: console };
 vm.createContext(ctx);
@@ -20,6 +20,7 @@ var ids = {}; lessons.forEach(function (l) { ids[l.id] = 1; });
 var charts = {}; K.charts.forEach(function (c) { charts[c.id] = c; });
 var terms = {}; K.glossary.forEach(function (g) { terms[g.name] = 1; });
 
+ok('アプリ本体が読み込める(章ごとの画面を組み立てられる)', function () { assert.strictEqual(typeof K.search, 'function'); assert.strictEqual(typeof K.renderSpark, 'function'); assert(K.renderSpark(K.labSeries, 300, 150, true).indexOf('NaN') < 0); });
 ok('レッスンのIDは重複せず、URLに使える文字だけ', function () {
   assert.strictEqual(Object.keys(ids).length, lessons.length);
   lessons.concat(K.charts, K.macro, K.traders, K.stages).forEach(function (x) { assert(/^[a-z0-9-]+$/.test(x.id), x.id); });
@@ -85,11 +86,8 @@ ok('ポジションサイズ: 日本株は100株単位に切り捨て、米国�
   var us = K.calcSize({ mkt: 'us', cap: 3000000, risk: 1, entry: 100, stop: 94, fx: 150 });
   assert.strictEqual(us.shares, 33); assert.strictEqual(us.loss, 33 * 6 * 150);
 });
-ok('期待値と日誌の集計', function () {
+ok('期待値の計算', function () {
   var r = K.simulate({ win: 35, rr: 4, risk: 1, n: 50, paths: 20 }, Math.random);
   assert(Math.abs(r.exp - 0.75) < 1e-9); assert.strictEqual(r.med.length, 51);
-  var s = K.journalStats([{ side: 'long', entry: 100, stop: 95, exit: 115, qty: 10 }, { side: 'long', entry: 100, stop: 95, exit: 95, qty: 10 }, { side: 'short', entry: 100, stop: 105, exit: 90, qty: 10 }]);
-  assert.strictEqual(s.n, 3); assert(Math.abs(s.win - 66.666) < 0.01); assert(Math.abs(s.exp - (3 - 1 + 2) / 3) < 1e-9); assert.strictEqual(s.pf, 5);
-  assert.strictEqual(K.tradeR({ side: 'short', entry: 100, stop: 105, exit: 90, qty: 10 }).pnl, 100);
 });
 console.log('\n' + n + '件のチェックに合格。レッスン ' + lessons.length + ' / 問題 ' + lessons.reduce(function (a, l) { return a + l.quiz.length; }, 0) + ' / 用語 ' + K.glossary.length + ' / 因果マップ ' + K.macro.length + ' / チャート ' + K.charts.length + ' / 人物 ' + K.traders.length);
