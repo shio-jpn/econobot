@@ -32,6 +32,16 @@ ok('全レッスンに本文と2問以上の確認問題(4択・解説つき)が
     l.quiz.forEach(function (q) { assert.strictEqual(q.a.length, 4, l.id); assert(q.e, l.id); assert.strictEqual(new Set(q.a).size, 4, l.id + ' 選択肢の重複'); });
   });
 });
+ok('応用・実戦レッスンが5つの章に入り、ケース演習は章にひもづく', function () {
+  ['macro', 'fundamentals', 'technical', 'risk', 'strategy'].forEach(function (id) {
+    var st = K.stages.filter(function (x) { return x.id === id; })[0];
+    assert(st.lessons.filter(function (l) { return l.lv; }).length >= 4, id);
+    assert(K.cases.filter(function (c) { return c.ch === id; }).length >= 4, id);
+  });
+  var seen = {};
+  K.cases.forEach(function (c) { assert(!seen[c.id] && /^c-[a-z-]+$/.test(c.id), c.id); seen[c.id] = 1; assert.strictEqual(new Set(c.a).size, 4, c.id); assert(c.e && c.q, c.id); });
+  lessons.forEach(function (l) { assert(!l.lv || l.lv === '応用' || l.lv === '実戦', l.id); });
+});
 ok('本文が参照するチャートと図は存在する', function () {
   lessons.forEach(function (l) {
     (l.body.match(/\{chart:([\w-]+)\}/g) || []).forEach(function (m) { assert(charts[m.slice(7, -1)], l.id + ' ' + m); });
@@ -90,4 +100,4 @@ ok('期待値の計算', function () {
   var r = K.simulate({ win: 35, rr: 4, risk: 1, n: 50, paths: 20 }, Math.random);
   assert(Math.abs(r.exp - 0.75) < 1e-9); assert.strictEqual(r.med.length, 51);
 });
-console.log('\n' + n + '件のチェックに合格。レッスン ' + lessons.length + ' / 問題 ' + lessons.reduce(function (a, l) { return a + l.quiz.length; }, 0) + ' / 用語 ' + K.glossary.length + ' / 因果マップ ' + K.macro.length + ' / チャート ' + K.charts.length + ' / 人物 ' + K.traders.length);
+console.log('\n' + n + '件のチェックに合格。レッスン ' + lessons.length + ' / 問題 ' + lessons.reduce(function (a, l) { return a + l.quiz.length; }, 0) + ' / 用語 ' + K.glossary.length + ' / 因果マップ ' + K.macro.length + ' / チャート ' + K.charts.length + ' / 人物 ' + K.traders.length + ' / ケース ' + K.cases.length);

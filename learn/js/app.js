@@ -8,7 +8,7 @@
 
   /* ================= 保存(ブラウザ内) ================= */
   var KEY = 'kabu-dojo-v1';
-  var state = { done: {}, srs: {}, candle: 'us', last: null };
+  var state = { done: {}, srs: {}, tests: {}, candle: 'us', last: null };
   try { var raw = localStorage.getItem(KEY); if (raw) Object.assign(state, JSON.parse(raw)); } catch (e) { /* 保存領域が使えなくても動かす */ }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* noop */ } }
 
@@ -25,6 +25,40 @@
   K.traders.forEach(function (t) { traderById[t.id] = t; });
   K.macro.forEach(function (m) { macroById[m.id] = m; });
   var qById = {}; questions.forEach(function (q) { qById[q.id] = q; });
+  var stageById = {}; K.stages.forEach(function (st) { stageById[st.id] = st; });
+  /* ケース演習(判断の練習)と用語カード(定義から用語を当てる)も、同じ間隔反復に乗せる */
+  K.cases.forEach(function (c) { c.kind = 'case'; qById[c.id] = c; });
+  var termCards = K.glossary.map(function (g) {
+    var same = K.glossary.filter(function (x) { return x.cat === g.cat && x !== g; });
+    var pick = [], seed = g.name.length * 7 + g.def.length;
+    while (pick.length < 3) { var c = same[seed % same.length]; seed = (seed * 31 + 17) % 100003; if (pick.indexOf(c) < 0) pick.push(c); }
+    var hide = new RegExp([g.name].concat(g.aka.filter(function (x) { return x.length > 1; })).map(function (x) { return x.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&'); }).join('|'), 'gi');
+    return { id: 'term-' + g.name, kind: 'term', term: g, q: '次の説明に当てはまる用語は? 「' + g.def.replace(hide, '○○') + '」', a: [g.name].concat(pick.map(function (x) { return x.name; })), e: g.name + ': ' + g.def };
+  });
+  termCards.forEach(function (c) { qById[c.id] = c; });
+  function chapterOf(q) { return q.lesson ? q.lesson.stage.id : q.kind === 'case' ? q.ch : null; }
+  /* 定着度: その章の問題とケースが、復習の箱(0〜5)のどこまで進んだか */
+  function mastery(stId) {
+    var ids = Object.keys(qById).filter(function (id) { return chapterOf(qById[id]) === stId; });
+    var sum = 0; ids.forEach(function (id) { if (state.srs[id]) sum += Math.min(4, state.srs[id].box) / 4; });
+    return ids.length ? Math.round(sum / ids.length * 100) : 0;
+  }
+  function doneRate(st) { return Math.round(st.lessons.filter(function (l) { return state.done[l.id]; }).length / st.lessons.length * 100); }
+  var RANKS = [[0, '入門'], [10, '初級'], [30, '中級'], [55, '上級'], [80, 'ベテラン級']];
+  function overall() {
+    var m = 0; K.stages.forEach(function (st) { m += mastery(st.id); }); m = Math.round(m / K.stages.length);
+    var tm = 0; termCards.forEach(function (c) { if (state.srs[c.id]) tm += Math.min(4, state.srs[c.id].box) / 4; }); tm = Math.round(tm / termCards.length * 100);
+    var score = Math.round(m * 0.75 + tm * 0.25), rank = RANKS[0][1];
+    RANKS.forEach(function (r) { if (score >= r[0]) rank = r[1]; });
+    return { score: score, rank: rank, terms: tm };
+  }
+  function lvTag(l) { return l.lv ? '<span class="lv' + (l.lv === '実戦' ? ' l2' : '') + '">' + l.lv + '</span>' : ''; }
+  function skillHTML() {
+    return '<div class="skill">' + K.stages.map(function (st, i) {
+      var d = doneRate(st), m = mastery(st.id);
+      return '<a class="skill-row" href="#course-' + st.id + '"><strong>' + chapterNo(i) + ' ' + esc(st.title) + '</strong><em>修了 ' + d + '% ・ 定着 ' + m + '%</em><span class="pbar"><i style="width:' + d + '%"></i><i style="width:' + m + '%"></i></span></a>';
+    }).join('') + '</div><p class="legend"><span><i></i>読んだ(修了)</span><span><i class="on"></i>覚えている(定着)</span></p>';
+  }
 
   /* ================= 小道具 ================= */
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
@@ -306,7 +340,7 @@
     st.lessons.forEach(function (l) {
       var c = lessonChart(l);
       if (c) tiles += '<a class="mini pic" href="#lesson-' + l.id + '" aria-label="' + esc(l.t) + '(チャート)" data-spark="' + c.id + '"></a>';
-      tiles += '<a class="mini' + (state.done[l.id] ? ' done' : '') + '" href="#lesson-' + l.id + '"><span>' + esc(l.t) + '</span></a>';
+      tiles += '<a class="mini' + (state.done[l.id] ? ' done' : '') + '" href="#lesson-' + l.id + '"><span>' + esc(l.t) + '</span>' + lvTag(l) + '</a>';
     });
     return '<section class="shelf"><a class="shelf-head" href="#course-' + st.id + '">' + ico(STAGE_ICON[i], 'hue-' + i) + '<strong>' + esc(st.title) + '</strong><span class="shelf-n">' + d + ' / ' + st.lessons.length + ' ›</span></a><div class="shelf-row">' + tiles + '</div></section>';
   }
@@ -318,6 +352,9 @@
       '<div class="actions">' + (nx ? '<a class="btn" href="#lesson-' + nx.id + '">' + (p.n ? '続きから学ぶ' : '学習を始める') + '</a>' : '') + (due ? '<a class="btn ghost" href="#review">今日の復習 ' + due + '問</a>' : '') + '</div>' +
       '<p class="stamp">' + chapterNo(nx ? nx.stageNo : 7) + ' ' + esc((nx || lessons[lessons.length - 1]).stage.title) + '</p></section>';
     K.stages.forEach(function (st, i) { h += shelf(st, i); });
+    var ov = overall();
+    h += '<section><h2>習熟マップ</h2><p class="rank"><strong>' + ov.rank + '</strong><span class="sub">知識の定着 ' + ov.score + '%(章の問題・ケース 75%、用語 25%)</span></p>' + skillHTML() +
+      '<p class="sub">「定着」は、間隔を空けた復習で正解を重ねた割合です。読んだだけでは上がりません。全章の定着が80%を超えると、ベテランが持つ知識の土台がそろいます。</p></section>';
     h += '<section><h2>勝ち残る人に共通する5つの原則</h2><p class="sub">片山晃、テスタ、オニール、ミネルヴィニ、ドラッケンミラーなど、手法も時間軸も違う投資家が同じことを語っています。<a href="#traders">トレーダー研究へ</a></p><ol class="principles">' +
       K.principles.map(function (x) { return '<li><strong>' + esc(x[0]) + '</strong><span>' + esc(x[1]) + '</span></li>'; }).join('') + '</ol></section>';
     h += '<section><h2>調べる・試す</h2><div class="tiles">' +
@@ -352,10 +389,18 @@
     K.charts.forEach(function (c) { if (body.indexOf('{chart:' + c.id + '}') >= 0) cs.push(c); });
     var counts = termNames.map(function (n) { return [n, body.split(n).length - 1]; }).filter(function (x) { return x[1] > 0; }).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 14);
     var h = chapterNav(st.id) + '<div class="page-head"><p class="eyebrow">' + chapterNo(i) + ' ・ ' + st.lessons.length + 'レッスン</p><h1>' + ico(STAGE_ICON[i], 'hue-' + i) + ' ' + esc(st.title) + '</h1><p class="lead">' + esc(st.goal) + '</p>' +
-      '<div class="pbar"><i style="width:' + Math.round(d / st.lessons.length * 100) + '%"></i></div><p class="sub">' + d + ' / ' + st.lessons.length + ' 修了</p></div>';
-    h += '<section><h2>レッスン</h2><ul class="lesson-list">' + st.lessons.map(function (l) {
-      return '<li><a href="#lesson-' + l.id + '" class="' + (state.done[l.id] ? 'done' : '') + '"><span class="check" aria-hidden="true">' + (state.done[l.id] ? '✓' : '') + '</span><span class="ll-body"><strong>' + esc(l.t) + '</strong><span>' + esc(l.sum) + '</span></span></a></li>';
-    }).join('') + '</ul></section>';
+      '<div class="pbar"><i style="width:' + Math.round(d / st.lessons.length * 100) + '%"></i></div><p class="sub">' + d + ' / ' + st.lessons.length + ' 修了 ・ 定着度 ' + mastery(st.id) + '%</p></div>';
+    var listOf = function (ls) {
+      return '<ul class="lesson-list">' + ls.map(function (l) {
+        return '<li><a href="#lesson-' + l.id + '" class="' + (state.done[l.id] ? 'done' : '') + '"><span class="check" aria-hidden="true">' + (state.done[l.id] ? '✓' : '') + '</span><span class="ll-body"><strong>' + esc(l.t) + lvTag(l) + '</strong><span>' + esc(l.sum) + '</span></span></a></li>';
+      }).join('') + '</ul>';
+    };
+    var base = st.lessons.filter(function (l) { return !l.lv; }), adv = st.lessons.filter(function (l) { return l.lv; });
+    h += '<section><h2>' + (adv.length ? '基礎' : 'レッスン') + '</h2>' + listOf(base) + '</section>';
+    if (adv.length) h += '<section><h2>応用・実戦</h2><p class="sub">基礎を終えてから進みます。「応用」は一段深い知識、「実戦」は売買の手順に落とし込んだ内容です。</p>' + listOf(adv) + '</section>';
+    var nCase = K.cases.filter(function (c) { return c.ch === st.id; }).length, best = state.tests[st.id];
+    h += '<section><h2>章末テスト</h2><p class="sub">この章の確認問題' + (nCase ? 'とケース演習' : '') + 'から10問を出題します。8問以上の正解で合格です。' + (best != null ? ' これまでの最高: ' + best + ' / 10' + (best >= 8 ? '(合格)' : '') : '') + '</p><p><button type="button" class="btn' + (best >= 8 ? ' ghost' : '') + '" data-review="test-' + st.id + '">章末テストを始める</button>' +
+      (nCase ? ' <button type="button" class="btn ghost" data-review="case-' + st.id + '">この章のケース演習(' + nCase + '問)</button>' : '') + '</p><div id="session"></div></section>';
     if (macros.length) h += '<section><h2>この章の因果マップ</h2><div class="chips">' + macros.map(function (m) { return '<a class="chip" href="#macro-' + m.id + '">' + esc(m.title) + '</a>'; }).join('') + '</div></section>';
     if (cs.length) h += '<section><h2>この章のチャート</h2><div class="chart-grid">' + cs.map(function (c) { return '<a class="chart-card" href="#chart-' + c.id + '"><div class="chart" data-chart="' + c.id + '" data-plain="1"></div><strong>' + esc(c.name) + '</strong></a>'; }).join('') + '</div></section>';
     if (who.length) h += '<section><h2>この章で参考にする投資家</h2><div class="trader-grid">' + who.map(function (t) { return '<a class="trader-card" href="#trader-' + t.id + '"><strong>' + esc(t.name) + '</strong><span>' + esc(t.style) + '</span></a>'; }).join('') + '</div></section>';
@@ -374,7 +419,7 @@
     var who = K.traders.filter(function (t) { return t.lessons.indexOf(id) >= 0; });
     var inCh = l.stage.lessons.indexOf(l) + 1;
     var h = '<article class="lesson"><div class="lesson-head"><p class="crumb"><a href="#course-' + l.stage.id + '">' + chapterNo(l.stageNo) + ' ' + esc(l.stage.title) + '</a> ・ ' + inCh + ' / ' + l.stage.lessons.length + (state.done[id] ? ' ・ <span class="up">修了済み</span>' : '') + '</p>' +
-      '<h1>' + esc(l.t) + '</h1><p class="lead">' + esc(l.sum) + '</p></div><div class="prose">' + md(l.body) + '</div>';
+      '<h1>' + esc(l.t) + lvTag(l) + '</h1><p class="lead">' + esc(l.sum) + '</p></div><div class="prose">' + md(l.body) + '</div>';
     if (related.length || who.length) {
       h += '<aside class="card related"><h3>あわせて見る</h3><ul class="plain">' +
         related.map(function (m) { return '<li><span class="res-k">因果マップ</span> <a href="#macro-' + m.id + '">' + esc(m.title) + '</a></li>'; }).join('') +
@@ -502,12 +547,14 @@
     var h = '<div class="page-head"><h1>復習</h1><p class="lead">解いた問題は、正解するたびに 1日 → 3日 → 7日 → 16日 → 35日 と間隔を広げて出題します。間違えると最初に戻ります。忘れかけた頃に思い出すのが、最も記憶に残る方法です。</p></div>';
     h += '<section><div class="tiles three"><div class="tile static"><strong>今日の復習</strong><span>' + (due.length ? due.length + '問が出題待ちです。' : learned ? '今日の分は終わっています。' : 'レッスンの確認問題を解くと、ここに入ります。') + '</span>' +
       (due.length ? '<button type="button" class="btn" data-review="due">始める</button>' : '') + '</div>' +
-      '<div class="tile static"><strong>ランダム10問</strong><span>全' + questions.length + '問から出題。まだ読んでいない範囲の腕試しにも。</span><button type="button" class="btn ghost" data-review="random">始める</button></div>' +
+      '<div class="tile static"><strong>ランダム10問</strong><span>確認問題 全' + questions.length + '問から出題。まだ読んでいない範囲の腕試しにも。</span><button type="button" class="btn ghost" data-review="random">始める</button></div>' +
+      '<div class="tile static"><strong>ケース演習</strong><span>相場の状況を読んで、どう動くかを選びます。全' + K.cases.length + '問から10問。</span><button type="button" class="btn ghost" data-review="case">始める</button></div>' +
+      '<div class="tile static"><strong>用語カード</strong><span>説明を読んで用語を当てます。全' + termCards.length + '語から10問。</span><button type="button" class="btn ghost" data-review="term">始める</button></div>' +
       '<div class="tile static"><strong>チャート当てクイズ</strong><span>注釈を消したチャートを見て、形の名前を当てます。10問。</span><button type="button" class="btn ghost" data-review="chart">始める</button></div></div></section>';
     var boxes = [0, 0, 0, 0, 0, 0];
     Object.keys(state.srs).forEach(function (id) { if (qById[id]) boxes[state.srs[id].box]++; });
     if (learned) {
-      h += '<section><h2>定着の状況</h2><p class="sub">右へ進むほど、長く覚えている問題です。</p><div class="boxes">' + boxes.map(function (n, i) {
+      h += '<section><h2>定着の状況</h2><p class="sub">右へ進むほど、長く覚えている問題です。確認問題・ケース演習・用語カードの合計です。</p><div class="boxes">' + boxes.map(function (n, i) {
         return '<div><span class="box-n">' + n + '</span><span class="box-l">' + (i === 0 ? 'やり直し' : GAPS[i] + '日後') + '</span></div>';
       }).join('') + '</div></section>';
     }
@@ -516,9 +563,18 @@
   }
   function startSession(kind) {
     var items;
+    var wrap = function (q) { return { q: q }; }, ch = kind.split('-').slice(1).join('-');
+    var fresh = function (list) { // まだ解いていないもの、次に定着の浅いものを優先
+      return shuffle(list).sort(function (a, b) { return (state.srs[a.id] ? state.srs[a.id].box + 1 : 0) - (state.srs[b.id] ? state.srs[b.id].box + 1 : 0); }).slice(0, 10);
+    };
     if (kind === 'due') items = shuffle(dueList()).slice(0, 20).map(function (id) { return { q: qById[id] }; });
-    else if (kind === 'random') items = shuffle(questions).slice(0, 10).map(function (q) { return { q: q }; });
-    else {
+    else if (kind === 'random') items = shuffle(questions).slice(0, 10).map(wrap);
+    else if (kind === 'term') items = shuffle(fresh(termCards)).map(wrap);
+    else if (kind.indexOf('case') === 0) items = shuffle(fresh(K.cases.filter(function (c) { return !ch || c.ch === ch; }))).map(wrap);
+    else if (kind.indexOf('test-') === 0) {
+      var pool = questions.filter(function (q) { return q.lesson.stage.id === ch; }), cs = shuffle(K.cases.filter(function (c) { return c.ch === ch; })).slice(0, 4);
+      items = shuffle(cs.concat(shuffle(pool).slice(0, 10 - cs.length))).map(wrap);
+    } else {
       var pool = K.charts.filter(function (c) { return c.quiz; });
       items = shuffle(pool).slice(0, 10).map(function (c) {
         var wrong = shuffle(pool.filter(function (x) { return x !== c; })).slice(0, 3).map(function (x) { return x.name; });
@@ -532,13 +588,19 @@
     var box = $('#session'), s = session;
     if (!box || !s) return;
     if (s.i >= s.items.length) {
-      box.innerHTML = '<section class="quiz"><h2>おつかれさまでした</h2><p>' + s.items.length + '問中 ' + s.right + '問正解。</p><a class="btn" href="#review" data-reload="1">復習の画面に戻る</a></section>';
+      var note = '';
+      if (s.kind.indexOf('test-') === 0) {
+        var tid = s.kind.slice(5), score = Math.round(s.right / s.items.length * 10);
+        if (!(state.tests[tid] >= score)) { state.tests[tid] = score; save(); }
+        note = score >= 8 ? ' 合格です。' : ' 合格は8問以上。間違えた問題は復習に入りました。該当するレッスンを読み直してから、もう一度挑戦してください。';
+      }
+      box.innerHTML = '<section class="quiz"><h2>おつかれさまでした</h2><p>' + s.items.length + '問中 ' + s.right + '問正解。' + note + '</p><a class="btn" href="' + (location.hash || '#review') + '" data-reload="1">戻る</a></section>';
       session = null; return;
     }
     var it = s.items[s.i];
     var qh = quizHTML(it.q, s.i, s.items.length);
     if (it.chart) qh = qh.replace('data-qid="undefined"', '').replace('<p class="q-t">', '<figure class="fig"><div class="chart" data-chart="' + it.chart.id + '" data-plain="1"></div></figure><p class="q-t">');
-    box.innerHTML = '<section class="quiz" id="session-quiz">' + (it.q.lesson ? '<p class="crumb">出典: <a href="#lesson-' + it.q.lesson.id + '">' + esc(it.q.lesson.t) + '</a></p>' : '') + qh +
+    box.innerHTML = '<section class="quiz" id="session-quiz">' + (it.q.lesson ? '<p class="crumb">出典: <a href="#lesson-' + it.q.lesson.id + '">' + esc(it.q.lesson.t) + '</a></p>' : it.q.kind === 'case' ? '<p class="crumb">ケース演習 ・ ' + esc(stageById[it.q.ch].title) + '</p>' : it.q.kind === 'term' ? '<p class="crumb">用語カード ・ ' + esc(it.q.term.cat) + '</p>' : '') + qh +
       '<div class="quiz-next" hidden><button type="button" class="btn" id="next-q">' + (s.i + 1 < s.items.length ? '次の問題' : '結果を見る') + '</button>' +
       (it.chart ? ' <a href="#chart-' + it.chart.id + '">このチャートの解説を見る</a>' : '') + '</div></section>';
     drawCharts(box);
@@ -726,7 +788,7 @@
       try {
         var o = JSON.parse($('#bk').value);
         if (!o || typeof o !== 'object' || !o.done || !o.srs) throw new Error('形式');
-        state = { done: o.done, srs: o.srs, candle: o.candle === 'jp' ? 'jp' : 'us', last: o.last || null }; save();
+        state = { done: o.done, srs: o.srs, tests: o.tests || {}, candle: o.candle === 'jp' ? 'jp' : 'us', last: o.last || null }; save();
         $('#bk-msg').textContent = '読み込みました。';
       } catch (err) { $('#bk-msg').textContent = '読み込めませんでした。書き出した文字列を、欠けのないよう全て貼り付けてください。'; }
     }
