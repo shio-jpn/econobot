@@ -51,6 +51,18 @@ ok('5つの章の基礎レッスン全てに「プロはここまで見る」の
   });
   K.deepIds.forEach(function (id) { assert(ids[id], '存在しないレッスン: ' + id); });
 });
+ok('5つの章の基礎レッスン全てに「具体例で理解する」があり、追加レッスンが入っている', function () {
+  ['macro', 'fundamentals', 'technical', 'risk', 'strategy'].forEach(function (id) {
+    K.stages.filter(function (x) { return x.id === id; })[0].lessons.filter(function (l) { return !l.lv; }).forEach(function (l) {
+      assert(l.example && l.body.split('## 具体例で理解する')[1].length > 900, l.id + ' 具体例が無い/短い');
+    });
+  });
+  K.exampleIds.forEach(function (id) { assert(ids[id], '存在しないレッスン: ' + id); });
+  ['orders-advanced', 'derivatives', 'tax-practice', 'indicator-guide', 'sector-guide', 'disclosure-guide', 'bearish-patterns', 'shorting', 'screening-recipes'].forEach(function (id) {
+    var l = lessons.filter(function (x) { return x.id === id; })[0];
+    assert(l && l.body.length > 1800 && l.quiz.length >= 3, id);
+  });
+});
 ok('本文が参照するチャートと図は存在する', function () {
   lessons.forEach(function (l) {
     (l.body.match(/\{chart:([\w-]+)\}/g) || []).forEach(function (m) { assert(charts[m.slice(7, -1)], l.id + ' ' + m); });

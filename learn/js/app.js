@@ -107,6 +107,10 @@
         out.push('<div class="table-wrap"><table><thead><tr>' + rows[0].map(function (c) { return '<th>' + inline(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
           rows.slice(1).map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + arrows(inline(c, seen)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>');
         continue;
+      } else if (/^\d+\. /.test(L)) {
+        var nums = [];
+        while (i < lines.length && /^\d+\. /.test(lines[i].trim())) { nums.push(lines[i].trim().replace(/^\d+\. /, '')); i++; }
+        flush('ol', nums); continue;
       } else if (L.indexOf('- ') === 0) {
         var items = [];
         while (i < lines.length && lines[i].trim().indexOf('- ') === 0) { items.push(lines[i].trim().slice(2)); i++; }
