@@ -11,6 +11,8 @@ import json
 import re
 import time
 import base64
+import csv
+import io
 import html
 import unicodedata
 import email.utils
@@ -1009,7 +1011,7 @@ MARKET_SERIES = [
     ("ダウ平均", "^DJI", "DJIA", "index"),
     ("ドル円", "JPY=X", "DEXJPUS", "fx"),
     ("米10年債利回り", "^TNX", "DGS10", "yield"),          # ^TNXの値は%(例 5.154)
-    ("米2年債利回り", None, "DGS2", "yield"),              # Yahooに2年債利回りの指数が無い(2YY=Fは先物)ためFREDのみ
+    ("米2年債利回り", None, "DGS2", "yield"),              # Yahooに2年債利回りの指数が無い(2YY=Fは先物)。米国財務省のCSVを主、FREDを予備
     ("VIX(恐怖指数)", "^VIX", "VIXCLS", "level"),
     ("WTI原油", "CL=F", "DCOILWTICO", "usd"),
     ("ビットコイン", "BTC-USD", "CBBTCUSD", "usd"),
@@ -1032,6 +1034,10 @@ def _fred_rows(series_id, days=21):
     req = urllib.request.Request(url, headers={"User-Agent": "EconoBot/1.0"})
     with urllib.request.urlopen(req, timeout=20) as res:
         text = res.read().decode("utf-8", "replace")
+    return _parse_fred_csv(text)
+
+
+def _parse_fred_csv(text):
     rows = []
     for line in text.strip().splitlines()[1:]:
         parts = line.split(",")
@@ -1045,6 +1051,40 @@ def _fred_rows(series_id, days=21):
 
 
 _FRED_CACHE = {}
+
+# 米国財務省の公式の日次金利(FREDのDGS2・DGS10の元データ)。FREDより早く、対象日の夕方(米東部)に公表される(2026-11-14)
+TREASURY_CSV = ("https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/"
+                "{y}/all?type=daily_treasury_yield_curve&field_tdr_date_value={y}&page&_format=csv")
+_TREASURY_CACHE = {}
+
+
+def _treasury_csv(year):
+    req = urllib.request.Request(TREASURY_CSV.format(y=year), headers={"User-Agent": _UA})
+    with urllib.request.urlopen(req, timeout=30) as res:
+        return res.read().decode("utf-8-sig", "replace")
+
+
+def _parse_treasury_csv(text, column):
+    """財務省のCSV(「Date」は 11/13/2026、新しい日付が上。祝日は行が無い)から、列columnの [(日付, 値)] を古い順に返す"""
+    out = []
+    for row in csv.DictReader(io.StringIO(text)):
+        try:
+            d = datetime.strptime(row["Date"], "%m/%d/%Y").date().isoformat()
+            out.append((d, float(row[column])))
+        except (KeyError, ValueError, TypeError):
+            continue   # 空欄(その年限が無い日)は飛ばす
+    return sorted(out)
+
+
+def treasury_rows(column, now=None):
+    """今年と前の年のCSV(1年の範囲と、年をまたぐ時の前日比のため)をつないで返す。どちらかが取れなければ例外"""
+    year = _to_et(now or datetime.now(timezone.utc)).year
+    rows = {}
+    for y in (year - 1, year):
+        if y not in _TREASURY_CACHE:
+            _TREASURY_CACHE[y] = _treasury_csv(y)
+        rows.update(_parse_treasury_csv(_TREASURY_CACHE[y], column))
+    return sorted(rows.items())
 
 
 def _fred_cached(series_id, days):
@@ -1139,12 +1179,12 @@ def _yahoo_fx_rows(symbol, now=None):
     return rows, True
 
 
-def _cross_check(name, kind, yahoo, fred):
-    """重なる日(直近10日)の値をYahooとFREDで比べ、ログに出す。ずれが大きければ[WARN]"""
+def _cross_check(name, kind, yahoo, fred, la="Yahoo", lb="FRED"):
+    """重なる日(直近10日)の値を2つの取得元で比べ、ログに出す。ずれが大きければ[WARN]"""
     fd = dict(fred)
     pairs = [(d, v, fd[d]) for d, v in yahoo[-10:] if d in fd]
     if not pairs:
-        print(f"    [照合 {name}] FREDと重なる日なし")
+        print(f"    [照合 {name}] {la}と{lb}で重なる日なし")
         return None
     if kind == "yield":
         devs = [(abs(y - f), d, y, f) for d, y, f in pairs]
@@ -1154,8 +1194,8 @@ def _cross_check(name, kind, yahoo, fred):
         unit = "%"
     worst = max(devs)
     tag = "[WARN] " if worst[0] > CROSS_TOL[kind] else ""
-    print(f"    {tag}[照合 {name}] Yahoo↔FRED 重なる{len(pairs)}日 最大のずれ {worst[0]:.3f}{unit}"
-          f"({worst[1]} Yahoo {worst[2]:.4g} / FRED {worst[3]:.4g})")
+    print(f"    {tag}[照合 {name}] {la}↔{lb} 重なる{len(pairs)}日 最大のずれ {worst[0]:.3f}{unit}"
+          f"({worst[1]} {la} {worst[2]:.4g} / {lb} {worst[3]:.4g})")
     return worst[0]
 
 
@@ -1164,8 +1204,21 @@ def fetch_market_data(now=None):
     Yahooが429等で取れない系列はFREDで代用する。1系列ずつ失敗しても他は続ける"""
     series = {}
     fetched_at = datetime.now(JST)
+    _TREASURY_CACHE.clear()
     for name, sym, fred_id, kind in MARKET_SERIES:
         rows, src, compare = [], None, True
+        if name == "米2年債利回り":
+            # 主は財務省。対象日(S&P 500の最新終値の日)の行がまだ無い日は、FRED(日付つき)を予備にする。
+            # 財務省の公表は米東部の夕方なので、早い時刻の実行では予備になるのが普通
+            td_now = series["S&P 500"]["rows"][-1][0] if "S&P 500" in series else None
+            try:
+                tr = treasury_rows("2 Yr", now)
+                if td_now and any(d == td_now for d, _ in tr):
+                    rows, src = [r for r in tr if r[0] <= td_now], "米国財務省"
+                else:
+                    print(f"    [米国財務省 2年債] 対象日{td_now}の行がまだ無い(最新 {tr[-1][0] if tr else 'なし'})→ FREDで代用")
+            except Exception as e:
+                print(f"    [米国財務省 2年債] 取得失敗 {type(e).__name__}{getattr(e, 'code', '')} → FREDで代用")
         if sym:
             try:
                 if kind == "fx":
@@ -1183,7 +1236,12 @@ def fetch_market_data(now=None):
         except Exception as e:
             print(f"    [FRED {fred_id}] 取得失敗: {type(e).__name__}")
         if len(rows) >= 2 and fred:
-            _cross_check(name, kind, rows, fred)
+            _cross_check(name, kind, rows, fred, "財務省" if src == "米国財務省" else "Yahoo", "FRED")
+        if name == "米10年債利回り" and len(rows) >= 2:   # 10年債はYahoo(^TNX)のまま。財務省の10Yrと照合だけする
+            try:
+                _cross_check(name, kind, rows, treasury_rows("10 Yr", now), "Yahoo", "財務省")
+            except Exception as e:
+                print(f"    [照合 {name}] 財務省の取得失敗 {type(e).__name__}")
         if len(rows) < 2:
             rows, src, compare = fred, "FRED", True   # FREDのドル円は毎日同じ時刻(正午)の値なので比べてよい
         if len(rows) >= 2:
@@ -2569,7 +2627,7 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
   <div class="howmade">
     <h2>このページの作り方</h2>
     <ul>
-      <li>・数値:Yahoo Finance(取れない時はセントルイス連邦準備銀行のFRED)の終値と米政府統計</li>
+      <li>・数値:Yahoo Finance・米国財務省(米2年債利回り)の終値と米政府統計。取れない時はセントルイス連邦準備銀行のFRED</li>
       <li>・文章:信頼できる報道機関の英語記事を、AI(Gemini)が要約。数字は元記事と機械で照合し、合わないものは載せていません。各文の「出典」から元記事を確かめられます</li>
       <li>・数字の読み方・用語の説明:あらかじめ用意した定型文です(AIの文ではありません)</li>
     </ul>
@@ -2658,7 +2716,8 @@ def build_slack_payload(page_url, econ, major, major_articles, now=None):
                        "text": "本日はAI要約を作れなかったため、元記事の見出しのみ掲載しています"}})
     nd = econ.get("news_date")
     srcs = {c.get("source_name") for c in econ.get("markets", []) if c.get("official")}
-    num_src = "Yahoo Finance" + ("(一部FRED)" if "FRED" in srcs else "") if "Yahoo Finance" in srcs else "FRED"
+    num_src = ("Yahoo Finance" + ("・米国財務省" if "米国財務省" in srcs else "") + ("(一部FRED)" if "FRED" in srcs else "")
+               if "Yahoo Finance" in srcs else "FRED")
     ctx = (f"ニュースは{_jp_date(nd)}までの報道です。" if nd else "") + (f"数値は{num_src}" if srcs else "")
     if ctx:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": _slack_esc(ctx)}]})

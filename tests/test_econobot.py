@@ -846,6 +846,7 @@ class FetchTest(unittest.TestCase):
         fred = {"SP500": [("2026-11-11", 1000.0), ("2026-11-12", 1010.0)],
                 "DEXJPUS": [("2026-11-05", 150.0), ("2026-11-06", 151.0)]}
         with mock.patch.object(eb, "_yahoo_rows", boom), \
+             mock.patch.object(eb, "_treasury_csv", side_effect=urllib.error.URLError("試験では財務省に接続しない")), \
              mock.patch.object(eb, "_fred_cached", lambda sid, days: fred.get(sid, [])):
             m = eb.fetch_market_data()
         self.assertEqual((m["trade_date"], m["series"]["S&P 500"]["src"]), ("2026-11-12", "FRED"))
@@ -896,7 +897,8 @@ class VerifierFixTest(unittest.TestCase):
             if (sym, interval) not in saved:
                 raise urllib.error.HTTPError("https://query1.finance.yahoo.com/x", 404, "Not saved", {}, None)
             return self._saved(saved[(sym, interval)])
-        with mock.patch.object(eb, "_yahoo_chart", chart), mock.patch.object(eb, "_fred_cached", lambda sid, days: []):
+        with mock.patch.object(eb, "_yahoo_chart", chart), mock.patch.object(eb, "_fred_cached", lambda sid, days: []), \
+             mock.patch.object(eb, "_treasury_csv", side_effect=urllib.error.URLError("試験では財務省に接続しない")):
             m = eb.fetch_market_data(now=self.NOW_UTC)
         m["fetched_at"] = "2026-11-14T07:42"
         return m, calls
@@ -1005,3 +1007,71 @@ class AsofNoteTest(unittest.TestCase):
         self.assertEqual((btc["stale"], btc["date_label"], btc.get("provisional")), (True, "11/12の値", None))
         self.assertEqual(eb.asof_note(eb.build_market_cards(m), "11月13日(金)"),
                          "株価指数・利回りは11月13日(金)の終値。WTI原油は取得時点の値。日付などの表示があるカードは、その表示のとおり")
+
+
+class TreasuryTest(unittest.TestCase):
+    """2026-11-14:米2年債は米国財務省の日次金利を主、FRED(1〜2日遅れ)を予備にする。
+    材料は保存した本物の応答(tests/fixtures/ の財務省CSV 2025・2026年分、FRED DGS2、Yahoo ^GSPC)。行を消すだけで場合を作る"""
+    FIX = os.path.join(os.path.dirname(__file__), "fixtures")
+    NOW_UTC = datetime(2026, 11, 14, 5, 0, tzinfo=eb.timezone.utc)
+
+    def _text(self, name):
+        with open(os.path.join(self.FIX, name), encoding="utf-8-sig") as f:
+            return f.read()
+
+    def _market(self, tsy):
+        """tsy: "full"(保存したまま)/"no_trade_day"(2026年分から11/13の行だけ消す)/"fail"(財務省が取れない)"""
+        csv26 = self._text("treasury_yield_curve_2026_2026-11-14.csv")
+        if tsy == "no_trade_day":
+            csv26 = "\n".join(l for l in csv26.splitlines() if not l.startswith("11/13/2026"))
+        csvs = {2026: csv26, 2025: self._text("treasury_yield_curve_2025_2026-11-14.csv")}
+
+        def treasury(year):
+            if tsy == "fail":
+                raise urllib.error.HTTPError("https://home.treasury.gov/", 503, "Service Unavailable", {}, None)
+            return csvs[year]
+        gspc = json.loads(self._text("yahoo_GSPC_1d_2y_2026-11-14.json"))["chart"]["result"][0]
+
+        def chart(sym, rng, interval, host="query1"):
+            if (sym, interval) == ("^GSPC", "1d"):
+                return gspc
+            raise urllib.error.HTTPError("https://query1.finance.yahoo.com/x", 404, "Not saved", {}, None)
+        dgs2 = eb._parse_fred_csv(self._text("fred_DGS2_2026-11-14.csv"))
+        with mock.patch.object(eb, "_yahoo_chart", chart), mock.patch.object(eb, "_treasury_csv", treasury), \
+             mock.patch.object(eb, "_fred_cached", lambda sid, days: dgs2 if sid == "DGS2" else []):
+            m = eb.fetch_market_data(now=self.NOW_UTC)
+        return m, [c for c in eb.build_market_cards(m) if c["name"] == "米2年債利回り"][0]
+
+    def test_saved_csv_has_expected_rows(self):
+        """前提の確認:保存した本物のCSVに 11/13 4.88・11/12 4.86・11/10 4.73 があり、11/11(祝日)の行は無い"""
+        rows = dict(eb._parse_treasury_csv(self._text("treasury_yield_curve_2026_2026-11-14.csv"), "2 Yr"))
+        self.assertEqual((rows["2026-11-13"], rows["2026-11-12"], rows["2026-11-10"]), (4.88, 4.86, 4.73))
+        self.assertNotIn("2026-11-11", rows)
+        ten = dict(eb._parse_treasury_csv(self._text("treasury_yield_curve_2026_2026-11-14.csv"), "10 Yr"))
+        self.assertEqual(ten["2026-11-13"], 5.15)
+
+    def test_trade_day_row_present(self):
+        """対象日の行がある → 4.88%、+0.02ポイント(前日 4.86%)、日付の表示なし"""
+        m, c = self._market("full")
+        self.assertEqual(m["trade_date"], "2026-11-13")
+        self.assertEqual((m["series"]["米2年債利回り"]["src"], c["value_text"], c["chg_text"], c["stale"], c["date_label"]),
+                         ("米国財務省", "4.88%", "+0.02ポイント(前日 4.86%)", False, ""))
+        self.assertGreaterEqual(min(d for d, _ in m["series"]["米2年債利回り"]["rows"]), "2025-01-01")   # 前の年の分も入る(1年の範囲)
+        self.assertTrue(c["range_text"].startswith("1年の範囲"))
+
+    def test_trade_day_row_missing_uses_fred(self):
+        """対象日の行がまだ無い(11/13の行だけ消す)→ FREDの値に日付つき"""
+        m, c = self._market("no_trade_day")
+        self.assertEqual((m["series"]["米2年債利回り"]["src"], c["value_text"], c["chg_text"], c["stale"], c["date_label"]),
+                         ("FRED", "4.86%", "+0.13ポイント(11/10 4.73%)", True, "11/12の値"))
+
+    def test_treasury_failure_uses_fred(self):
+        """財務省が取れない → FREDの値に日付つき"""
+        m, c = self._market("fail")
+        self.assertEqual((m["series"]["米2年債利回り"]["src"], c["value_text"], c["stale"], c["date_label"]),
+                         ("FRED", "4.86%", True, "11/12の値"))
+
+    def test_footer_names_treasury(self):
+        econ = eb.parse_summary(up_json(), UP_ARTS, TD)
+        page = eb.generate_html(econ, UP_ARTS, {"ok": True, "items": []}, UP_MAJOR, now=NOW)
+        self.assertIn("・数値:Yahoo Finance・米国財務省(米2年債利回り)の終値と米政府統計", visible(page))
