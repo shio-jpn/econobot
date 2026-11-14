@@ -1085,16 +1085,57 @@ def _parse_yahoo(res0, now=None):
     rmt, rmp = meta.get("regularMarketTime"), meta.get("regularMarketPrice")
     if itype == "CURRENCY" and rows and rmt and isinstance(rmp, (int, float)) and day(rmt) == rows[-1][0]:
         rows[-1] = (rows[-1][0], float(rmp))
+        # 前の日の値も日足の終値(英国時間の朝の値のことがある)ではなく、Yahooの前日終値を使う(2026-11-14 verifier指摘)
+        pc = meta.get("previousClose")
+        if len(rows) >= 2 and isinstance(pc, (int, float)) and not isinstance(pc, bool):
+            rows[-2] = (rows[-2][0], float(pc))
     return rows
 
 
-def _yahoo_rows(symbol, rng="2y", now=None):
+def _yahoo_chart(symbol, rng, interval):
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}"
-           f"?range={rng}&interval=1d")
+           f"?range={rng}&interval={interval}")
     req = urllib.request.Request(url, headers={"User-Agent": _UA})
     with urllib.request.urlopen(req, timeout=15) as res:
         data = json.loads(res.read().decode())
-    return _parse_yahoo(data["chart"]["result"][0], now)
+    return data["chart"]["result"][0]
+
+
+def _yahoo_rows(symbol, rng="2y", now=None):
+    return _parse_yahoo(_yahoo_chart(symbol, rng, "1d"), now)
+
+
+FX_CLOSE_HOUR_ET = 17   # 為替の「その日の値」= 米東部17時(ニューヨークの取引の終わり)の値
+
+
+def _ny_close_rows(res0):
+    """1時間足から、平日の各日について米東部17時直前の足(16時台)の終値を [(日付, 値)] で返す。
+    JPY=Xの日足は英国時間で区切られ、終値が米国の引けと数時間ずれる(11/12は約0.1円)ため、前日比はこちらで計算する"""
+    ts = res0.get("timestamp") or []
+    closes = (((res0.get("indicators") or {}).get("quote") or [{}])[0]).get("close") or []
+    out = {}
+    for t, c in zip(ts, closes):
+        if not isinstance(c, (int, float)) or isinstance(c, bool):
+            continue
+        et = _to_et(datetime.fromtimestamp(t, timezone.utc))
+        if et.weekday() < 5 and 12 <= et.hour < FX_CLOSE_HOUR_ET:
+            out[et.date().isoformat()] = float(c)   # 時刻の順に上書きされ、17時直前の足が残る
+    return sorted(out.items())
+
+
+def _yahoo_fx_rows(symbol, now=None):
+    """為替:古い日は日足、直近約1か月は米東部17時の値。1時間足が取れない日は日足+前日終値(previousClose)"""
+    rows = _yahoo_rows(symbol, now=now)
+    try:
+        ny = _ny_close_rows(_yahoo_chart(symbol, "1mo", "60m"))
+    except Exception as e:
+        print(f"    [WARN] [Yahoo {symbol} 1時間足] 取得失敗 {type(e).__name__} → 日足と前日終値で計算")
+        return rows
+    if len(ny) < 2:
+        return rows
+    rows = [r for r in rows if r[0] < ny[0][0]] + ny
+    print(f"    [Yahoo {symbol}] 直近{len(ny)}日は米東部17時の値({ny[-2][0]} {ny[-2][1]:.3f} → {ny[-1][0]} {ny[-1][1]:.3f})")
+    return rows
 
 
 def _cross_check(name, kind, yahoo, fred):
@@ -1125,7 +1166,8 @@ def fetch_market_data(now=None):
         rows, src = [], None
         if sym:
             try:
-                rows, src = _yahoo_rows(sym, now=now), "Yahoo Finance"
+                rows = _yahoo_fx_rows(sym, now=now) if kind == "fx" else _yahoo_rows(sym, now=now)
+                src = "Yahoo Finance"
             except Exception as e:
                 code = getattr(e, "code", "")
                 print(f"    [Yahoo {sym}] 取得失敗 {type(e).__name__}{code} → FREDで代用")
@@ -1197,6 +1239,15 @@ def _fmt_range(kind, lo, hi):
     return f"{_fmt_value(kind, lo)}〜{_fmt_value(kind, hi)}"
 
 
+def _prev_word(d0, d1):
+    """比べる値の日が最新日の1つ前の平日なら「前日」、祝日などで離れていれば「11/10」(2年債の11/11は祝日で値が無い)"""
+    a, b = _to_iso_date(d0), _to_iso_date(d1)
+    p = b - timedelta(days=1)
+    while p.weekday() >= 5:
+        p -= timedelta(days=1)
+    return "前日" if a == p else f"{a.month}/{a.day}"
+
+
 def _official_card(name, kind, rows, trade_date=None, src="FRED"):
     """日次の値から数値カードを作る。trade_date(対象日)以前の最新2日を使い、1年の範囲も付ける"""
     if trade_date:
@@ -1209,8 +1260,9 @@ def _official_card(name, kind, rows, trade_date=None, src="FRED"):
         a, b = _q2(v1), _q2(v0)
         diff = a - b
         mag = f"{abs(diff):.2f}ポイント"
-        chg = f"{_sg(diff)}ポイント(前日 {b:.2f}%)"
-        read_tail = f"、前日は{b:.2f}%"
+        pw = _prev_word(d0, d1)
+        chg = f"{_sg(diff)}ポイント({pw} {b:.2f}%)"
+        read_tail = f"、{pw}は{b:.2f}%"
         pct_raw = None
     elif kind == "fx":
         diff = _q2(v1) - _q2(v0)
@@ -1222,8 +1274,9 @@ def _official_card(name, kind, rows, trade_date=None, src="FRED"):
     elif kind == "level":
         diff = _q2(v1) - _q2(v0)
         mag = f"{abs(diff):.2f}"
-        chg = f"{_sg(diff)}(前日 {_q2(v0):.2f})"
-        read_tail = f"、前日は{_q2(v0):.2f}"
+        pw = _prev_word(d0, d1)
+        chg = f"{_sg(diff)}({pw} {_q2(v0):.2f})"
+        read_tail = f"、{pw}は{_q2(v0):.2f}"
         pct_raw = None
     else:
         pct_raw = (v1 - v0) / v0 * 100 if v0 else 0.0
@@ -1333,7 +1386,7 @@ def today_summary(market, cards):
     parts = "、".join(f"{TODAY_SHORT[c['name']]} {c['chg_text']}" for c in idx)
     out = {"trade_date": td, "trade_label": _jp_date(_to_iso_date(td)), "word": word,
            "stocks": f"米国株は{word}。{parts}。", "sp_text": sp["chg_text"],
-           "nasdaq_text": by["ナスダック総合"]["chg_text"] if "ナスダック総合" in by else "",
+           "nasdaq_text": next((c["chg_text"] for c in idx if c["name"] == "ナスダック総合"), ""),  # 対象日と違う日の値は使わない
            "size": None, "yen": None, "jpy_sp": None}
     sp_rows = [r for r in market["series"]["S&P 500"]["rows"] if r[0] <= td]
     out["size"] = move_size(sp_rows)
@@ -1349,7 +1402,7 @@ def today_summary(market, cards):
             rel = f"前の日より{abs(diff):.2f}円の円高(ドルが安くなった)"
             short, word_fx = f"前の日より{abs(diff):.2f}円の円高", "円高"
         when = f"({fx['date_label']})" if fx["stale"] else ""
-        out["yen"] = {"value": f"{fx['value']:.2f}", "line": f"1ドル={fx['value']:.2f}円{when}。{rel}。",
+        out["yen"] = {"value": f"{fx['value']:.2f}", "when": when, "line": f"1ドル={fx['value']:.2f}円{when}。{rel}。",
                       "short": f"1ドル={fx['value']:.2f}円{when}({short})", "word": word_fx}
         fx_rows = market["series"]["ドル円"]["rows"]
         if not fx["stale"]:
@@ -2570,7 +2623,7 @@ def build_slack_payload(page_url, econ, major, major_articles, now=None):
     if t:
         parts = [f"米国株 S&P 500 {t['sp_text']}"]
         if t.get("yen"):
-            parts.append(f"1ドル={t['yen']['value']}円 {t['yen']['word']}")
+            parts.append(f"1ドル={t['yen']['value']}円 {t['yen']['word']}{t['yen'].get('when', '')}")
         text = "|".join(parts + [head])
     else:
         text = f"米国経済 朝刊|{head}"

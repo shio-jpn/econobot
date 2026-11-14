@@ -838,6 +838,8 @@ class FetchTest(unittest.TestCase):
         self.assertEqual(eb._parse_yahoo(fut, during)[-1], ("2026-11-13", 81.0))
         fx = self._res("CURRENCY", [150.0, 159.875], (1794528000, 1794614340), rmt=1794607185, rmp=159.686, off=0)
         self.assertEqual(eb._parse_yahoo(fx, after)[-1], ("2026-11-13", 159.686))   # 日足の遅れはregularMarketPriceで直す
+        fx["meta"]["previousClose"] = 150.5   # 2026-11-14 verifier指摘:前の日もpreviousCloseで直す(最新の1本だけ直すと前日比がずれる)
+        self.assertEqual(eb._parse_yahoo(fx, after)[-2:], [("2026-11-12", 150.5), ("2026-11-13", 159.686)])
 
     def test_yahoo_429_falls_back_to_fred(self):
         """Yahooが429の日もページは壊れず、FREDの値を日付つきで出す"""
@@ -870,3 +872,59 @@ class FetchTest(unittest.TestCase):
                          ("Fed & rates", "Rates rose 0.25%.", "2026-11-13T21:06:10Z"))
         self.assertEqual(items[1]["publishedAt"], "")   # 日時の無い記事はfetch_rssで落ちる
         self.assertEqual(eb._date_tag(items[0]), "(11/13 金) ")
+
+
+class VerifierFixTest(unittest.TestCase):
+    """2026-11-14 verifier指摘(ドル円の前日比・Slackの古い値)の試験"""
+    def test_fx_prev_uses_previous_close(self):
+        """前日の日足の終値とpreviousCloseが違う時、前日比はpreviousCloseから計算する(1時間足が取れない日の予備)"""
+        res = FetchTest._res("CURRENCY", [158.0, 159.734, 159.875], (1794528000, 1794614340),
+                             rmt=1794607185, rmp=159.686, off=0)
+        res["meta"]["previousClose"] = 159.842
+        rows = eb._parse_yahoo(res, datetime(2026, 11, 13, 23, 0, tzinfo=eb.timezone.utc))
+        self.assertEqual(rows[-2:], [("2026-11-12", 159.842), ("2026-11-13", 159.686)])
+        c = eb._official_card("ドル円", "fx", rows, "2026-11-13", "Yahoo Finance")
+        self.assertEqual(c["chg_text"], "−0.15円 円高")    # 日足の終値(159.734)のままだと −0.04円 になってしまう
+
+    def test_fx_ny_close_from_hourly(self):
+        """為替の各日の値は米東部17時直前(16時台)の1時間足の終値。直近はこれで日足を置き換える"""
+        def hourly(points):   # [(UTCの年月日時, 値)]
+            return {"timestamp": [int(datetime(*p[0], tzinfo=eb.timezone.utc).timestamp()) for p in points],
+                    "indicators": {"quote": [{"close": [p[1] for p in points]}]}}
+        h = hourly([((2026, 11, 12, 20), 159.88), ((2026, 11, 12, 21), 159.821),   # 11/12 15時台・16時台ET
+                    ((2026, 11, 12, 22), 159.856),                                  # 17時台ET(翌日分の取引)→使わない
+                    ((2026, 11, 13, 20), 159.788), ((2026, 11, 13, 21), 159.686),
+                    ((2026, 11, 13, 22), None)])
+        self.assertEqual(eb._ny_close_rows(h), [("2026-11-12", 159.821), ("2026-11-13", 159.686)])
+        daily = [("2026-11-10", 158.7), ("2026-11-11", 159.6), ("2026-11-12", 159.734), ("2026-11-13", 159.686)]
+        with mock.patch.object(eb, "_yahoo_rows", lambda sym, rng="2y", now=None: daily), \
+             mock.patch.object(eb, "_yahoo_chart", lambda sym, rng, iv: h):
+            rows = eb._yahoo_fx_rows("JPY=X")
+        self.assertEqual(rows, [("2026-11-10", 158.7), ("2026-11-11", 159.6), ("2026-11-12", 159.821), ("2026-11-13", 159.686)])
+        m = mkt([("2026-11-12", 7592.40), ("2026-11-13", 7561.67)], fx=rows)
+        econ = eb.parse_summary(up_json(), UP_ARTS, TD)
+        page_for(econ, market=m)
+        self.assertEqual(econ["today"]["yen"]["line"], "1ドル=159.69円。前の日より0.13円の円高(ドルが安くなった)。")
+        self.assertEqual(econ["today"]["jpy_sp"]["text"], "−0.48%")   # (1−0.40%)×(1−0.08%)−1
+
+    def test_slack_skips_stale_nasdaq_and_dates_stale_yen(self):
+        """ナスダックだけ古い日はSlackの1段目に出さない。古いドル円は通知文にも日付を付ける"""
+        m = mkt([("2026-11-12", 1000.0), ("2026-11-13", 990.0)], fx=[("2026-11-05", 150.0), ("2026-11-06", 151.0)],
+                nasdaq=[("2026-11-11", 100.0), ("2026-11-12", 102.0)], dow=[("2026-11-12", 100.0), ("2026-11-13", 99.0)])
+        econ = eb.parse_summary(up_json(), UP_ARTS, TD)
+        page = page_for(econ, market=m)
+        self.assertEqual(econ["today"]["stocks"], "米国株は下落。S&P 500 −1.00%、ダウ −1.00%。")
+        self.assertEqual(econ["today"]["nasdaq_text"], "")
+        p = eb.build_slack_payload("https://shio-jpn.github.io/econobot/", econ, {"ok": True, "items": []}, UP_MAJOR, now=NOW)
+        s = json.dumps(p, ensure_ascii=False)
+        self.assertNotIn("ナスダック +2.00%", s)
+        self.assertEqual(p["text"], "米国株 S&P 500 −1.00%|1ドル=151.00円 円安(11/6の値)|AI関連株に売り")
+        self.assertIn("ナスダック総合", visible(page))          # ページのカードには日付つきで残す
+        self.assertIn("11/12の値", visible(page))
+
+    def test_prev_word_for_holiday(self):
+        """2年債:前の値が祝日をはさんだ日なら「前日」ではなく日付を書く"""
+        c = eb._official_card("米2年債利回り", "yield", [("2026-11-10", 4.73), ("2026-11-12", 4.86)])
+        self.assertEqual(c["chg_text"], "+0.13ポイント(11/10 4.73%)")
+        c2 = eb._official_card("米10年債利回り", "yield", [("2026-11-13", 5.10), ("2026-11-16", 5.15)])   # 金→月
+        self.assertEqual(c2["chg_text"], "+0.05ポイント(前日 5.10%)")
