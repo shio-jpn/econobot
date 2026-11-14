@@ -1084,16 +1084,12 @@ def _parse_yahoo(res0, now=None):
             rows = rows[:-1]
     rmt, rmp = meta.get("regularMarketTime"), meta.get("regularMarketPrice")
     if itype == "CURRENCY" and rows and rmt and isinstance(rmp, (int, float)) and day(rmt) == rows[-1][0]:
-        rows[-1] = (rows[-1][0], float(rmp))
-        # 前の日の値も日足の終値(英国時間の朝の値のことがある)ではなく、Yahooの前日終値を使う(2026-11-14 verifier指摘)
-        pc = meta.get("previousClose")
-        if len(rows) >= 2 and isinstance(pc, (int, float)) and not isinstance(pc, bool):
-            rows[-2] = (rows[-2][0], float(pc))
+        rows[-1] = (rows[-1][0], float(rmp))   # 値そのものはこれでよいが、日足どうしの前日比には使わない(_yahoo_fx_rows)
     return rows
 
 
-def _yahoo_chart(symbol, rng, interval):
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}"
+def _yahoo_chart(symbol, rng, interval, host="query1"):
+    url = (f"https://{host}.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}"
            f"?range={rng}&interval={interval}")
     req = urllib.request.Request(url, headers={"User-Agent": _UA})
     with urllib.request.urlopen(req, timeout=15) as res:
@@ -1124,18 +1120,23 @@ def _ny_close_rows(res0):
 
 
 def _yahoo_fx_rows(symbol, now=None):
-    """為替:古い日は日足、直近約1か月は米東部17時の値。1時間足が取れない日は日足+前日終値(previousClose)"""
+    """為替:(日次の値, 前日と比べてよいか)を返す。古い日は日足、直近約1か月は1時間足から取った米東部17時の値。
+    1時間足はquery1が失敗したらquery2で1回だけ取り直す。それでも取れない日は、値(日足の最新=regularMarketPrice)だけを使い、
+    前日比は出さない(日足は英国時間で区切られ、前日と当日で時点がそろわないため。2026-11-14 verifier指摘)"""
     rows = _yahoo_rows(symbol, now=now)
-    try:
-        ny = _ny_close_rows(_yahoo_chart(symbol, "1mo", "60m"))
-    except Exception as e:
-        print(f"    [WARN] [Yahoo {symbol} 1時間足] 取得失敗 {type(e).__name__} → 日足と前日終値で計算")
-        return rows
+    ny = []
+    for host in ("query1", "query2"):
+        try:
+            ny = _ny_close_rows(_yahoo_chart(symbol, "1mo", "60m", host=host))
+            break
+        except Exception as e:
+            print(f"    [WARN] [Yahoo {symbol} 1時間足 {host}] 取得失敗 {type(e).__name__}{getattr(e, 'code', '')}")
     if len(ny) < 2:
-        return rows
+        print(f"    [WARN] [Yahoo {symbol}] 1時間足が取れないため、前の日との比較(前日比・円で見たS&P 500)は出さない")
+        return rows, False
     rows = [r for r in rows if r[0] < ny[0][0]] + ny
     print(f"    [Yahoo {symbol}] 直近{len(ny)}日は米東部17時の値({ny[-2][0]} {ny[-2][1]:.3f} → {ny[-1][0]} {ny[-1][1]:.3f})")
-    return rows
+    return rows, True
 
 
 def _cross_check(name, kind, yahoo, fred):
@@ -1162,11 +1163,15 @@ def fetch_market_data(now=None):
     """各系列の日次の値(約2年分)と、対象日(=S&P 500の最新終値の日)を返す。
     Yahooが429等で取れない系列はFREDで代用する。1系列ずつ失敗しても他は続ける"""
     series = {}
+    fetched_at = datetime.now(JST)
     for name, sym, fred_id, kind in MARKET_SERIES:
-        rows, src = [], None
+        rows, src, compare = [], None, True
         if sym:
             try:
-                rows = _yahoo_fx_rows(sym, now=now) if kind == "fx" else _yahoo_rows(sym, now=now)
+                if kind == "fx":
+                    rows, compare = _yahoo_fx_rows(sym, now=now)
+                else:
+                    rows = _yahoo_rows(sym, now=now)
                 src = "Yahoo Finance"
             except Exception as e:
                 code = getattr(e, "code", "")
@@ -1180,13 +1185,13 @@ def fetch_market_data(now=None):
         if len(rows) >= 2 and fred:
             _cross_check(name, kind, rows, fred)
         if len(rows) < 2:
-            rows, src = fred, "FRED"
+            rows, src, compare = fred, "FRED", True   # FREDのドル円は毎日同じ時刻(正午)の値なので比べてよい
         if len(rows) >= 2:
-            series[name] = {"rows": rows, "src": src, "kind": kind, "fred_id": fred_id}
+            series[name] = {"rows": rows, "src": src, "kind": kind, "fred_id": fred_id, "compare": compare}
             print(f"    [{src}] {name}: 最新 {rows[-1][0]} {rows[-1][1]:.4g}")
     trade_date = series["S&P 500"]["rows"][-1][0] if "S&P 500" in series else None
     print(f"  対象日(S&P 500の最新終値の日): {trade_date}")
-    return {"series": series, "trade_date": trade_date}
+    return {"series": series, "trade_date": trade_date, "fetched_at": fetched_at.strftime("%Y-%m-%dT%H:%M")}
 
 
 def _q2(x):
@@ -1309,9 +1314,20 @@ def _official_card(name, kind, rows, trade_date=None, src="FRED"):
             "source": None, "source_name": src, "official": True}
 
 
+# 引け後に書き換わる(先物)・実行時刻に取引中のことがある(暗号資産)物は「終値」と言わず、取得時点を出す(2026-11-14 verifier指摘)
+PROVISIONAL_CARDS = {"WTI原油", "ビットコイン"}
+NO_COMPARE_TEXT = "前の日との比較は取得できませんでした"
+
+
+def _at_time_label(fetched_at):
+    t = datetime.strptime(fetched_at, "%Y-%m-%dT%H:%M") if fetched_at else datetime.now(JST)
+    return f"{t.month}/{t.day} {t.hour:02d}:{t.minute:02d}(日本時間)時点の値。あとで変わることがあります"
+
+
 def build_market_cards(market):
     """取得した系列から数値カードを作る(並びはMARKET_NAMESの順)"""
     td = market.get("trade_date")
+    at_label = _at_time_label(market.get("fetched_at"))
     cards = []
     for name, sym, fred_id, kind in MARKET_SERIES:
         s = market.get("series", {}).get(name)
@@ -1320,6 +1336,14 @@ def build_market_cards(market):
         c = _official_card(name, kind, s["rows"], td, s["src"])
         if not c:
             continue
+        if kind == "fx" and not s.get("compare", True):
+            # 1時間足が取れない日:値だけ出し、日足どうしの前日比・円安/円高は出さない
+            c.update({"chg_text": NO_COMPARE_TEXT, "chg_read": NO_COMPARE_TEXT, "direction": None, "change": None,
+                      "pct_raw": None, "no_compare": True})
+            if not c["stale"]:
+                c.update({"provisional": True, "date_label": at_label})
+        if name in PROVISIONAL_CARDS and not c["stale"]:
+            c.update({"provisional": True, "date_label": at_label})
         if td and (_to_iso_date(td) - _to_iso_date(c["date"])).days > FALLBACK_MAX_AGE_DAYS:
             print(f"    [{name}] 最新が{c['date']}で古すぎるため出さない")
             continue
@@ -1391,7 +1415,12 @@ def today_summary(market, cards):
     sp_rows = [r for r in market["series"]["S&P 500"]["rows"] if r[0] <= td]
     out["size"] = move_size(sp_rows)
     fx = by.get("ドル円")
-    if fx:
+    if fx and fx.get("no_compare"):
+        print("    [WARN] ドル円の前の日との比較が無いため、行2は値だけ・円で見たS&P 500は出さない")
+        out["yen"] = {"value": f"{fx['value']:.2f}", "when": "", "word": "",
+                      "line": f"1ドル={fx['value']:.2f}円。{NO_COMPARE_TEXT}。",
+                      "short": f"1ドル={fx['value']:.2f}円({NO_COMPARE_TEXT})"}
+    elif fx:
         diff = _q2(fx["value"]) - _q2(fx["prev_value"])
         if abs(diff) < Decimal("0.05"):
             rel, short, word_fx = "前の日からほぼ変わらず", "前の日からほぼ変わらず", "前日並み"
@@ -1947,10 +1976,15 @@ def _market_card(c):
         chg_html += '<span class="card-note">向きの記載なし</span>'
     desc = CARD_DESC.get(c["name"], "")
     range_html = f'\n          <span class="card-range">{_esc(c["range_text"])}</span>' if c.get("range_text") else ""
-    date_html = (f'\n          <span class="card-date stale">{_esc(c["date_label"])}</span>'
-                 if c.get("stale") and c.get("date_label") else "")
+    if c.get("stale") and c.get("date_label"):
+        date_html = f'\n          <span class="card-date stale">{_esc(c["date_label"])}</span>'
+    elif c.get("provisional"):
+        date_html = f'\n          <span class="card-date at-time">{_esc(c["date_label"])}</span>'
+    else:
+        date_html = ""
     read = "、".join(x for x in [c["name"], c.get("value_text") or "値の記載なし", c.get("chg_read") or "",
-                                 c.get("range_text") or "", c.get("date_label") if c.get("stale") else ""] if x)
+                                 c.get("range_text") or "",
+                                 c.get("date_label") if c.get("stale") or c.get("provisional") else ""] if x)
     return f"""
         <li class="card {cls}" role="group" aria-label="{_esc(read)}">
           <span class="card-name" aria-hidden="true">{_esc(c['name'])}</span>
@@ -1998,6 +2032,32 @@ def _source_list(econ, econ_articles, major, major_articles):
 def news_date_of(econ, econ_articles, major, major_articles):
     """ページに載せた記事(元記事一覧)のうち、いちばん新しい配信日(米国東部時間)"""
     return _latest_pub_date(_source_list(econ, econ_articles, major, major_articles))
+
+
+_NOTE_KIND = [("index", "株価指数"), ("yield", "利回り"), ("level", "VIX"), ("fx", "ドル円")]
+
+
+def asof_note(cards, td_label):
+    """カードの下の注記。「終値」と言うのは、対象日の値で、取得時点の値でないカードだけ(実際と合う言葉にする)"""
+    plain = [c for c in cards if c.get("official") and not c.get("stale") and not c.get("provisional")]
+    kinds = [lab for k, lab in _NOTE_KIND if any(c["kind"] == k for c in plain)]
+    if not plain:
+        head = ""
+    elif len(plain) == len(cards) and "ドル円" not in kinds:
+        head = f"すべて{td_label}の終値"
+    elif "ドル円" in kinds:
+        others = [k for k in kinds if k != "ドル円"]
+        head = (f"{'・'.join(others)}は{td_label}の終値、ドル円は同じ日の米東部17時の値" if others
+                else f"ドル円は{td_label}の米東部17時の値")
+    else:
+        head = f"{'・'.join(kinds)}は{td_label}の終値"
+    tail = []
+    prov = [c["name"] for c in cards if c.get("provisional")]
+    if prov:
+        tail.append(f"{'・'.join(prov)}は取得時点の値")
+    if any(c.get("stale") for c in cards):
+        tail.append("日付などの表示があるカードは、その表示のとおり")
+    return "。".join(x for x in [head] + tail if x)
 
 
 def _pct_cell(v):
@@ -2187,11 +2247,7 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
       <ul class="cards" aria-labelledby="h-mk-{gi}">{"".join(_market_card(c) for c in cs)}
       </ul>"""
         if td:
-            if all(not c.get("stale") for c in econ["markets"]):
-                note = f"すべて{td_label}の終値"
-            else:
-                note = f"日付の表示が無いカードは、{td_label}の終値"
-            groups += f'\n      <p class="asof-note">{_esc(note)}</p>'
+            groups += f'\n      <p class="asof-note">{_esc(asof_note(econ["markets"], td_label))}</p>'
         mk_html = f"""
     <section class="block" id="markets" aria-labelledby="h-mk">
       <h2 id="h-mk">主な数値</h2>{groups}
@@ -2416,6 +2472,7 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
   .card-note {{ display: block; font-size: 12px; color: var(--flat); line-height: 1.4; }}
   .card-range {{ font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 4px; }}
   .card-date {{ font-size: 12px; font-weight: 700; color: var(--muted); line-height: 1.4; }}
+  .card-date.at-time {{ font-weight: 400; }}
   .asof-note {{ font-size: 12px; color: var(--muted); line-height: 1.6; margin-top: 10px; }}
   .note {{ font-size: 12px; color: var(--muted); line-height: 1.6; margin-top: 8px; }}
 
@@ -2623,7 +2680,7 @@ def build_slack_payload(page_url, econ, major, major_articles, now=None):
     if t:
         parts = [f"米国株 S&P 500 {t['sp_text']}"]
         if t.get("yen"):
-            parts.append(f"1ドル={t['yen']['value']}円 {t['yen']['word']}{t['yen'].get('when', '')}")
+            parts.append(" ".join(x for x in (f"1ドル={t['yen']['value']}円", t["yen"]["word"] + t["yen"].get("when", "")) if x))
         text = "|".join(parts + [head])
     else:
         text = f"米国経済 朝刊|{head}"

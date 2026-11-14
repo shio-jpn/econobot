@@ -811,7 +811,7 @@ class SpecUpgradeTest(unittest.TestCase):
         self.assertNotIn("直近24〜48時間", vt)
         for w in BANNED + eb.FILLER_WORDS:
             self.assertNotIn(w, vt, w)
-        self.assertIn("すべて11月13日(金)の終値", vt)
+        self.assertIn("株価指数は11月13日(金)の終値、ドル円は同じ日の米東部17時の値", vt)   # 2026-11-14 ドル円を「終値」と言わない
         self.assertIn("11月13日(金)の米国市場 ・ ニュースも同じ日までの報道", vt)
         gl = re.search(r'<section class="block" id="glossary".*?</section>', page, re.S).group(0)
         self.assertIn("S&amp;P 500", gl)
@@ -838,8 +838,6 @@ class FetchTest(unittest.TestCase):
         self.assertEqual(eb._parse_yahoo(fut, during)[-1], ("2026-11-13", 81.0))
         fx = self._res("CURRENCY", [150.0, 159.875], (1794528000, 1794614340), rmt=1794607185, rmp=159.686, off=0)
         self.assertEqual(eb._parse_yahoo(fx, after)[-1], ("2026-11-13", 159.686))   # 日足の遅れはregularMarketPriceで直す
-        fx["meta"]["previousClose"] = 150.5   # 2026-11-14 verifier指摘:前の日もpreviousCloseで直す(最新の1本だけ直すと前日比がずれる)
-        self.assertEqual(eb._parse_yahoo(fx, after)[-2:], [("2026-11-12", 150.5), ("2026-11-13", 159.686)])
 
     def test_yahoo_429_falls_back_to_fred(self):
         """Yahooが429の日もページは壊れず、FREDの値を日付つきで出す"""
@@ -876,36 +874,85 @@ class FetchTest(unittest.TestCase):
 
 class VerifierFixTest(unittest.TestCase):
     """2026-11-14 verifier指摘(ドル円の前日比・Slackの古い値)の試験"""
-    def test_fx_prev_uses_previous_close(self):
-        """前日の日足の終値とpreviousCloseが違う時、前日比はpreviousCloseから計算する(1時間足が取れない日の予備)"""
-        res = FetchTest._res("CURRENCY", [158.0, 159.734, 159.875], (1794528000, 1794614340),
-                             rmt=1794607185, rmp=159.686, off=0)
-        res["meta"]["previousClose"] = 159.842
-        rows = eb._parse_yahoo(res, datetime(2026, 11, 13, 23, 0, tzinfo=eb.timezone.utc))
-        self.assertEqual(rows[-2:], [("2026-11-12", 159.842), ("2026-11-13", 159.686)])
-        c = eb._official_card("ドル円", "fx", rows, "2026-11-13", "Yahoo Finance")
-        self.assertEqual(c["chg_text"], "−0.15円 円高")    # 日足の終値(159.734)のままだと −0.04円 になってしまう
+    # ---- 2026-11-14(3回目):試験の材料は保存した本物の応答(tests/fixtures/、11-14 05:00 UTC頃に取得)----
+    # 日足の応答にはmeta.previousCloseが無い(1時間足の応答にだけある)。偽データは本物を削るだけで作り、項目を足さない
+    FIX = os.path.join(os.path.dirname(__file__), "fixtures")
+    NOW_UTC = datetime(2026, 11, 14, 5, 0, tzinfo=eb.timezone.utc)
 
-    def test_fx_ny_close_from_hourly(self):
-        """為替の各日の値は米東部17時直前(16時台)の1時間足の終値。直近はこれで日足を置き換える"""
-        def hourly(points):   # [(UTCの年月日時, 値)]
-            return {"timestamp": [int(datetime(*p[0], tzinfo=eb.timezone.utc).timestamp()) for p in points],
-                    "indicators": {"quote": [{"close": [p[1] for p in points]}]}}
-        h = hourly([((2026, 11, 12, 20), 159.88), ((2026, 11, 12, 21), 159.821),   # 11/12 15時台・16時台ET
-                    ((2026, 11, 12, 22), 159.856),                                  # 17時台ET(翌日分の取引)→使わない
-                    ((2026, 11, 13, 20), 159.788), ((2026, 11, 13, 21), 159.686),
-                    ((2026, 11, 13, 22), None)])
-        self.assertEqual(eb._ny_close_rows(h), [("2026-11-12", 159.821), ("2026-11-13", 159.686)])
-        daily = [("2026-11-10", 158.7), ("2026-11-11", 159.6), ("2026-11-12", 159.734), ("2026-11-13", 159.686)]
-        with mock.patch.object(eb, "_yahoo_rows", lambda sym, rng="2y", now=None: daily), \
-             mock.patch.object(eb, "_yahoo_chart", lambda sym, rng, iv: h):
-            rows = eb._yahoo_fx_rows("JPY=X")
-        self.assertEqual(rows, [("2026-11-10", 158.7), ("2026-11-11", 159.6), ("2026-11-12", 159.821), ("2026-11-13", 159.686)])
-        m = mkt([("2026-11-12", 7592.40), ("2026-11-13", 7561.67)], fx=rows)
-        econ = eb.parse_summary(up_json(), UP_ARTS, TD)
-        page_for(econ, market=m)
+    def _saved(self, name):
+        with open(os.path.join(self.FIX, name), encoding="utf-8") as f:
+            return json.load(f)["chart"]["result"][0]
+
+    def _market(self, hourly_ok):
+        """保存した本物の応答で fetch_market_data を通す。hourly_ok=False は1時間足だけを消した(取得失敗の)場合"""
+        saved = {("^GSPC", "1d"): "yahoo_GSPC_1d_2y_2026-11-14.json", ("JPY=X", "1d"): "yahoo_JPYX_1d_2y_2026-11-14.json",
+                 ("JPY=X", "60m"): "yahoo_JPYX_60m_1mo_2026-11-14.json"}
+        calls = []
+
+        def chart(sym, rng, interval, host="query1"):
+            calls.append((sym, interval, host))
+            if interval == "60m" and not hourly_ok:
+                raise urllib.error.HTTPError("https://query1.finance.yahoo.com/x", 429, "Too Many Requests", {}, None)
+            if (sym, interval) not in saved:
+                raise urllib.error.HTTPError("https://query1.finance.yahoo.com/x", 404, "Not saved", {}, None)
+            return self._saved(saved[(sym, interval)])
+        with mock.patch.object(eb, "_yahoo_chart", chart), mock.patch.object(eb, "_fred_cached", lambda sid, days: []):
+            m = eb.fetch_market_data(now=self.NOW_UTC)
+        m["fetched_at"] = "2026-11-14T07:42"
+        return m, calls
+
+    def _outputs(self, m):
+        econ = eb.parse_summary(up_json(), UP_ARTS, m["trade_date"])
+        econ["markets"] = eb.build_market_cards(m)
+        econ["trade_date"] = m["trade_date"]
+        econ["today"] = eb.today_summary(m, econ["markets"])
+        page = eb.generate_html(econ, UP_ARTS, {"ok": True, "items": []}, UP_MAJOR, now=NOW)
+        slack = eb.build_slack_payload("https://shio-jpn.github.io/econobot/", econ, {"ok": True, "items": []}, UP_MAJOR, now=NOW)
+        return econ, page, slack
+
+    def test_fx_hourly_from_saved_response(self):
+        """1時間足あり(本物の応答)→ ドル円は 11/12 159.821 → 11/13 159.686(米東部17時直前の足)"""
+        self.assertNotIn("previousClose", self._saved("yahoo_JPYX_1d_2y_2026-11-14.json")["meta"])   # 前提の確認
+        m, calls = self._market(hourly_ok=True)
+        fx = dict(m["series"]["ドル円"]["rows"])
+        self.assertEqual((round(fx["2026-11-12"], 3), round(fx["2026-11-13"], 3)), (159.821, 159.686))
+        self.assertTrue(m["series"]["ドル円"]["compare"])
+        self.assertEqual(m["trade_date"], "2026-11-13")
+        econ, page, slack = self._outputs(m)
+        card = [c for c in econ["markets"] if c["name"] == "ドル円"][0]
+        self.assertEqual(card["chg_text"], "−0.13円 円高")
         self.assertEqual(econ["today"]["yen"]["line"], "1ドル=159.69円。前の日より0.13円の円高(ドルが安くなった)。")
         self.assertEqual(econ["today"]["jpy_sp"]["text"], "−0.48%")   # (1−0.40%)×(1−0.08%)−1
+        self.assertEqual(slack["text"], "米国株 S&P 500 −0.40%|1ドル=159.69円 円高|AI関連株に売り")
+
+    def test_fx_hourly_missing_no_comparison(self):
+        """1時間足が query1・query2 とも失敗(保存した応答から1時間足だけ消す)→ 値だけ出し、前日比・円高円安・円で見たS&P 500はどこにも出さない"""
+        m, calls = self._market(hourly_ok=False)
+        self.assertEqual([c[2] for c in calls if c[1] == "60m"], ["query1", "query2"])   # 取り直しは1回だけ
+        self.assertFalse(m["series"]["ドル円"]["compare"])
+        econ, page, slack = self._outputs(m)
+        card = [c for c in econ["markets"] if c["name"] == "ドル円"][0]
+        self.assertEqual((card["value_text"], card["chg_text"]), ("159.69円", "前の日との比較は取得できませんでした"))
+        self.assertIsNone(econ["today"]["jpy_sp"])
+        self.assertEqual(econ["today"]["yen"]["line"], "1ドル=159.69円。前の日との比較は取得できませんでした。")
+        vt = visible(page)
+        self.assertNotIn('class="today-jpy-sp"', page)
+        self.assertNotIn("円で見たS&P 500", vt)
+        fx_card = re.search(r'(<li class="card [^"]*" role="group" aria-label="ドル円.*?</li>)', page, re.S).group(1)
+        chg = visible(re.search(r'(<span class="card-chg">.*?</span></span>)', fx_card, re.S).group(1))
+        self.assertEqual(chg, "前の日との比較は取得できませんでした")   # 変化の行(説明文の「円安」は定型文なので対象外)
+        for w in ("▲", "▼", "−0.04", "+0.04", "円高"):
+            self.assertNotIn(w, visible(fx_card), w)
+        today = visible(re.search(r'(<section class="block today".*?</section>)', page, re.S).group(1))
+        for w in ("円高", "円安", "ほぼ変わらず"):
+            self.assertNotIn(w, today, w)
+        self.assertIn("前の日との比較は取得できませんでした", visible(fx_card))
+        # Slackの出口すべて(通知の1行・本文・文字だけの再送)
+        self.assertEqual(slack["text"], "米国株 S&P 500 −0.40%|1ドル=159.69円|AI関連株に売り")
+        for out in (json.dumps(slack, ensure_ascii=False), eb._slack_text_only(slack, "https://x/")["text"]):
+            for w in ("円高", "円安", "前日並み", "円で見た", "ほぼ変わらず"):
+                self.assertNotIn(w, out, w)
+            self.assertIn("前の日との比較は取得できませんでした", out)
 
     def test_slack_skips_stale_nasdaq_and_dates_stale_yen(self):
         """ナスダックだけ古い日はSlackの1段目に出さない。古いドル円は通知文にも日付を付ける"""
@@ -928,3 +975,33 @@ class VerifierFixTest(unittest.TestCase):
         self.assertEqual(c["chg_text"], "+0.13ポイント(11/10 4.73%)")
         c2 = eb._official_card("米10年債利回り", "yield", [("2026-11-13", 5.10), ("2026-11-16", 5.15)])   # 金→月
         self.assertEqual(c2["chg_text"], "+0.05ポイント(前日 5.10%)")
+
+
+class AsofNoteTest(unittest.TestCase):
+    """2026-11-14(3回目):WTI・ビットコインは取得時点の値。注記が「終値」と言う対象に入れない"""
+    def test_note_does_not_call_wti_btc_close(self):
+        td = "2026-11-13"
+        m = {"trade_date": td, "fetched_at": "2026-11-14T07:42", "series": {
+            "S&P 500": {"rows": [("2026-11-12", 1000.0), ("2026-11-13", 995.8)], "src": "Yahoo Finance", "kind": "index"},
+            "米10年債利回り": {"rows": [("2026-11-12", 5.103), ("2026-11-13", 5.154)], "src": "Yahoo Finance", "kind": "yield"},
+            "WTI原油": {"rows": [("2026-11-12", 88.74), ("2026-11-13", 88.56)], "src": "Yahoo Finance", "kind": "usd"},
+            "ビットコイン": {"rows": [("2026-11-12", 71342.97), ("2026-11-13", 70000.0)], "src": "Yahoo Finance", "kind": "usd"}}}
+        cards = eb.build_market_cards(m)
+        note = eb.asof_note(cards, "11月13日(金)")
+        closing = note.split("の終値")[0]
+        for w in ("WTI", "ビットコイン"):
+            self.assertNotIn(w, closing, note)
+        self.assertNotIn("すべて", note)
+        self.assertEqual(note, "株価指数・利回りは11月13日(金)の終値。WTI原油・ビットコインは取得時点の値")
+        econ = eb.parse_summary(up_json(), UP_ARTS, td)
+        econ["markets"], econ["trade_date"] = cards, td
+        page = eb.generate_html(econ, UP_ARTS, {"ok": True, "items": []}, UP_MAJOR, now=NOW)
+        for name in ("WTI原油", "ビットコイン"):
+            card = re.search(r'(<li class="card [^"]*" role="group" aria-label="' + name + r'.*?</li>)', page, re.S).group(1)
+            self.assertIn('<span class="card-date at-time">11/14 07:42(日本時間)時点の値。あとで変わることがあります</span>', card)
+        # ビットコインの日足に空(None)があって前の日を使う時は、従来どおり日付の表示
+        m["series"]["ビットコイン"]["rows"] = [("2026-11-11", 73964.47), ("2026-11-12", 71342.97)]
+        btc = [c for c in eb.build_market_cards(m) if c["name"] == "ビットコイン"][0]
+        self.assertEqual((btc["stale"], btc["date_label"], btc.get("provisional")), (True, "11/12の値", None))
+        self.assertEqual(eb.asof_note(eb.build_market_cards(m), "11月13日(金)"),
+                         "株価指数・利回りは11月13日(金)の終値。WTI原油は取得時点の値。日付などの表示があるカードは、その表示のとおり")
