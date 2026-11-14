@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light">
 <link rel="icon" href="data:,">
 <title>米国経済ニュース | 11月14日(土)</title>
-<meta name="description" content="米国株はまちまち、インフレ懸念で債券安 | AIが自動生成する米国経済ニュースの朝刊まとめ">
+<meta name="description" content="Nvidia CEO辞任、インフレ懸念で利上げ観測 | AIが自動生成する米国経済ニュースの朝刊まとめ">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:wght@600;700&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -15,7 +15,7 @@
     color-scheme: light;
     --brand: #dc2626; --ink: #16181d; --text: #24272e; --muted: #5b6472; --line: #e6e8eb;
     --up: #166534; --up-bg: #f0fdf4; --down: #b91c1c; --down-bg: #fef2f2; --flat: #475569; --flat-bg: #f1f5f9;
-    --focus: #1e40af;
+    --focus: #1e40af; --panel: #f8fafc;
     --sans: 'Roboto', 'Noto Sans JP', sans-serif; --serif: 'Newsreader', 'Noto Serif JP', serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,9 +32,9 @@
   .logo span { color: var(--brand); }
   .stamp { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-  main { max-width: 680px; margin: 0 auto; padding: 24px 16px 56px; }
+  main { max-width: 680px; margin: 0 auto; padding: 20px 16px 56px; }
+  .asof { font-size: 13px; font-weight: 500; color: var(--muted); line-height: 1.6; margin-bottom: 6px; }
   h1 { font-family: var(--serif); font-size: 26px; font-weight: 700; line-height: 1.35; color: var(--ink); }
-  .sub { font-size: 13px; color: var(--muted); line-height: 1.6; margin-top: 4px; }
   .notice { margin-top: 24px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; }
 
   .block { margin-top: 40px; }
@@ -42,42 +42,73 @@
   .h-icon { display: inline-flex; width: 20px; height: 20px; color: var(--muted); flex-shrink: 0; }
   .h-icon svg { width: 100%; height: 100%; }
 
-  .kps { list-style: none; display: grid; gap: 12px; }
+  .today { margin-top: 20px; padding: 16px; border: 1px solid var(--line); border-left: 4px solid var(--ink); border-radius: 8px; background: var(--panel); }
+  .today h2 { font-size: 16px; margin-bottom: 8px; }
+  .today p { font-size: 15px; line-height: 1.75; color: var(--ink); }
+  .today p + p { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .today-stocks { font-weight: 500; }
+  .size-label { font-weight: 400; color: var(--text); }
+  .today-jpy-sp strong { font-variant-numeric: tabular-nums; }
+  .today-note { display: block; font-size: 12px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+  .today-why { font-size: 14px !important; color: var(--text) !important; }
+  .today-ref { display: block; margin-top: 4px; color: var(--muted); }
+
+  .kps { list-style: none; display: grid; gap: 14px; }
   .kp { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: start; }
   .kp-num { width: 28px; height: 28px; border-radius: 50%; background: var(--brand); color: #ffffff; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px; font-variant-numeric: tabular-nums; }
   .kp-body { font-size: 17px; font-weight: 500; line-height: 1.6; color: var(--ink); }
+  .kp-why { display: block; margin: 4px 0 0 1em; font-size: 15px; font-weight: 400; line-height: 1.7; color: var(--text); }
+  .kp-date { display: block; margin-left: 1em; font-size: 12px; font-weight: 400; color: var(--muted); }
   .tag { display: inline-block; font-size: 12px; font-weight: 500; line-height: 1.5; color: var(--muted); border: 1px solid #cfd4da; border-radius: 4px; padding: 0 6px; margin-right: 8px; vertical-align: 2px; white-space: nowrap; }
 
   .tt-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .tt { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; white-space: nowrap; }
   .tt th, .tt td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; }
   .tt th[scope="row"], .tt thead th:first-child { text-align: left; position: sticky; left: 0; background: #fff; }
-  .tt thead th { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .tt thead th { font-size: 12px; font-weight: 600; color: var(--muted); white-space: normal; }
   .tt .tt-date { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
   .tt td.up { color: var(--up); } .tt td.down { color: var(--down); } .tt td.na { color: var(--muted); }
+  .tt-note { font-size: 12px; color: var(--muted); line-height: 1.6; margin-top: 8px; }
   .sub-h { font-size: 14px; font-weight: 700; color: var(--muted); margin: 14px 0 6px; }
-  .tt.mc th[scope="row"] { white-space: normal; min-width: 9em; }
-  .tt td.strong { font-weight: 700; color: var(--ink); }
-  .tt-hint { display: none; font-size: 12px; color: var(--muted); margin-top: 4px; }
   @media (max-width: 480px) {
-    .tt { font-size: 13px; }
-    .tt th, .tt td { padding: 7px 6px; }
-    .tt .col-close { display: none; }
-    .tt-hint { display: block; }
+    /* 4列をスマホ幅(375px)に収める:指数名は折り返し、余白と文字を詰める */
+    .tt { font-size: 12.5px; }
+    .tt th, .tt td { padding: 7px 3px; }
+    .tt th[scope="row"] { white-space: normal; width: 5.2em; }
+    .tt td span[aria-hidden] { font-size: 10px; }
   }
+  .grp-h { font-size: 14px; font-weight: 700; color: var(--muted); margin: 18px 0 8px; }
+  .grp-h:first-of-type { margin-top: 0; }
   .cards { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-  .card { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; font-variant-numeric: tabular-nums; }
+  .card { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-variant-numeric: tabular-nums; }
   .card.up { background: var(--up-bg); } .card.up .card-chg { color: var(--up); }
   .card.down { background: var(--down-bg); } .card.down .card-chg { color: var(--down); }
   .card.flat { background: var(--flat-bg); } .card.flat .card-chg { color: var(--flat); }
-  .card-name { font-size: 13px; color: var(--muted); line-height: 1.4; }
+  .card.neutral { background: var(--flat-bg); } .card.neutral .card-chg { color: var(--ink); }
+  .card-name { font-size: 13px; font-weight: 700; color: var(--ink); line-height: 1.4; }
+  .card-desc { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 4px; }
   .card-value { display: block; font-family: 'Roboto', sans-serif; font-size: 22px; font-weight: 700; color: var(--ink); line-height: 1.3; }
   .card-value.none { font-family: var(--sans); font-size: 13px; font-weight: 400; color: var(--muted); line-height: 1.7; padding: 3px 0 2px; }
-  .card-chg { display: block; font-family: 'Roboto', sans-serif; font-size: 16px; font-weight: 700; line-height: 1.4; }
-  .card-chg.none { font-family: var(--sans); font-size: 13px; font-weight: 400; color: var(--muted); }
+  .card-chg { display: block; font-family: 'Roboto', 'Noto Sans JP', sans-serif; font-size: 15px; font-weight: 700; line-height: 1.4; }
   .card-note { display: block; font-size: 12px; color: var(--flat); line-height: 1.4; }
-  .card-src { font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 4px; }
+  .card-range { font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 4px; }
+  .card-date { font-size: 12px; font-weight: 700; color: var(--muted); line-height: 1.4; }
+  .card-date.at-time { font-weight: 400; }
+  .asof-note { font-size: 12px; color: var(--muted); line-height: 1.6; margin-top: 10px; }
   .note { font-size: 12px; color: var(--muted); line-height: 1.6; margin-top: 8px; }
+
+  .policy-rate { font-size: 16px; font-weight: 700; color: var(--ink); line-height: 1.6; }
+  .policy-desc { font-size: 14px; color: var(--text); line-height: 1.7; margin-top: 4px; }
+
+  .inds { border-top: 1px solid var(--line); }
+  .ind { padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .ind-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+  .ind-name { font-size: 15px; font-weight: 700; color: var(--ink); }
+  .ind-period { font-size: 12px; color: var(--muted); }
+  .ind-val { margin-left: auto; font-size: 15px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .ind p { font-size: 13px; line-height: 1.65; color: var(--text); }
+  .ind .ind-desc, .ind .ind-prev, .ind .ind-base { color: var(--muted); }
+  .ind .ind-read { color: var(--ink); margin-top: 2px; }
 
   .heads { list-style: none; border-top: 1px solid var(--line); }
   .heads li { border-bottom: 1px solid var(--line); }
@@ -94,7 +125,9 @@
   .lines li.story-item { padding-left: 0; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
   .lines li.story-item::before { display: none; }
   .l-title { display: block; font-size: 16px; font-weight: 700; color: var(--ink); line-height: 1.6; margin-bottom: 2px; }
-  .l-body { font-size: 15px; line-height: 1.85; }
+  .s-what { display: block; font-size: 15px; line-height: 1.85; }
+  .s-why, .s-effect { display: block; font-size: 15px; line-height: 1.8; margin-top: 2px; }
+  .story-meta { display: block; font-size: 12px; color: var(--muted); margin-top: 4px; }
   .lines li::before { content: ""; position: absolute; left: 2px; top: 0.8em; width: 5px; height: 5px; border-radius: 50%; background: #9aa1ac; }
   .src { display: inline-block; margin-left: 8px; font-size: 12px; color: var(--muted); text-underline-offset: 2px; white-space: nowrap; }
   .src + .src { margin-left: 6px; }
@@ -104,6 +137,15 @@
   .story h3 { font-family: var(--serif); font-size: 19px; font-weight: 700; line-height: 1.45; color: var(--ink); margin-bottom: 8px; }
   .story h3 .tag { font-family: var(--sans); vertical-align: 3px; }
   .lead { font-size: 16px; font-weight: 500; line-height: 1.7; margin-bottom: 12px; color: var(--ink); }
+  .why-matters { font-size: 15px; line-height: 1.75; margin-top: 10px; padding: 8px 12px; background: var(--panel); border-radius: 6px; }
+
+  .upc { list-style: none; border-top: 1px solid var(--line); }
+  .upc li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .upc-date { font-weight: 700; color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+  .gl dt { font-size: 15px; font-weight: 700; color: var(--ink); margin-top: 12px; }
+  .gl dt:first-child { margin-top: 0; }
+  .gl dd { font-size: 14px; line-height: 1.75; color: var(--text); }
 
   .sources summary { display: flex; align-items: center; min-height: 44px; font-size: 16px; font-weight: 700; color: var(--ink); cursor: pointer; border-top: 1px solid var(--line); }
   .src-list { list-style: none; }
@@ -113,13 +155,18 @@
   .src-title { display: block; font-size: 14px; line-height: 1.6; color: var(--text); }
 
   footer { border-top: 1px solid var(--line); }
-  footer p { max-width: 680px; margin: 0 auto; padding: 20px 16px 32px; font-size: 12px; line-height: 1.6; color: var(--muted); }
+  .howmade { max-width: 680px; margin: 0 auto; padding: 20px 16px 32px; font-size: 12px; line-height: 1.7; color: var(--muted); }
+  .howmade h2 { font-size: 13px; color: var(--ink); margin-bottom: 4px; }
+  .howmade ul { list-style: none; }
+  .howmade p { margin-top: 8px; }
 
   @media (min-width: 600px) {
-    main { padding-top: 40px; }
+    main { padding-top: 32px; }
     h1 { font-size: 34px; }
     h2 { font-size: 20px; }
+    .today h2 { font-size: 17px; }
     .block { margin-top: 48px; }
+    .today { margin-top: 24px; }
     .kp-body { font-size: 18px; }
     .lines li { font-size: 16.5px; }
     .stamp, .src-name { font-size: 13px; }
@@ -133,204 +180,250 @@
 <header>
   <div class="bar">
     <div class="logo">ECONO<span>BOT</span></div>
-    <div class="stamp">11月14日(土) 10:08 更新</div>
+    <div class="stamp">11月14日(土) 21:44 更新</div>
   </div>
 </header>
 <main id="main">
-  <h1>米国株はまちまち、インフレ懸念で債券安</h1>
-  <p class="sub">直近24〜48時間の英語報道からAIが自動要約</p>
+  <p class="asof" data-trade-date="2026-11-13">11月13日(金)の米国市場 ・ ニュースは11月14日(土)までの報道</p>
+  <h1>Nvidia CEO辞任、インフレ懸念で利上げ観測</h1>
+    <section class="block today" id="today" aria-labelledby="h-today">
+      <h2 id="h-today">11月13日(金)の米国市場</h2>
+      <p class="today-stocks">米国株はまちまち。S&amp;P 500 −0.40%、ナスダック −0.91%、ダウ +0.10%。<br>S&amp;P 500の動きは<span class="size-label">「小さな動き」(この1年の1日の値動きの中で、大きい方から上位60%)</span></p>
+      <p class="today-yen">1ドル=159.69円。前の日より0.13円の円高(ドルが安くなった)。</p>
+      <p class="today-jpy-sp">円で見たS&amp;P 500の目安:<strong>−0.48%</strong>(株の動き −0.40% と、ドル円の動き −0.08% を合わせたもの)<span class="today-note">円建ての投資信託の値段は日本の朝の為替レートで決まるため、この数字と一致はしません。</span></p>
+      <p class="today-why">値動きの理由(報道より):米国債利回りが上昇し、FRBの利上げ観測が強まった。NvidiaのCEO辞任も市場の懸念材料となった。<a class="src" href="https://www.cnbc.com/2026/11/13/treasury-yields-fed-rates.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></p>
+    </section>
     <section class="block" aria-labelledby="h-kp">
       <h2 id="h-kp">今日の要点</h2>
       <ol class="kps">
         <li class="kp">
           <span class="kp-num" aria-hidden="true">1</span>
-          <div class="kp-body"><span class="tag">株式</span><span class="kp-text">エヌビディア株は反発、インフレ指標は予想より鈍化</span><a class="src" href="https://www.cnbc.com/2026/11/12/stock-market-today-live-updates.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></div>
+          <div class="kp-body"><span class="tag">株式</span><span class="kp-text">NvidiaのCEOが辞任、株価は下落傾向が続く</span><a class="src" href="https://www.cnbc.com/2026/11/13/nvidia-stock-jensen-affair-ai.html" target="_blank" rel="noopener noreferrer" aria-label="出典1:CNBC(新しいタブで開く)">出典1</a><a class="src" href="https://www.npr.org/2026/11/12/nx-s1-6038865/ceo-jensen-huang-resigns-from-chip-giant-nvidia" target="_blank" rel="noopener noreferrer" aria-label="出典2:NPR(新しいタブで開く)">出典2</a><a class="src" href="https://www.bbc.co.uk/news/articles/cmze750zg0jeo?at_medium=RSS&amp;at_campaign=rss" target="_blank" rel="noopener noreferrer" aria-label="出典3:BBC News(新しいタブで開く)">出典3</a><span class="kp-why"><span aria-hidden="true">→ </span>CEOの不倫疑惑と中国のスパイ疑惑が浮上したため</span><span class="kp-date">11/13の報道</span></div>
         </li>
         <li class="kp">
           <span class="kp-num" aria-hidden="true">2</span>
-          <div class="kp-body"><span class="tag">雇用・物価</span><span class="kp-text">住宅販売、10月は前年比8.8%減で16年ぶり低水準</span><a class="src" href="https://www.npr.org/2026/11/12/nx-s1-6038940/punch-in-the-gut-homes-sales-fall-to-their-lowest-in-16-years" target="_blank" rel="noopener noreferrer" aria-label="出典:NPR(新しいタブで開く)">出典</a></div>
+          <div class="kp-body"><span class="tag">金融政策</span><span class="kp-text">FRBはインフレ抑制のため追加利上げの可能性を示唆</span><a class="src" href="https://www.cnbc.com/2026/11/13/chicago-feds-goolsbee-says-central-bank-has-definitely-got-work-to-do-on-inflation.html" target="_blank" rel="noopener noreferrer" aria-label="出典1:CNBC(新しいタブで開く)">出典1</a><a class="src" href="https://www.cnbc.com/2026/11/13/treasury-yields-fed-rates.html" target="_blank" rel="noopener noreferrer" aria-label="出典2:CNBC(新しいタブで開く)">出典2</a><span class="kp-why"><span aria-hidden="true">→ </span>インフレ指標が予想を上回り、FRB高官が懸念を示したため</span><span class="kp-date">11/13の報道</span></div>
         </li>
         <li class="kp">
           <span class="kp-num" aria-hidden="true">3</span>
-          <div class="kp-body"><span class="tag">株式</span><span class="kp-text">エヌビディア元CEO関連の疑惑、スーパー・マイクロ株に影響か</span><a class="src" href="https://www.bloomberg.com/news/articles/2026-11-12/us-probing-if-alice-huang-helped-smuggle-super-micro-products" target="_blank" rel="noopener noreferrer" aria-label="出典:Bloomberg(新しいタブで開く)">出典</a></div>
+          <div class="kp-body"><span class="tag">雇用・物価</span><span class="kp-text">卸売物価指数が上昇、インフレ圧力の高まりを示す</span><a class="src" href="https://www.cnbc.com/2026/11/13/ppi-inflation-report-october-2026.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a><span class="kp-why"><span aria-hidden="true">→ </span>10月の卸売物価指数が前年同月比6.5%上昇と、約4年ぶりの高水準となったため</span><span class="kp-date">11/13の報道</span></div>
         </li>
       </ol>
     </section>
-    <section class="block" aria-labelledby="h-mk">
+    <section class="block" id="markets" aria-labelledby="h-mk">
       <h2 id="h-mk">主な数値</h2>
-      <ul class="cards">
-        <li class="card down" role="group" aria-label="S&amp;P 500、7,561.67、前の取引日比0.4%下落、出典FRED 11/13終値">
+      <h3 class="grp-h" id="h-mk-0">米国株</h3>
+      <ul class="cards" aria-labelledby="h-mk-0">
+        <li class="card down" role="group" aria-label="S&amp;P 500、7,561.67、前の取引日より0.40%下落、1年の範囲 6,343.72〜7,818.93 ・ 高い方">
           <span class="card-name" aria-hidden="true">S&amp;P 500</span>
+          <span class="card-desc" aria-hidden="true">米国の大企業約500社の株価をまとめた指数。米国株全体の物差し</span>
           <span aria-hidden="true"><span class="card-value">7,561.67</span></span>
-          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▼ </span>−0.4%</span></span>
-          <span class="card-src" aria-hidden="true">FRED 11/13終値</span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▼ </span>−0.40%</span></span>
+          <span class="card-range">1年の範囲 6,343.72〜7,818.93 ・ 高い方</span>
         </li>
-        <li class="card down" role="group" aria-label="ナスダック総合、25,366.09、前の取引日比0.39%下落、出典FRED 11/12終値">
+        <li class="card down" role="group" aria-label="ナスダック総合、25,136.27、前の取引日より0.91%下落、1年の範囲 20,794.64〜27,599.79 ・ 中ほど">
           <span class="card-name" aria-hidden="true">ナスダック総合</span>
-          <span aria-hidden="true"><span class="card-value">25,366.09</span></span>
-          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▼ </span>−0.39%</span></span>
-          <span class="card-src" aria-hidden="true">FRED 11/12終値</span>
+          <span class="card-desc" aria-hidden="true">ハイテク企業が多い市場の指数。IT・AI関連の動きが出やすい</span>
+          <span aria-hidden="true"><span class="card-value">25,136.27</span></span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▼ </span>−0.91%</span></span>
+          <span class="card-range">1年の範囲 20,794.64〜27,599.79 ・ 中ほど</span>
         </li>
-        <li class="card up" role="group" aria-label="ダウ平均、52,347.55、前の取引日比0.1%上昇、出典FRED 11/13終値">
+        <li class="card up" role="group" aria-label="ダウ平均、52,347.55、前の取引日より0.10%上昇、1年の範囲 45,166.64〜54,349.12 ・ 中ほど">
           <span class="card-name" aria-hidden="true">ダウ平均</span>
+          <span class="card-desc" aria-hidden="true">米国を代表する30社の株価から計算する指数</span>
           <span aria-hidden="true"><span class="card-value">52,347.55</span></span>
-          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▲ </span>+0.1%</span></span>
-          <span class="card-src" aria-hidden="true">FRED 11/13終値</span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▲ </span>+0.10%</span></span>
+          <span class="card-range">1年の範囲 45,166.64〜54,349.12 ・ 中ほど</span>
         </li>
-        <li class="card up" role="group" aria-label="VIX(恐怖指数)、18.70、前の取引日比6.92%上昇、出典FRED 11/12終値">
-          <span class="card-name" aria-hidden="true">VIX(恐怖指数)</span>
-          <span aria-hidden="true"><span class="card-value">18.70</span></span>
-          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▲ </span>+6.92%</span></span>
-          <span class="card-src" aria-hidden="true">FRED 11/12終値</span>
+      </ul>
+      <h3 class="grp-h" id="h-mk-1">円と金利</h3>
+      <ul class="cards" aria-labelledby="h-mk-1">
+        <li class="card neutral" role="group" aria-label="ドル円、159.69円、前の取引日より0.13円円高、1年の範囲 152.45〜163.86円 ・ 中ほど">
+          <span class="card-name" aria-hidden="true">ドル円</span>
+          <span class="card-desc" aria-hidden="true">1ドルが何円か。数字が大きくなるほど円安</span>
+          <span aria-hidden="true"><span class="card-value">159.69円</span></span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▼ </span>−0.13円 円高</span></span>
+          <span class="card-range">1年の範囲 152.45〜163.86円 ・ 中ほど</span>
         </li>
-        <li class="card up" role="group" aria-label="米10年債利回り、5.10%、前の取引日比12ベーシスポイント上昇、出典FRED 11/12終値">
+        <li class="card neutral" role="group" aria-label="米10年債利回り、5.15%、前の取引日より0.05ポイント上昇、前日は5.10%、1年の範囲 3.96〜5.31% ・ 高い方">
           <span class="card-name" aria-hidden="true">米10年債利回り</span>
-          <span aria-hidden="true"><span class="card-value">5.10%</span></span>
-          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▲ </span>+12bp</span></span>
-          <span class="card-src" aria-hidden="true">FRED 11/12終値</span>
+          <span class="card-desc" aria-hidden="true">米国が10年間お金を借りる時の金利。住宅ローンなど長い借入の金利の目安</span>
+          <span aria-hidden="true"><span class="card-value">5.15%</span></span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▲ </span>+0.05ポイント(前日 5.10%)</span></span>
+          <span class="card-range">1年の範囲 3.96〜5.31% ・ 高い方</span>
         </li>
-        <li class="card up" role="group" aria-label="米2年債利回り、4.86%、前の取引日比13ベーシスポイント上昇、出典FRED 11/12終値">
+        <li class="card neutral" role="group" aria-label="米2年債利回り、4.86%、前の取引日より0.13ポイント上昇、11/10は4.73%、1年の範囲 3.38〜4.92% ・ 高い方、11/12の値">
           <span class="card-name" aria-hidden="true">米2年債利回り</span>
+          <span class="card-desc" aria-hidden="true">2年の金利。FRBの金利の先行きを映しやすい</span>
           <span aria-hidden="true"><span class="card-value">4.86%</span></span>
-          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▲ </span>+13bp</span></span>
-          <span class="card-src" aria-hidden="true">FRED 11/12終値</span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▲ </span>+0.13ポイント(11/10 4.73%)</span></span>
+          <span class="card-range">1年の範囲 3.38〜4.92% ・ 高い方</span>
+          <span class="card-date stale">11/12の値</span>
         </li>
-        <li class="card flat" role="group" aria-label="WTI原油、$89.62、前の取引日比0%、横ばい、出典FRED 11/11終値">
+      </ul>
+      <h3 class="grp-h" id="h-mk-2">その他の市場</h3>
+      <ul class="cards" aria-labelledby="h-mk-2">
+        <li class="card neutral" role="group" aria-label="VIX(恐怖指数)、19.30、前の取引日より0.60上昇、前日は18.70、1年の範囲 13.47〜31.05 ・ 中ほど">
+          <span class="card-name" aria-hidden="true">VIX(恐怖指数)</span>
+          <span class="card-desc" aria-hidden="true">今後1か月の株価の荒れ具合の予想。高いほど市場が不安</span>
+          <span aria-hidden="true"><span class="card-value">19.30</span></span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▲ </span>+0.60(前日 18.70)</span></span>
+          <span class="card-range">1年の範囲 13.47〜31.05 ・ 中ほど</span>
+        </li>
+        <li class="card neutral" role="group" aria-label="WTI原油、$88.56、前の取引日より0.20%下落、1年の範囲 $55.27〜$112.95 ・ 中ほど、11/14 21:44(日本時間)時点の値。あとで変わることがあります">
           <span class="card-name" aria-hidden="true">WTI原油</span>
-          <span aria-hidden="true"><span class="card-value">$89.62</span></span>
-          <span aria-hidden="true"><span class="card-chg">― 0%</span></span>
-          <span class="card-src" aria-hidden="true">FRED 11/11終値</span>
+          <span class="card-desc" aria-hidden="true">米国の原油の値段(1バレルあたり)。ガソリン代のもと</span>
+          <span aria-hidden="true"><span class="card-value">$88.56</span></span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▼ </span>−0.20%</span></span>
+          <span class="card-range">1年の範囲 $55.27〜$112.95 ・ 中ほど</span>
+          <span class="card-date at-time">11/14 21:44(日本時間)時点の値。あとで変わることがあります</span>
         </li>
-        <li class="card down" role="group" aria-label="ビットコイン、$68,178、前の取引日比3.73%下落、出典FRED 11/13終値">
+        <li class="card down" role="group" aria-label="ビットコイン、$68,249、前の取引日より4.34%下落、1年の範囲 $58,559〜$96,929 ・ 中ほど、11/14 21:44(日本時間)時点の値。あとで変わることがあります">
           <span class="card-name" aria-hidden="true">ビットコイン</span>
-          <span aria-hidden="true"><span class="card-value">$68,178</span></span>
-          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▼ </span>−3.73%</span></span>
-          <span class="card-src" aria-hidden="true">FRED 11/13終値</span>
+          <span class="card-desc" aria-hidden="true">代表的な暗号資産。値動きが大きい</span>
+          <span aria-hidden="true"><span class="card-value">$68,249</span></span>
+          <span aria-hidden="true"><span class="card-chg"><span aria-hidden="true">▼ </span>−4.34%</span></span>
+          <span class="card-range">1年の範囲 $58,559〜$96,929 ・ 中ほど</span>
+          <span class="card-date at-time">11/14 21:44(日本時間)時点の値。あとで変わることがあります</span>
         </li>
       </ul>
-      <p class="note">※FREDの数値はセントルイス連邦準備銀行が公表する終値(前の取引日比)。その他は報道時点の値</p>
+      <p class="asof-note">株価指数・利回り・VIXは11月13日(金)の終値、ドル円は同じ日の米東部17時の値。WTI原油・ビットコインは取得時点の値。日付などの表示があるカードは、その表示のとおり</p>
     </section>
-    <section class="block" id="major" aria-labelledby="h-major">
-      <h2 id="h-major">主要ニュース</h2>
-      <ul class="heads">
-        <li><a href="#major-1">トランプ氏、イランとの交渉打ち切り示唆</a></li>
-        <li><a href="#major-2">米欧、ウクライナ和平協議で連携へ</a></li>
-        <li><a href="#major-3">米議員、中国メモリ大手CXMTの米排除を要求</a></li>
-      </ul>
-    </section>
-    <nav class="jump" aria-label="分野へ移動"><a href="#sec-stock">株式</a><a href="#sec-fed">FRB</a><a href="#sec-jobs">雇用・物価</a><a href="#sec-earnings">決算</a><a href="#major-detail">主要ニュース</a></nav>
+    <nav class="jump" aria-label="分野へ移動"><a href="#sec-stock">株式</a><a href="#sec-fed">金利・FRB</a><a href="#sec-jobs">物価・雇用</a><a href="#glossary">用語</a></nav>
     <section class="block" id="sec-stock" aria-labelledby="h-sec-stock">
       <h2 id="h-sec-stock"><span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 17 9 11 13 15 21 6"/><polyline points="14 6 21 6 21 13"/></svg></span>株式市場</h2>
-      <h3 class="sub-h" id="h-tt">株価指数の推移(公式統計)</h3>
+      <h3 class="sub-h" id="h-tt">株価指数の推移</h3>
       <div class="tt-wrap" role="region" aria-labelledby="h-tt" tabindex="0">
         <table class="tt">
-          <thead><tr><th scope="col">指数</th><th scope="col" class="col-close">終値</th><th scope="col">前日比</th><th scope="col">1週間</th>
+          <thead><tr><th scope="col">指数</th><th scope="col">1週間</th>
             <th scope="col">1か月</th><th scope="col">年初来</th><th scope="col">1年の高値から</th></tr></thead>
           <tbody>
-          <tr><th scope="row">S&amp;P 500<span class="tt-date">11/13終値</span></th>
-            <td class="num col-close">7,561.67</td><td class="down"><span aria-hidden="true">▼</span>−0.40%</td><td class="up"><span aria-hidden="true">▲</span>+2.51%</td><td class="down"><span aria-hidden="true">▼</span>−2.04%</td><td class="up"><span aria-hidden="true">▲</span>+10.46%</td><td class="down"><span aria-hidden="true">▼</span>−3.29%</td></tr>
-          <tr><th scope="row">ダウ平均<span class="tt-date">11/13終値</span></th>
-            <td class="num col-close">52,347.55</td><td class="up"><span aria-hidden="true">▲</span>+0.10%</td><td class="up"><span aria-hidden="true">▲</span>+2.07%</td><td class="up"><span aria-hidden="true">▲</span>+1.41%</td><td class="up"><span aria-hidden="true">▲</span>+8.91%</td><td class="down"><span aria-hidden="true">▼</span>−3.68%</td></tr>
-          <tr><th scope="row">ナスダック総合<span class="tt-date">11/12終値</span></th>
-            <td class="num col-close">25,366.09</td><td class="down"><span aria-hidden="true">▼</span>−0.39%</td><td class="up"><span aria-hidden="true">▲</span>+4.32%</td><td class="down"><span aria-hidden="true">▼</span>−6.76%</td><td class="up"><span aria-hidden="true">▲</span>+9.14%</td><td class="down"><span aria-hidden="true">▼</span>−8.09%</td></tr>
+          <tr><th scope="row">S&amp;P 500</th><td class="up"><span aria-hidden="true">▲</span>+2.51%</td><td class="down"><span aria-hidden="true">▼</span>−2.04%</td><td class="up"><span aria-hidden="true">▲</span>+10.46%</td><td class="down"><span aria-hidden="true">▼</span>−3.29%</td></tr>
+          <tr><th scope="row">ダウ平均</th><td class="up"><span aria-hidden="true">▲</span>+2.07%</td><td class="up"><span aria-hidden="true">▲</span>+1.41%</td><td class="up"><span aria-hidden="true">▲</span>+8.91%</td><td class="down"><span aria-hidden="true">▼</span>−3.68%</td></tr>
+          <tr><th scope="row">ナスダック総合</th><td class="up"><span aria-hidden="true">▲</span>+2.27%</td><td class="down"><span aria-hidden="true">▼</span>−5.83%</td><td class="up"><span aria-hidden="true">▲</span>+8.15%</td><td class="down"><span aria-hidden="true">▼</span>−8.93%</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="tt-hint">表は横に動かせます(年初来・1年の高値から)</p>
-      <p class="note">※セントルイス連邦準備銀行(FRED)が公表する終値から計算</p>
+      <p class="tt-note">1年の高値から:この1年でいちばん高かった終値から、今どれだけ下にいるか。0%なら最高値にいる。</p>
       <h3 class="sub-h">ニュースから</h3>
       <ul class="lines">
-        <li class="story-item"><span class="l-title">エヌビディア株は反発、インフレ指標は予想下振れ</span><span class="l-body">エヌビディア株は先日の下落から反発した。最新のインフレデータは予想よりも若干鈍化した。しかし、元CEOのジェンセン・フアン氏に関連する疑惑がスーパー・マイクロ・コンピューター社の製品密輸に関与していた可能性が浮上し、エヌビディア株は再び下落する可能性も示唆されている。</span><a class="src" href="https://www.cnbc.com/2026/11/12/stock-market-today-live-updates.html" target="_blank" rel="noopener noreferrer" aria-label="出典1:CNBC(新しいタブで開く)">出典1</a><a class="src" href="https://www.bloomberg.com/news/articles/2026-11-12/us-probing-if-alice-huang-helped-smuggle-super-micro-products" target="_blank" rel="noopener noreferrer" aria-label="出典2:Bloomberg(新しいタブで開く)">出典2</a><a class="src" href="https://www.cnbc.com/2026/11/12/nvidia-boards-crisis-meeting.html" target="_blank" rel="noopener noreferrer" aria-label="出典3:CNBC(新しいタブで開く)">出典3</a></li>
-        <li class="story-item"><span class="l-title">債券はインフレ懸念で続落、金利は上昇</span><span class="l-body">インフレ懸念が再燃し、債券は再び下落した。投資家は新たなインフレと住宅関連のデータを待つ中、米国債利回りは上昇した。FRBの金融政策への影響が注視される。</span><a class="src" href="https://www.wsj.com/livecoverage/stock-market-today-dow-sp-500-nasdaq-11-12-2026/card/bond-yields-rise-after-trump-s-iran-comments-pvfsEB7vSmlOm7WUGqog" target="_blank" rel="noopener noreferrer" aria-label="出典1:The Wall Street Journal(新しいタブで開く)">出典1</a><a class="src" href="https://www.cnbc.com/2026/11/12/us-treasurys-bonds-yields.html" target="_blank" rel="noopener noreferrer" aria-label="出典2:CNBC(新しいタブで開く)">出典2</a></li>
-        <li class="story-item"><span class="l-title">住宅販売は16年ぶり低水準、金利上昇が影響</span><span class="l-body">10月の既存住宅販売件数は前年同月比8.8%減少し、16年ぶりの低水準となった。金利の上昇が住宅購入者の意欲を削いでいるとみられる。</span><a class="src" href="https://www.npr.org/2026/11/12/nx-s1-6038940/punch-in-the-gut-homes-sales-fall-to-their-lowest-in-16-years" target="_blank" rel="noopener noreferrer" aria-label="出典:NPR(新しいタブで開く)">出典</a></li>
+        <li class="story-item"><span class="l-title">Nvidia CEO辞任、株価下落続く</span><span class="s-what">NvidiaのCEOであるジェンセン・フアン氏が辞任した。同氏は中国のスパイ疑惑のある女性との不倫関係が報じられ、これが株価下落の一因となった。Nvidiaは週足で2012年以来最長の連敗を記録し、時価総額は1.6兆ドル減少した。</span><span class="s-why">なぜ:CEOの不倫疑惑と中国のスパイ疑惑が浮上したため。また、データセンター向け注文の減少も影響している可能性がある。</span><span class="s-effect">影響:Nvidiaの株価は下落傾向にあり、市場価値は大きく減少した。AI分野における同社の役割への懸念も高まっている。</span><span class="story-meta"><span class="story-date">11/13の報道</span><a class="src" href="https://www.cnbc.com/2026/11/13/nvidia-stock-jensen-affair-ai.html" target="_blank" rel="noopener noreferrer" aria-label="出典1:CNBC(新しいタブで開く)">出典1</a><a class="src" href="https://www.npr.org/2026/11/12/nx-s1-6038865/ceo-jensen-huang-resigns-from-chip-giant-nvidia" target="_blank" rel="noopener noreferrer" aria-label="出典2:NPR(新しいタブで開く)">出典2</a><a class="src" href="https://www.bbc.co.uk/news/articles/cmze750zg0jeo?at_medium=RSS&amp;at_campaign=rss" target="_blank" rel="noopener noreferrer" aria-label="出典3:BBC News(新しいタブで開く)">出典3</a></span></li>
+        <li class="story-item"><span class="l-title">Microsoftサービス復旧、一部で影響続く</span><span class="s-what">MicrosoftのOutlook、Teams、Copilotなどのサービスで発生していたグローバル障害が復旧した。しかし、一部では影響が続いており、復旧作業が続けられた。</span><span class="s-why">なぜ:サービス提供の基盤となるシステムに問題が発生したため。</span><span class="s-effect">影響:障害により、世界中の政府機関や企業で業務に支障が出た。</span><span class="story-meta"><span class="story-date">11/14の報道</span><a class="src" href="https://www.bbc.co.uk/news/articles/c6rrg51rkz09o?at_medium=RSS&amp;at_campaign=rss" target="_blank" rel="noopener noreferrer" aria-label="出典1:BBC News(新しいタブで開く)">出典1</a><a class="src" href="https://www.bbc.co.uk/news/articles/cwvg238zrnm5o?at_medium=RSS&amp;at_campaign=rss" target="_blank" rel="noopener noreferrer" aria-label="出典2:BBC News(新しいタブで開く)">出典2</a><a class="src" href="https://www.bbc.com/news/articles/cqp9d58eldlro" target="_blank" rel="noopener noreferrer" aria-label="出典3:BBC News(新しいタブで開く)">出典3</a></span></li>
+        <li class="story-item"><span class="l-title">米住宅販売、16年ぶりの低水準に</span><span class="s-what">10月の既存住宅販売件数は前年同月比8.8%減少し、16年ぶりの低水準となった。</span><span class="s-why">なぜ:金利上昇や住宅ローン金利の高止まりが影響しているとみられる。</span><span class="s-effect">影響:住宅市場の低迷が続いている。</span><span class="story-meta"><span class="story-date">11/12の報道</span><a class="src" href="https://www.npr.org/2026/11/12/nx-s1-6038940/punch-in-the-gut-homes-sales-fall-to-their-lowest-in-16-years" target="_blank" rel="noopener noreferrer" aria-label="出典:NPR(新しいタブで開く)">出典</a></span></li>
       </ul>
     </section>
     <section class="block" id="sec-fed" aria-labelledby="h-sec-fed">
-      <h2 id="h-sec-fed"><span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="21" x2="21" y2="21"/><line x1="5" y1="21" x2="5" y2="10"/><line x1="19" y1="21" x2="19" y2="10"/><line x1="12" y1="21" x2="12" y2="10"/><polygon points="12 3 21 8 3 8"/></svg></span>FRB・金融政策</h2>
+      <h2 id="h-sec-fed"><span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="21" x2="21" y2="21"/><line x1="5" y1="21" x2="5" y2="10"/><line x1="19" y1="21" x2="19" y2="10"/><line x1="12" y1="21" x2="12" y2="10"/><polygon points="12 3 21 8 3 8"/></svg></span>金利・FRB</h2>
+      <p class="policy-rate">政策金利(FRBが決める金利):3.75〜4.00% ・ 最後の変更は2026年9月17日の利上げ(+0.25ポイント)</p>
+      <p class="policy-desc">FRBは物価の上がり方(目標は年2%)と雇用を見て、この金利を上げ下げします。上げると借金の利息が増え、景気と物価を冷やす方向に働きます。</p>
+      <h3 class="sub-h">ニュースから</h3>
       <ul class="lines">
-        <li class="story-item"><span class="l-title">FRB、2027年10月会合での利上げ採決見送り</span><span class="l-body">FRBは、2027年10月の連邦公開市場委員会（FOMC）では、政策金利に関する採決を行わない方針を発表した。これは政策の安定性を示すものとみられる。</span><a class="src" href="https://www.cnbc.com/2026/11/12/in-policy-switch-fed-says-its-october-2027-meeting-will-not-see-a-vote-on-interest-rates.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></li>
-        <li class="story-item"><span class="l-title">AIの将来とアメリカの格差に関するFRB副議長の講演</span><span class="l-body">FRB副議長のマイケル・バー氏は、AIがアメリカの格差に与える影響について講演した。AI技術の進展が経済格差にどう影響するか、今後の分析が注目される。</span><a class="src" href="https://www.federalreserve.gov/newsevents/speech/barr20261112a.htm" target="_blank" rel="noopener noreferrer" aria-label="出典:Federalreserve.gov(新しいタブで開く)">出典</a></li>
+        <li class="story-item"><span class="l-title">FRB高官、インフレ抑制へ追加利上げを示唆</span><span class="s-what">シカゴ連銀総裁は、インフレ抑制のためにFRBは「間違いなくやるべきことがある」と述べ、追加利上げの必要性を示唆した。投資家の間でも12月の利上げ観測が強まっている。</span><span class="s-why">なぜ:インフレ指標が予想を上回り、FRBがインフレ抑制のために断固たる措置を取る可能性が高まったため。</span><span class="s-effect">影響:国債利回りが上昇し、金融市場の不確実性が高まった。</span><span class="story-meta"><span class="story-date">11/13の報道</span><a class="src" href="https://www.cnbc.com/2026/11/13/chicago-feds-goolsbee-says-central-bank-has-definitely-got-work-to-do-on-inflation.html" target="_blank" rel="noopener noreferrer" aria-label="出典1:CNBC(新しいタブで開く)">出典1</a><a class="src" href="https://www.cnbc.com/2026/11/13/treasury-yields-fed-rates.html" target="_blank" rel="noopener noreferrer" aria-label="出典2:CNBC(新しいタブで開く)">出典2</a></span></li>
+        <li class="story-item"><span class="l-title">FRB、2027年のFOMC日程を変更</span><span class="s-what">FRBは、2027年の連邦公開市場委員会（FOMC）の開催日程を改定した。特に10月の会合では、投票なしの政策討議の時間が設けられる。</span><span class="s-why">なぜ:政策決定のプロセスを効率化し、より詳細な議論を可能にするため。</span><span class="s-effect">影響:金融政策の決定プロセスにおける柔軟性を持たせる狙いがある。</span><span class="story-meta"><span class="story-date">11/12の報道</span><a class="src" href="https://www.cnbc.com/2026/11/12/in-policy-switch-fed-says-its-october-2027-meeting-will-not-see-a-vote-on-interest-rates.html" target="_blank" rel="noopener noreferrer" aria-label="出典1:CNBC(新しいタブで開く)">出典1</a><a class="src" href="https://www.federalreserve.gov/newsevents/pressreleases/monetary20261112a.htm" target="_blank" rel="noopener noreferrer" aria-label="出典2:Federal Reserve(新しいタブで開く)">出典2</a></span></li>
       </ul>
     </section>
     <section class="block" id="sec-jobs" aria-labelledby="h-sec-jobs">
-      <h2 id="h-sec-jobs"><span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>雇用・物価</h2>
-      <h3 class="sub-h" id="h-mc">最新の指標(公式統計)</h3>
-      <div class="tt-wrap" role="region" aria-labelledby="h-mc" tabindex="0">
-        <table class="tt mc">
-          <thead><tr><th scope="col">指標</th><th scope="col">最新</th><th scope="col">前回</th><th scope="col">対象</th></tr></thead>
-          <tbody>
-          <tr><th scope="row">失業率<span class="tt-date">毎月・労働統計局</span></th>
-            <td class="num strong">4.1%</td><td class="num">4.2%</td><td class="num">10月分</td></tr>
-          <tr><th scope="row">非農業部門の雇用者数<span class="tt-date">前月からの増減</span></th>
-            <td class="num strong">+16.5万人</td><td class="num">+6.0万人</td><td class="num">10月分</td></tr>
-          <tr><th scope="row">平均時給<span class="tt-date">前年同月比</span></th>
-            <td class="num strong">+3.1%</td><td class="num">+3.2%</td><td class="num">10月分</td></tr>
-          <tr><th scope="row">消費者物価(CPI)<span class="tt-date">前年同月の統計が無いため比較不可</span></th>
-            <td class="num strong">―</td><td class="num">+3.7%</td><td class="num">10月分</td></tr>
-          <tr><th scope="row">コアCPI(食品・エネルギー除く)<span class="tt-date">前年同月の統計が無いため比較不可</span></th>
-            <td class="num strong">―</td><td class="num">+2.6%</td><td class="num">10月分</td></tr>
-          <tr><th scope="row">コアPCE物価(FRBが重視)<span class="tt-date">前年同月比</span></th>
-            <td class="num strong">+3.1%</td><td class="num">+3.0%</td><td class="num">9月分</td></tr>
-          <tr><th scope="row">新規失業保険申請<span class="tt-date">毎週</span></th>
-            <td class="num strong">20.0万件</td><td class="num">19.1万件</td><td class="num">11/7までの週</td></tr>
-          <tr><th scope="row">求人件数<span class="tt-date">毎月</span></th>
-            <td class="num strong">752万件</td><td class="num">719万件</td><td class="num">9月分</td></tr>
-          </tbody>
-        </table>
+      <h2 id="h-sec-jobs"><span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>物価・雇用</h2>
+      <h3 class="sub-h" id="h-mc">最新の指標</h3>
+      <div class="inds">
+        <div class="ind" data-series="UNRATE">
+          <div class="ind-head"><span class="ind-name">失業率</span><span class="ind-period">10月分</span><span class="ind-val">4.1%</span></div>
+          <p class="ind-desc">働く意思があるのに仕事が無い人の割合。上がると景気が弱っているサイン</p>
+          <p class="ind-prev">前回(9月分) 4.2%</p>
+          <p class="ind-base">基準:1年前の同じ月の値</p>
+          <p class="ind-read">読み方:1年前の同じ月の統計が欠けているため、比べられません。</p>
+        </div>
+        <div class="ind" data-series="PAYEMS">
+          <div class="ind-head"><span class="ind-name">雇用者数の増減(農業以外)</span><span class="ind-period">10月分</span><span class="ind-val">+16.5万人</span></div>
+          <p class="ind-desc">会社などで働く人が前の月から何人増えたか。景気の強さを見る代表的な数字</p>
+          <p class="ind-prev">前回(9月分) +6.0万人</p>
+          <p class="ind-base">基準:直前12か月の増減の平均 +4.8万人</p>
+          <p class="ind-read">読み方:ふだん(直前12か月の平均 +4.8万人)より多い</p>
+        </div>
+        <div class="ind" data-series="CES0500000003">
+          <div class="ind-head"><span class="ind-name">平均時給(前年比)</span><span class="ind-period">10月分</span><span class="ind-val">前年比 +3.1%</span></div>
+          <p class="ind-desc">働く人の1時間あたりの給料。物価の伸びより高ければ、暮らしにゆとりが出やすい</p>
+          <p class="ind-prev">前回(9月分) 前年比 +3.2%</p>
+        </div>
+        <div class="ind" data-series="CPIAUCSL">
+          <div class="ind-head"><span class="ind-name">消費者物価(CPI)</span><span class="ind-period">10月分</span><span class="ind-val">前年比 ― ・ 前月比 +0.4%</span></div>
+          <p class="ind-desc">消費者が買うモノ・サービスの値段の変化。物価の代表的な物差し</p>
+          <p class="ind-prev">前回(9月分) 前年比 +3.7% ・ 前月比 +0.6%</p>
+          <p class="ind-base">基準:FRBの物価目標 年2%(目安)</p>
+          <p class="ind-read">読み方:1年前の統計が欠けているため前年比は出せません。前月比は+0.4%で、前の月(+0.6%)より小さい</p>
+        </div>
+        <div class="ind" data-series="CPILFESL">
+          <div class="ind-head"><span class="ind-name">コアCPI(食品・エネルギー除く)</span><span class="ind-period">10月分</span><span class="ind-val">前年比 ― ・ 前月比 +0.3%</span></div>
+          <p class="ind-desc">CPIから値動きの激しい食品とエネルギーを除いたもの。物価の流れを見る</p>
+          <p class="ind-prev">前回(9月分) 前年比 +2.6% ・ 前月比 +0.3%</p>
+          <p class="ind-base">基準:FRBの物価目標 年2%(目安)</p>
+          <p class="ind-read">読み方:1年前の統計が欠けているため前年比は出せません。前月比は+0.3%で、前の月(+0.3%)と同じ</p>
+        </div>
+        <div class="ind" data-series="PCEPILFE">
+          <div class="ind-head"><span class="ind-name">コアPCE物価(FRBが重視)</span><span class="ind-period">9月分</span><span class="ind-val">前年比 +3.1% ・ 前月比 +0.3%</span></div>
+          <p class="ind-desc">FRBが物価の流れを見るのに重視する物差し。目標は年2%(PCE全体で測る)</p>
+          <p class="ind-prev">前回(8月分) 前年比 +3.0% ・ 前月比 +0.3%</p>
+          <p class="ind-base">基準:FRBの物価目標 年2%</p>
+          <p class="ind-read">読み方:目標の2%を1.1ポイント上回る</p>
+        </div>
+        <div class="ind" data-series="ICSA">
+          <div class="ind-head"><span class="ind-name">新規失業保険申請</span><span class="ind-period">11/7までの週</span><span class="ind-val">20.0万件</span></div>
+          <p class="ind-desc">その週に新しく失業手当を申請した人の数。増えると解雇が増えているサイン</p>
+          <p class="ind-prev">前回(10/31までの週) 19.1万件</p>
+          <p class="ind-base">基準:直前52週の平均 21.0万件</p>
+          <p class="ind-read">読み方:ふだん(直前52週の平均 21.0万件)より少ない</p>
+        </div>
+        <div class="ind" data-series="JTSJOL">
+          <div class="ind-head"><span class="ind-name">求人件数</span><span class="ind-period">9月分</span><span class="ind-val">752万件</span></div>
+          <p class="ind-desc">企業が出している求人の数。多いほど人手が足りない</p>
+          <p class="ind-prev">前回(8月分) 719万件</p>
+          <p class="ind-base">基準:1年前の同じ月の値</p>
+          <p class="ind-read">読み方:1年前(717万件)より多い</p>
+        </div>
       </div>
-      <p class="note">※セントルイス連邦準備銀行(FRED)が公表する米政府統計。発表は月1回(申請件数は週1回)のため、毎日は変わりません</p>
-    </section>
-    <section class="block" id="sec-earnings" aria-labelledby="h-sec-earnings">
-      <h2 id="h-sec-earnings"><span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></span>企業決算</h2>
+      <p class="note">発表は月1回(新規失業保険申請は週1回)のため、毎日は変わりません。</p>
+      <h3 class="sub-h">ニュースから</h3>
       <ul class="lines">
-        <li class="story-item"><span class="l-title">AI企業アンソロピックのIPOに注目</span><span class="l-body">AI企業アンソロピックのIPO（新規株式公開）を前に、ジム・クレイマー氏は3つの疑問点を提起した。同社の将来性や市場での評価が注目される。</span><a class="src" href="https://www.cnbc.com/2026/11/12/anthropic-ipo-cramer-pricing-growth-ai-safety.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></li>
+        <li class="story-item"><span class="l-title">卸売物価指数、4年ぶり高水準</span><span class="s-what">10月の卸売物価指数（PPI）は前月比0.3%上昇し、前年同月比では6.5%上昇となった。これは約4年ぶりの高い伸び率である。</span><span class="s-why">なぜ:生産者物価の上昇は、最終的に消費者物価の上昇につながる可能性があるため。</span><span class="s-effect">影響:インフレ圧力の高まりを示唆しており、FRBの金融政策に影響を与える可能性がある。</span><span class="story-meta"><span class="story-date">11/13の報道</span><a class="src" href="https://www.cnbc.com/2026/11/13/ppi-inflation-report-october-2026.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></span></li>
       </ul>
     </section>
-    <section class="block" id="major-detail" aria-labelledby="h-major-detail">
-      <h2 id="h-major-detail"><span class="h-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h13a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a3 3 0 0 1-3-3V4z"/><path d="M18 8h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="8" y1="8" x2="14" y2="8"/><line x1="8" y1="12" x2="14" y2="12"/><line x1="8" y1="16" x2="11" y2="16"/></svg></span>主要ニュース 詳細</h2>
-      <article class="story" id="major-1" aria-labelledby="h-major-1">
-        <h3 id="h-major-1"><span class="tag">政治・政策</span>トランプ氏、イランとの交渉打ち切り示唆</h3>
-        <p class="lead">トランプ大統領はイランとの紛争終結に向けた交渉を終了すると示唆した。</p>
-        <ul class="lines">
-          <li><span>副大統領による交渉打ち切りを終了すると述べた。</span><a class="src" href="https://www.washingtonpost.com/politics/2026/11/12/trump-shuts-down-vance-iran-negotiating-efforts-says-no-deal-needed/" target="_blank" rel="noopener noreferrer" aria-label="出典:The Washington Post(新しいタブで開く)">出典</a></li>
-          <li><span>イランとの合意は不要との考えを示した。</span><a class="src" href="https://www.washingtonpost.com/politics/2026/11/12/trump-shuts-down-vance-iran-negotiating-efforts-says-no-deal-needed/" target="_blank" rel="noopener noreferrer" aria-label="出典:The Washington Post(新しいタブで開く)">出典</a></li>
-        </ul>
-      </article>
-      <article class="story" id="major-2" aria-labelledby="h-major-2">
-        <h3 id="h-major-2"><span class="tag">国際</span>米欧、ウクライナ和平協議で連携へ</h3>
-        <p class="lead">米国の特使は、欧州がウクライナ戦争終結に向けた協議に参加すると述べた。</p>
-        <ul class="lines">
-          <li><span>ロシアは欧州の和平部隊の参加に反対していた。</span><a class="src" href="https://www.washingtonpost.com/world/2026/11/12/after-meeting-putin-us-envoys-say-europe-join-talks-ending-ukraine-war/" target="_blank" rel="noopener noreferrer" aria-label="出典:The Washington Post(新しいタブで開く)">出典</a></li>
-          <li><span>プーチン大統領は欧州の和平部隊参加に改めて反対した。</span><a class="src" href="https://www.washingtonpost.com/world/2026/11/12/after-meeting-putin-us-envoys-say-europe-join-talks-ending-ukraine-war/" target="_blank" rel="noopener noreferrer" aria-label="出典:The Washington Post(新しいタブで開く)">出典</a></li>
-        </ul>
-      </article>
-      <article class="story" id="major-3" aria-labelledby="h-major-3">
-        <h3 id="h-major-3"><span class="tag">半導体</span>米議員、中国メモリ大手CXMTの米排除を要求</h3>
-        <p class="lead">トム・コットン上院議員は、中国のメモリ大手CXMTの米国への追加を求めた。</p>
-        <ul class="lines">
-          <li><span>CXMTはDRAM分野で急成長し、HBM分野にも進出している。</span><a class="src" href="https://www.cnbc.com/2026/11/12/lutnick-cxmt-china-cotton.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></li>
-          <li><span>コットン氏は商務長官にCXMTの「エンティティリスト」への追加を促した。</span><a class="src" href="https://www.cnbc.com/2026/11/12/lutnick-cxmt-china-cotton.html" target="_blank" rel="noopener noreferrer" aria-label="出典:CNBC(新しいタブで開く)">出典</a></li>
-        </ul>
-      </article>
+    <section class="block" id="glossary" aria-labelledby="h-glossary">
+      <h2 id="h-glossary">このページに出てきた用語</h2>
+      <dl class="gl">
+        <dt id="g-inflation">インフレ</dt><dd>物価が上がり続けること。同じお金で買える量が減ります。</dd>
+        <dt id="g-hike">利上げ・利下げ</dt><dd>政策金利を上げること・下げること。一般に、利上げは株価や物価の上昇を抑える方向に、利下げは押し上げる方向に働きやすい。</dd>
+        <dt id="g-yield">利回り</dt><dd>国債を持ち続けた時に1年あたり受け取れる利益の割合。国債が売られて値段が下がると、利回りは上がります。米10年債の利回りは住宅ローンなどの金利の目安です。</dd>
+        <dt id="g-frb">FRB</dt><dd>米国の中央銀行(連邦準備制度理事会)。物価と雇用の安定のために政策金利を上げ下げします。物価の目標は年2%。</dd>
+        <dt id="g-yoy">前年同月比</dt><dd>1年前の同じ月と比べた変化。季節による変動の影響を受けずに比べられます。</dd>
+        <dt id="g-fomc">FOMC</dt><dd>FRBが政策金利を決める会議。年8回開かれます。</dd>
+      </dl>
     </section>
     <details class="block sources">
       <summary>元記事一覧(10本)</summary>
       <ul class="src-list">
-        <li><a href="https://www.cnbc.com/2026/11/12/stock-market-today-live-updates.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC</span><span class="src-title" lang="en">Stock market today: Live updates</span></a></li>
-        <li><a href="https://www.npr.org/2026/11/12/nx-s1-6038940/punch-in-the-gut-homes-sales-fall-to-their-lowest-in-16-years" target="_blank" rel="noopener noreferrer"><span class="src-name">NPR</span><span class="src-title" lang="en">&#x27;Punch in the gut&#x27;: Homes sales fall to their lowest in 16 years</span></a></li>
-        <li><a href="https://www.bloomberg.com/news/articles/2026-11-12/us-probing-if-alice-huang-helped-smuggle-super-micro-products" target="_blank" rel="noopener noreferrer"><span class="src-name">Bloomberg</span><span class="src-title" lang="en">US Probing If Alice Huang Helped Smuggle Super Micro Products - Bloomberg.com</span></a></li>
-        <li><a href="https://www.cnbc.com/2026/11/12/nvidia-boards-crisis-meeting.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC</span><span class="src-title" lang="en">Nerves around Nvidia as investors await the outcome of Board&#x27;s crisis CEO meeting</span></a></li>
-        <li><a href="https://www.wsj.com/livecoverage/stock-market-today-dow-sp-500-nasdaq-11-12-2026/card/bond-yields-rise-after-trump-s-iran-comments-pvfsEB7vSmlOm7WUGqog" target="_blank" rel="noopener noreferrer"><span class="src-name">The Wall Street Journal</span><span class="src-title" lang="en">Bonds Take Another Beating As Inflation Fears Rise - WSJ</span></a></li>
-        <li><a href="https://www.cnbc.com/2026/11/12/us-treasurys-bonds-yields.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC</span><span class="src-title" lang="en">Treasury yields edge higher as investors await fresh inflation and housing data</span></a></li>
-        <li><a href="https://www.cnbc.com/2026/11/12/in-policy-switch-fed-says-its-october-2027-meeting-will-not-see-a-vote-on-interest-rates.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC</span><span class="src-title" lang="en">In a policy switch, the Fed says its October 2027 meeting will not see a vote on interest rates</span></a></li>
-        <li><a href="https://www.federalreserve.gov/newsevents/speech/barr20261112a.htm" target="_blank" rel="noopener noreferrer"><span class="src-name">Federalreserve.gov</span><span class="src-title" lang="en">Barr, American Inequality and the Future of AI</span></a></li>
-        <li><a href="https://www.cnbc.com/2026/11/12/anthropic-ipo-cramer-pricing-growth-ai-safety.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC</span><span class="src-title" lang="en">Jim Cramer has three lingering questions about Anthropic ahead of its historic IPO - CNBC</span></a></li>
-        <li><a href="https://www.washingtonpost.com/politics/2026/11/12/trump-shuts-down-vance-iran-negotiating-efforts-says-no-deal-needed/" target="_blank" rel="noopener noreferrer"><span class="src-name">The Washington Post</span><span class="src-title" lang="en">Trump says no deal needed with Iran, closes down Vance negotiations - The Washington Post</span></a></li>
+        <li><a href="https://www.cnbc.com/2026/11/13/treasury-yields-fed-rates.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC<span class="src-date"> ・ 11/13</span></span><span class="src-title" lang="en">Treasury yields rise as traders strengthen Fed rate hike bets</span></a></li>
+        <li><a href="https://www.cnbc.com/2026/11/13/nvidia-stock-jensen-affair-ai.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC<span class="src-date"> ・ 11/13</span></span><span class="src-title" lang="en">Nvidia on track for longest weekly losing streak since 2012 as market value sinks by $1.6 trillion</span></a></li>
+        <li><a href="https://www.npr.org/2026/11/12/nx-s1-6038865/ceo-jensen-huang-resigns-from-chip-giant-nvidia" target="_blank" rel="noopener noreferrer"><span class="src-name">NPR<span class="src-date"> ・ 11/12</span></span><span class="src-title" lang="en">CEO Jensen Huang resigns from chip giant Nvidia</span></a></li>
+        <li><a href="https://www.bbc.co.uk/news/articles/cmze750zg0jeo?at_medium=RSS&amp;at_campaign=rss" target="_blank" rel="noopener noreferrer"><span class="src-name">BBC News<span class="src-date"> ・ 11/12</span></span><span class="src-title" lang="en">The rise and fall of Jensen Huang - how the tech superstar became mired in scandal</span></a></li>
+        <li><a href="https://www.cnbc.com/2026/11/13/chicago-feds-goolsbee-says-central-bank-has-definitely-got-work-to-do-on-inflation.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC<span class="src-date"> ・ 11/13</span></span><span class="src-title" lang="en">Chicago Fed&#x27;s Goolsbee says central bank &#x27;has definitely got work to do&#x27; on inflation</span></a></li>
+        <li><a href="https://www.cnbc.com/2026/11/13/ppi-inflation-report-october-2026.html" target="_blank" rel="noopener noreferrer"><span class="src-name">CNBC<span class="src-date"> ・ 11/13</span></span><span class="src-title" lang="en">Wholesale prices rose 0.3% in October, putting annual rate at 6.5%, the highest in nearly four years</span></a></li>
+        <li><a href="https://www.bbc.co.uk/news/articles/c6rrg51rkz09o?at_medium=RSS&amp;at_campaign=rss" target="_blank" rel="noopener noreferrer"><span class="src-name">BBC News<span class="src-date"> ・ 11/14</span></span><span class="src-title" lang="en">Microsoft says services fully restored after day-long global outage</span></a></li>
+        <li><a href="https://www.bbc.co.uk/news/articles/cwvg238zrnm5o?at_medium=RSS&amp;at_campaign=rss" target="_blank" rel="noopener noreferrer"><span class="src-name">BBC News<span class="src-date"> ・ 11/13</span></span><span class="src-title" lang="en">Why is Microsoft&#x27;s outage lasting so long and will emails be lost?</span></a></li>
+        <li><a href="https://www.bbc.com/news/articles/cqp9d58eldlro" target="_blank" rel="noopener noreferrer"><span class="src-name">BBC News<span class="src-date"> ・ 11/13</span></span><span class="src-title" lang="en">How the Microsoft outage has been felt worldwide - BBC</span></a></li>
+        <li><a href="https://www.npr.org/2026/11/12/nx-s1-6038940/punch-in-the-gut-homes-sales-fall-to-their-lowest-in-16-years" target="_blank" rel="noopener noreferrer"><span class="src-name">NPR<span class="src-date"> ・ 11/12</span></span><span class="src-title" lang="en">&#x27;Punch in the gut&#x27;: Homes sales fall to their lowest in 16 years</span></a></li>
       </ul>
     </details>
 </main>
 <footer>
-  <p>EconoBot。この内容はAIが自動で作成したものです。誤りを含むことがあるため、投資判断の根拠にしないでください。</p>
+  <div class="howmade">
+    <h2>このページの作り方</h2>
+    <ul>
+      <li>・数値:Yahoo Finance(取れない時はセントルイス連邦準備銀行のFRED)の終値と米政府統計</li>
+      <li>・文章:信頼できる報道機関の英語記事を、AI(Gemini)が要約。数字は元記事と機械で照合し、合わないものは載せていません。各文の「出典」から元記事を確かめられます</li>
+      <li>・数字の読み方・用語の説明:あらかじめ用意した定型文です(AIの文ではありません)</li>
+    </ul>
+    <p>この内容は自動で作成したもので、誤りを含むことがあります。投資判断の根拠にしないでください。</p>
+  </div>
 </footer>
 </body>
 </html>
