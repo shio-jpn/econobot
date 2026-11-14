@@ -1042,6 +1042,27 @@ class TreasuryTest(unittest.TestCase):
             m = eb.fetch_market_data(now=self.NOW_UTC)
         return m, [c for c in eb.build_market_cards(m) if c["name"] == "米2年債利回り"][0]
 
+    def test_failure_is_remembered_and_years_fetched_once(self):
+        """11-14:失敗も覚えておき、2年債と10年債の照合で同じ年を取り直さない(財務省は1回18〜20秒かかるため)"""
+        calls = []
+
+        def treasury(year):
+            calls.append(year)
+            if year == 2026:
+                raise urllib.error.HTTPError("https://home.treasury.gov/", 503, "Service Unavailable", {}, None)
+            return self._text("treasury_yield_curve_2025_2026-11-14.csv")
+        eb._TREASURY_CACHE.clear()
+        with mock.patch.object(eb, "_treasury_csv", treasury):
+            for col in ("2 Yr", "10 Yr"):
+                with self.assertRaises(urllib.error.HTTPError):
+                    eb.treasury_rows(col, now=self.NOW_UTC)
+        eb._TREASURY_CACHE.clear()
+        self.assertEqual(sorted(calls), [2025, 2026])
+
+    def test_timeout_is_long_enough(self):
+        """11-14実測で1回18〜20秒。上限が近いと遅い日にFREDの前日値へ戻る"""
+        self.assertGreaterEqual(eb.TREASURY_TIMEOUT, 60)
+
     def test_saved_csv_has_expected_rows(self):
         """前提の確認:保存した本物のCSVに 11/13 4.88・11/12 4.86・11/10 4.73 があり、11/11(祝日)の行は無い"""
         rows = dict(eb._parse_treasury_csv(self._text("treasury_yield_curve_2026_2026-11-14.csv"), "2 Yr"))

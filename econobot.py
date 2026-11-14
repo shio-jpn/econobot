@@ -11,6 +11,7 @@ import json
 import re
 import time
 import base64
+import concurrent.futures
 import csv
 import io
 import html
@@ -1058,9 +1059,13 @@ TREASURY_CSV = ("https://home.treasury.gov/resource-center/data-chart-center/int
 _TREASURY_CACHE = {}
 
 
+# 財務省のサイトは1回の取得に18〜20秒かかる(2026-11-14実測)。30秒だと少し遅い日にFRED(前の日の値)へ戻るため60秒待つ
+TREASURY_TIMEOUT = 60
+
+
 def _treasury_csv(year):
     req = urllib.request.Request(TREASURY_CSV.format(y=year), headers={"User-Agent": _UA})
-    with urllib.request.urlopen(req, timeout=30) as res:
+    with urllib.request.urlopen(req, timeout=TREASURY_TIMEOUT) as res:
         return res.read().decode("utf-8-sig", "replace")
 
 
@@ -1079,11 +1084,23 @@ def _parse_treasury_csv(text, column):
 def treasury_rows(column, now=None):
     """今年と前の年のCSV(1年の範囲と、年をまたぐ時の前日比のため)をつないで返す。どちらかが取れなければ例外"""
     year = _to_et(now or datetime.now(timezone.utc)).year
+    years = (year - 1, year)
+    todo = [y for y in years if y not in _TREASURY_CACHE]
+    if todo:
+        # 2年分を同時に取る(1本ずつだと待ち時間が倍になる)。失敗も覚えておき、10年債の照合などで同じ取得を繰り返さない
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(todo)) as ex:
+            futs = {y: ex.submit(_treasury_csv, y) for y in todo}
+        for y, f in futs.items():
+            try:
+                _TREASURY_CACHE[y] = f.result()
+            except Exception as e:
+                _TREASURY_CACHE[y] = e
     rows = {}
-    for y in (year - 1, year):
-        if y not in _TREASURY_CACHE:
-            _TREASURY_CACHE[y] = _treasury_csv(y)
-        rows.update(_parse_treasury_csv(_TREASURY_CACHE[y], column))
+    for y in years:
+        got = _TREASURY_CACHE[y]
+        if isinstance(got, Exception):
+            raise got
+        rows.update(_parse_treasury_csv(got, column))
     return sorted(rows.items())
 
 
