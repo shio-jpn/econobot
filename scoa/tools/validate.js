@@ -2,11 +2,11 @@
 /* 問題データの検証。使い方: node tools/validate.js  /  node tools/validate.js --find 語句(IDを調べる) */
 const path = require('path'), dir = path.join(__dirname, '..');
 global.window = {};
-['questions.js', 'updates.js', 'gen.js'].forEach((f) => require(path.join(dir, f)));
+['questions.js', 'questions2027.js', 'updates.js', 'gen.js'].forEach((f) => { if (f !== 'questions2027.js' || require('fs').existsSync(path.join(dir, f))) require(path.join(dir, f)); });
 const hash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36); };
 const idOf = (q) => hash(q.s + '|' + q.q + '|' + (q.fig || '') + '|' + q.ch[0]);
 const SUBJ = ['言語', '数理', '論理', '常識', '英語'], errs = [];
-const bank = window.SCOA_BANK.map((q) => ({ ...q, src: 'questions.js' }));
+const bank = window.SCOA_BANK.map((q) => ({ ...q, src: q.ed ? 'questions' + q.ed + '.js' : 'questions.js' }));
 const ups = window.SCOA_UPDATES;
 if (!Array.isArray(ups)) errs.push('SCOA_UPDATES が配列ではない');
 let prev = '';
@@ -32,7 +32,8 @@ let genN = 0;
 for (const s in window.SCOA_GEN) for (const g of window.SCOA_GEN[s]) { genN++; let ok = 0; for (let i = 0; i < 300; i++) { let r; try { r = g.f(); } catch (e) { errs.push(`自動生成 ${g.c}: ${e.message}`); break; } if (!r) continue; if (r.ch.length !== 5 || new Set(r.ch).size !== 5 || /NaN|undefined/.test(JSON.stringify(r))) { errs.push(`自動生成 ${g.c}: 不正な出力`); break; } ok++; } if (!ok) errs.push(`自動生成 ${g.c}: 1問も作れない`); }
 const find = process.argv.indexOf('--find');
 if (find > 0) { const w = process.argv[find + 1] || ''; bank.filter((q) => (q.q + q.ch.join('') + q.e).includes(w)).forEach((q) => console.log(idOf(q), retired.has(idOf(q)) ? '(引退済)' : '', `[${q.s}/${q.c}]`, q.q, '→', q.ch[0])); process.exit(0); }
-const live = bank.filter((q) => !retired.has(idOf(q)));
+const live = bank.filter((q) => !retired.has(idOf(q)) && (q.ed || q.src.startsWith('updates')));
+console.log('旧版(2026年版、既定では出題しない):', bank.filter((q) => !q.ed && !q.src.startsWith('updates')).length + '問');
 console.log('出題中:', SUBJ.map((s) => `${s}${live.filter((q) => q.s === s).length}`).join(' '), `計${live.length}問 / 引退${retired.size}問 / 自動生成${genN}種 / 更新${(ups || []).length}回(最新 ${prev || 'なし'})`);
 if (errs.length) { console.log('NG ' + errs.length + '件'); errs.forEach((e) => console.log(' - ' + e)); process.exit(1); }
 console.log('OK');

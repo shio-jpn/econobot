@@ -44,11 +44,16 @@
   const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
   const mmss = (s) => `${Math.floor(s / 60)}:${pad(s % 60)}`;
 
+  const PREF_KEY = 'scoa-a.prefs', P = { goal: 50, old: false };
+  try { Object.assign(P, JSON.parse(localStorage.getItem(PREF_KEY) || '{}')); } catch (e) { /* 既定値で開始 */ }
+  const savePrefs = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify(P)); } catch (e) { /* 保存できなくても動作は続ける */ } };
   /* 定期更新(updates.js)の反映:追加問題は since つきで加え、引退した問題は出題だけ止めて履歴用に残す */
   const idOf = (q) => hash(q.s + '|' + q.q + '|' + (q.fig || '') + '|' + q.ch[0]);
   const UPD = (Array.isArray(window.SCOA_UPDATES) ? window.SCOA_UPDATES : []).filter((u) => u && u.date).sort((a, b) => (a.date < b.date ? -1 : 1));
   const asofLabel = (a) => { const [y, m] = a.split('-').map(Number); return `${y}年${m}月時点`; };
-  BANK.forEach((q) => { q.id = idOf(q); });
+  /* 版の区別:ed のない固定問題は旧版(2026年版)。既定では新規出題・習得率・復習の対象から外す(履歴には残る) */
+  BANK.forEach((q) => { q.id = idOf(q); if (!q.ed) q.old = true; });
+  const EDITION = '2027';
   const BY_ID = Object.fromEntries(BANK.map((q) => [q.id, q]));
   UPD.forEach((u) => (u.add || []).forEach((q) => {
     if (!q || !CLS[q.s] || !q.q || !q.e || !Array.isArray(q.ch) || q.ch.length !== 5 || new Set(q.ch).size !== 5) return;
@@ -56,12 +61,11 @@
     b.id = idOf(b); if (BY_ID[b.id]) return; BANK.push(b); BY_ID[b.id] = b;
   }));
   UPD.forEach((u) => (u.retire || []).forEach((id) => { if (BY_ID[id]) BY_ID[id].x = true; }));
-  const LIVE = BANK.filter((q) => !q.x);
+  let LIVE = [];
+  const relive = () => { LIVE = BANK.filter((q) => !q.x && (P.old || !q.old)); };
+  relive();
   const LATEST = UPD.length ? UPD[UPD.length - 1].date : '';
 
-  const PREF_KEY = 'scoa-a.prefs', P = { goal: 50 };
-  try { Object.assign(P, JSON.parse(localStorage.getItem(PREF_KEY) || '{}')); } catch (e) { /* 既定値で開始 */ }
-  const savePrefs = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify(P)); } catch (e) { /* 保存できなくても動作は続ける */ } };
   const TARGET = 70; // 習得率の目安
 
   /* ---------- 保存(端末 + 対応環境ではアカウント) ---------- */
@@ -125,7 +129,7 @@
     stCache = m; stRev = Store.rev; return m;
   }
   function latestMap() { const m = new Map(); states().forEach((s, k) => m.set(k, s.r)); return m; }
-  const alive = (r) => !(r.id && BY_ID[r.id] && BY_ID[r.id].x) && (r.id ? !!BY_ID[r.id] : !!(r.q && r.ch));
+  const alive = (r) => (r.id ? !!BY_ID[r.id] && !BY_ID[r.id].x && (P.old || !BY_ID[r.id].old) : !!(r.q && r.ch));
   const dnum = (ms) => { const d = new Date(ms); return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000); };
   /* 間隔をあけた復習:間違えた問題は 1→3→7→21→60日後、初回から正解の問題は 14→45→90日後に再出題 */
   const IV_W = [1, 3, 7, 21, 60], IV_C = [1, 14, 45, 90, 90];
@@ -238,7 +242,7 @@
 
   /* ---------- 画面 ---------- */
   function vHome() {
-    const now = new Date(), today = Store.days[dayKey(now)] || [], all = Store.all(), tk = today.filter((r) => r.ok).length, due = dueRecs().length, nu = newUnseen().length, ov = overall();
+    const now = new Date(), today = Store.days[dayKey(now)] || [], all = Store.all(), tk = today.filter((r) => r.ok).length, due = dueRecs().length, nu = newUnseen().length, ov = overall(), lm = latestMap(), unseenN = LIVE.filter((b) => !lm.has(b.id)).length;
     const strip = []; const d = new Date(); d.setDate(d.getDate() - 13);
     for (let i = 0; i < 14; i++) { const k = dayKey(d), n = (Store.days[k] || []).length; strip.push(`<i class="lv${n === 0 ? 0 : n < 10 ? 1 : n < 30 ? 2 : 3}" title="${dayLabel(k)} ${n}問"></i>`); d.setDate(d.getDate() + 1); }
     const C = 2 * Math.PI * 42, prog = Math.min(1, today.length / P.goal), left = Math.max(0, P.goal - today.length);
@@ -250,11 +254,11 @@
         <div class="tiles"><button class="tile rate" data-act="setup" data-s="${s.k}"><b>${m.p}%</b><small>習得 ${m.got}/${m.tot}</small></button>${cats.map(([c, n]) => `<button class="tile" data-act="setup" data-s="${s.k}" data-c="${esc(c)}"><span>${esc(c)}</span><small>${n === '∞' ? '自動生成' : n + '問'}</small></button>`).join('')}</div></section>`;
     };
     return `<div class="topbar"><button class="round" data-act="go" data-v="settings" aria-label="設定を開く">${IC.menu}</button><div class="statpill"><span><b>${streak()}</b>日連続</span><span><b>${all.length}</b>問</span></div></div>
-    <section class="hero"><p class="hero-label">SCOA-A きょうの学習</p>
+    <section class="hero"><p class="hero-label">SCOA-A ${EDITION}年度版 きょうの学習</p>
       <div class="hero-row"><div class="ring" role="img" aria-label="きょう${today.length}問、目標${P.goal}問"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" class="ring-bg"/><circle cx="50" cy="50" r="42" class="ring-fg" stroke-dasharray="${(C * prog).toFixed(1)} ${C.toFixed(1)}"/></svg><div class="ring-in"><b>${today.length}</b><span>/ ${P.goal}問</span></div></div>
         <dl class="hero-meta"><div><dt>習得率</dt><dd><b>${ov}%</b><small>目安 ${TARGET}%</small></dd></div><div><dt>きょうの復習</dt><dd><b>${due}</b><small>問</small></dd></div><div><dt>きょうの正答率</dt><dd><b>${today.length ? pct(tk, today.length) + '%' : '—'}</b></dd></div></dl></div>
       <div class="strip" aria-label="直近14日の学習量">${strip.join('')}</div><p class="hero-date">${dayLabel(dayKey(now))} ${pad(now.getHours())}:${pad(now.getMinutes())}</p></section>
-    <section class="memo"><p>${memo}</p><small>習得率は、収録問題のうち直近で正解できている割合です</small></section>
+    <section class="memo"><p>${memo}</p><small>${EDITION}年度版・未回答の固定問題 ${unseenN}問/習得率は直近で正解できている割合</small></section>
     ${nu || due ? `<div class="actions">${due ? `<button class="action" data-act="redo-due" data-s=""><b>きょうの復習をはじめる</b><small>間隔をあけて出し直す${due}問(最大30問ずつ)</small></button>` : ''}${nu ? `<button class="action" data-act="newq"><b>新着問題を解く <span class="chip new">NEW</span></b><small>${dayLabel(LATEST)}の更新で追加・未回答の${nu}問</small></button>` : ''}</div>` : ''}
     ${SUBJ.map(card).join('')}
     <div class="actions"><button class="action" data-act="examintro"><b>模擬試験</b><small>120問・60分。5教科を本番の配分で</small></button></div>`;
@@ -339,6 +343,8 @@
     return `<header class="top"><p class="eyebrow">データと出題について</p><h1>設定</h1></header>
     <h2>1日の目標</h2><div class="seg" role="group">${[30, 50, 100, 150].map((v) => `<button class="${P.goal === v ? 'on' : ''}" data-act="set" data-k="goal" data-v="${v}">${v}問</button>`).join('')}</div>
     <p class="lead">ホームの輪がこの問題数で1周します。習得率の目安${TARGET}%は、このアプリの収録問題に対する学習の目標で、実際の合格ラインは受験先によって異なります。</p>
+    <h2>出題する問題の版</h2><div class="seg" role="group">${[[0, `${EDITION}年度版だけ`], [1, '旧版(2026年版)も出題']].map(([v, l]) => `<button class="${(P.old ? 1 : 0) === v ? 'on' : ''}" data-act="set" data-k="old" data-v="${v}">${l}</button>`).join('')}</div>
+    <p class="lead">${EDITION}年度版は、初版より一段難しい新しい問題セットです。旧版の${BANK.filter((b) => b.old).length}問は、解いた履歴には残ります。「旧版も出題」にすると、出題・復習・習得率の対象に戻ります。</p>
     <h2>履歴の保存先</h2><p class="lead">${where}</p>
     <h2>バックアップ</h2>
     <p class="lead">履歴をテキストにして書き出します。メモアプリなどに貼り付けて保管してください。</p>
@@ -375,7 +381,7 @@
     setup: (d) => { S.setup = { s: d.s, cats: d.c ? [d.c] : [], n: 10, order: 'new', timed: false }; go('setup'); },
     quick: () => startQuiz(dailyMenu(), 'practice', 'きょうのメニュー', false),
     cat: (d) => { const c = S.setup.cats, i = c.indexOf(d.c); if (i < 0) c.push(d.c); else c.splice(i, 1); render(); },
-    set: (d) => { if (d.k === 'goal') { P.goal = +d.v; savePrefs(); return render(); } const u = S.setup; if (d.k === 'n') u.n = +d.v; else if (d.k === 'timed') u.timed = d.v === '1'; else u.order = d.v; render(); },
+    set: (d) => { if (d.k === 'goal') { P.goal = +d.v; savePrefs(); return render(); } if (d.k === 'old') { P.old = d.v === '1'; savePrefs(); relive(); Store.rev++; return render(); } const u = S.setup; if (d.k === 'n') u.n = +d.v; else if (d.k === 'timed') u.timed = d.v === '1'; else u.order = d.v; render(); },
     start: () => { const u = S.setup; startQuiz(buildSet(u.s, u.cats, u.n, u.order), 'practice', u.s + (u.cats.length ? '(' + u.cats.join('・') + ')' : ''), u.timed); },
     pick: (d) => { const z = S.quiz; if (z.mode === 'exam') { z.answers[z.i] = z.answers[z.i] === +d.d ? null : +d.d; S.confirm = ''; render(); paintTimer(); } else answer(+d.d); },
     next, prev: () => { lap(); S.quiz.i--; S.confirm = ''; render(); paintTimer(); window.scrollTo(0, 0); },
