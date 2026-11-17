@@ -169,6 +169,20 @@
     Store.all().forEach((r) => { const k = r.s + '|' + r.c, o = m.get(k) || { s: r.s, c: r.c, n: 0, ok: 0, t: 0, tn: 0 }; o.n++; if (r.ok) o.ok++; if (r.d) { o.t += r.d; o.tn++; } m.set(k, o); });
     return [...m.values()].filter((o) => o.n >= 4 && o.ok / o.n < 0.8 && catsOf(o.s).some(([c]) => c === o.c)).sort((a, b) => a.ok / a.n - b.ok / b.n).slice(0, 5);
   }
+  /* あそびの要素:経験値とレベル、きょうのミッション、ゲームのベスト記録(すべて履歴から計算するので別保存は不要) */
+  const TITLES = ['ルーキー', 'チャレンジャー', 'ランナー', 'エース', 'マスター', 'レジェンド'];
+  const xpOf = (r) => (r.ok ? 10 + (r.d && r.d <= 15 ? 5 : 0) : 2);
+  function xpInfo() {
+    const xp = Store.all().reduce((a, r) => a + xpOf(r), 0); let L = 1; while (xp >= 40 * (L + 1) * L) L++;
+    return { xp, L, cur: 40 * L * (L - 1), nxt: 40 * (L + 1) * L, title: TITLES[Math.min(5, Math.floor((L - 1) / 5))] };
+  }
+  function missions() {
+    const t = Store.days[dayKey(Date.now())] || []; let run = 0, best = 0; t.forEach((r) => { run = r.ok ? run + 1 : 0; best = Math.max(best, run); });
+    return [{ l: `${P.goal}問解く`, v: Math.min(t.length, P.goal), n: P.goal }, { l: '5問連続で正解する', v: Math.min(best, 5), n: 5 }, { l: 'きょうの復習を終わらせる', v: t.length && !dueRecs().length ? 1 : 0, n: 1 }, { l: 'ゲームに1回挑戦する', v: t.some((r) => r.gm) ? 1 : 0, n: 1 }];
+  }
+  const bestScore = (g) => Store.all().reduce((a, r) => (r.gm === g && r.sc > a ? r.sc : a), 0);
+  const GAME = { ta: { n: '60秒タイムアタック', u: '点', d: '60秒でどこまで取れるか。連続正解で得点アップ、5連続ごとに+5秒' }, sv: { n: 'サバイバル', u: '問', d: '3回間違えたら終了。1問20秒以内に何問正解を続けられるか' } };
+  function arcadeBatch() { return shuffle(SUBJ.flatMap((x) => buildSet(x.k, [], 4, 'rand'))); }
   function subjStat(k) { const rs = Store.all().filter((r) => r.s === k); return { n: rs.length, ok: rs.filter((r) => r.ok).length }; }
   function streak() { let n = 0; const d = new Date(); if (!Store.days[dayKey(d)]) d.setDate(d.getDate() - 1); while ((Store.days[dayKey(d)] || []).length) { n++; d.setDate(d.getDate() - 1); } return n; }
 
@@ -214,18 +228,24 @@
   let tick = 0;
   function go(v) { S.view = v; S.confirm = ''; S.msg = ''; clearInterval(tick); render(); window.scrollTo(0, 0); }
 
-  function startQuiz(qs, mode, title, timed, secs) {
+  function startQuiz(qs, mode, title, timed, secs, extra) {
     if (!qs.length) { S.msg = '出題できる問題がありません。'; render(); return; }
-    S.quiz = { qs, mode, title, timed, i: 0, picked: null, recs: [], answers: qs.map(() => null), spent: qs.map(() => 0), t0: Date.now(), left: mode === 'exam' ? secs || EXAM_SEC : PACE, total: mode === 'exam' ? secs || EXAM_SEC : 0, open: false, shown: false };
+    S.quiz = { qs, mode, title, timed, i: 0, picked: null, recs: [], answers: qs.map(() => null), spent: qs.map(() => 0), t0: Date.now(), left: mode === 'exam' ? secs || EXAM_SEC : PACE, total: mode === 'exam' ? secs || EXAM_SEC : 0, open: false, shown: false, combo: 0, maxCombo: 0 };
+    Object.assign(S.quiz, extra || {});
     S.view = 'quiz'; S.confirm = ''; render(); window.scrollTo(0, 0); startTimer();
   }
   function startTimer() {
     clearInterval(tick); const z = S.quiz; if (!z) return;
+    if (z.mode === 'arcade') {
+      if (z.game === 'ta') { if (!z.end) z.end = Date.now() + 60000; const f = () => { z.left = Math.max(0, Math.ceil((z.end - Date.now()) / 1000)); paintTimer(); if (!z.left && z.picked === null) finishArcade(); }; tick = setInterval(f, 200); f(); }
+      else if (z.picked === null) { const end = Date.now() + 20000; z.left = 20; tick = setInterval(() => { z.left = Math.max(0, Math.ceil((end - Date.now()) / 1000)); paintTimer(); if (!z.left) arcadeAnswer(-1); }, 200); }
+      paintTimer(); return;
+    }
     if (z.mode === 'exam') { const end = Date.now() + z.left * 1000; tick = setInterval(() => { z.left = Math.max(0, Math.round((end - Date.now()) / 1000)); paintTimer(); if (!z.left) finishExam(); }, 500); }
     else if (z.timed && z.picked === null) { z.left = PACE; const end = Date.now() + PACE * 1000; tick = setInterval(() => { z.left = Math.max(0, Math.round((end - Date.now()) / 1000)); paintTimer(); if (!z.left) answer(-1); }, 250); }
     paintTimer();
   }
-  function paintTimer() { const el = $('#timer'), z = S.quiz; if (!el || !z) return; el.textContent = z.mode === 'exam' ? mmss(z.left) : z.left + '秒'; el.classList.toggle('hot', z.mode === 'exam' ? z.left <= 300 : z.left <= 10); }
+  function paintTimer() { const el = $('#timer'), z = S.quiz; if (!el || !z) return; el.textContent = z.mode === 'exam' ? mmss(z.left) : z.left + '秒'; if (z.mode === 'arcade' && z.game === 'ta' && el.dataset.b) el.textContent = '+5秒'; el.classList.toggle('hot', z.mode === 'exam' ? z.left <= 300 : z.left <= 10); }
   function lap() { const z = S.quiz; if (!z) return; z.spent[z.i] += (Date.now() - z.t0) / 1000; z.t0 = Date.now(); }
   function mkRec(q, disp, mode, sec) {
     const u = disp < 0 ? -1 : q.order[disp];
@@ -239,9 +259,31 @@
     clearInterval(tick); z.picked = disp;
     const q = z.qs[z.i];
     lap(); const r = mkRec(q, disp, q.re ? 's' : z.mode === 'review' ? 'r' : 'p', z.spent[z.i]); z.recs.push(r); Store.add(r); z.last = r;
+    z.combo = r.ok ? z.combo + 1 : 0; z.maxCombo = Math.max(z.maxCombo, z.combo);
     if (!r.ok && (q.re || 0) < 2) requeue(q);
     render();
     const fb = $('#feedback'); if (fb && fb.scrollIntoView) fb.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  /* ゲーム(タイムアタック・サバイバル):解説は挟まず、正誤を一瞬見せて自動で次へ進む。間違えた問題は終了後に確認できる */
+  function arcadeAnswer(disp) {
+    const z = S.quiz; if (!z || z.picked !== null) return;
+    z.picked = disp; lap(); const ta = z.game === 'ta';
+    const r = mkRec(z.qs[z.i], disp, ta ? 't' : 'v', z.spent[z.i]); z.recs.push(r); Store.add(r); z.last = r; z.bonus = false;
+    if (r.ok) { z.combo++; z.maxCombo = Math.max(z.maxCombo, z.combo); z.score += ta ? 100 + Math.min(200, 20 * (z.combo - 1)) : 1; if (ta && z.combo % 5 === 0) { z.end += 5000; z.bonus = true; } }
+    else { z.combo = 0; if (!ta) z.lives--; }
+    if (!ta) clearInterval(tick);
+    render(); paintTimer();
+    setTimeout(() => {
+      if (S.quiz !== z) return;
+      if ((!ta && z.lives <= 0) || (ta && Date.now() >= z.end)) return finishArcade();
+      if (z.i + 1 >= z.qs.length) { const more = arcadeBatch(); z.qs.push(...more); more.forEach(() => { z.spent.push(0); z.answers.push(null); }); }
+      z.i++; z.picked = null; z.bonus = false; z.t0 = Date.now(); render(); window.scrollTo(0, 0); startTimer();
+    }, r.ok ? 450 : 1300);
+  }
+  function finishArcade() {
+    const z = S.quiz; if (!z) return; clearInterval(tick); z.prevBest = bestScore(z.game);
+    if (z.last) { z.last.gm = z.game; z.last.sc = z.score; Store.rev++; Store.saveLocal(); Store.dirty.add(dayKey(z.last.t / 10)); }
+    finish();
   }
   /* 間違えた問題を、同じ回の3〜5問あとにもう一度出す(最大2回)。選択肢は並べ替える */
   function requeue(q) {
@@ -249,7 +291,7 @@
     z.qs.splice(at, 0, { ...q, order: shuffle([0, 1, 2, 3, 4]), re: (q.re || 0) + 1 }); z.spent.splice(at, 0, 0); z.answers.splice(at, 0, null);
   }
   function next() { const z = S.quiz; if (z.i + 1 >= z.qs.length) return finish(); z.i++; z.picked = null; z.shown = false; z.last = null; z.t0 = Date.now(); render(); window.scrollTo(0, 0); startTimer(); }
-  function finish() { const z = S.quiz; clearInterval(tick); Store.flush(); S.result = { title: z.title, recs: z.recs, mode: z.mode, total: z.total, used: z.total ? z.total - z.left : 0 }; S.quiz = null; go('result'); }
+  function finish() { const z = S.quiz; clearInterval(tick); Store.flush(); S.result = { title: z.title, recs: z.recs, mode: z.mode, total: z.total, used: z.total ? z.total - z.left : 0, game: z.game, score: z.score, prevBest: z.prevBest, maxCombo: z.maxCombo }; S.quiz = null; go('result'); }
   function finishExam() { const z = S.quiz; if (!z) return; clearInterval(tick); lap(); z.qs.forEach((q, i) => { const r = mkRec(q, z.answers[i] === null ? -1 : z.answers[i], 'e', z.spent[i]); z.recs.push(r); Store.add(r); }); finish(); }
 
   /* ---------- 部品 ---------- */
@@ -268,7 +310,7 @@
 
   /* ---------- 画面 ---------- */
   function vHome() {
-    const now = new Date(), today = Store.days[dayKey(now)] || [], all = Store.all(), tk = today.filter((r) => r.ok).length, due = dueRecs().length, nu = newUnseen().length, ov = overall(), lm = latestMap(), unseenN = LIVE.filter((b) => !lm.has(b.id)).length;
+    const now = new Date(), today = Store.days[dayKey(now)] || [], all = Store.all(), tk = today.filter((r) => r.ok).length, due = dueRecs().length, nu = newUnseen().length, ov = overall(), lm = latestMap(), unseenN = LIVE.filter((b) => !lm.has(b.id)).length, lv = xpInfo(), ms = missions();
     const strip = []; const d = new Date(); d.setDate(d.getDate() - 13);
     for (let i = 0; i < 14; i++) { const k = dayKey(d), n = (Store.days[k] || []).length; strip.push(`<i class="lv${n === 0 ? 0 : n < 10 ? 1 : n < 30 ? 2 : 3}" title="${dayLabel(k)} ${n}問"></i>`); d.setDate(d.getDate() + 1); }
     const C = 2 * Math.PI * 42, prog = Math.min(1, today.length / P.goal), left = Math.max(0, P.goal - today.length);
@@ -285,6 +327,9 @@
         <dl class="hero-meta"><div><dt>習得率</dt><dd><b>${ov}%</b><small>目安 ${TARGET}%</small></dd></div><div><dt>きょうの復習</dt><dd><b>${due}</b><small>問</small></dd></div><div><dt>きょうの正答率</dt><dd><b>${today.length ? pct(tk, today.length) + '%' : '—'}</b></dd></div></dl></div>
       <div class="strip" aria-label="直近14日の学習量">${strip.join('')}</div><p class="hero-date">${dayLabel(dayKey(now))} ${pad(now.getHours())}:${pad(now.getMinutes())}</p></section>
     <section class="memo"><p>${memo}</p><small>${EDITION}年度版・未回答の固定問題 ${unseenN}問/習得率は直近で正解できている割合</small></section>
+    <section class="play"><div class="lv"><div class="lv-badge"><small>Lv</small><b>${lv.L}</b></div><div class="lv-main"><b>${lv.title}</b><small>${lv.xp} XP・次のレベルまで${lv.nxt - lv.xp}</small><div class="bar"><i style="width:${pct(lv.xp - lv.cur, lv.nxt - lv.cur)}%"></i></div></div></div>
+      <ul class="missions" aria-label="きょうのミッション">${ms.map((m) => `<li class="${m.v >= m.n ? 'done' : ''}"><i></i><span>${m.l}</span><small>${m.n > 1 ? `${m.v} / ${m.n}` : m.v ? '達成' : ''}</small></li>`).join('')}</ul>
+      <div class="games">${['ta', 'sv'].map((k) => `<button class="game game-${k}" data-act="${k}"><b>${GAME[k].n}</b><small>${bestScore(k) ? `ベスト ${bestScore(k)}${GAME[k].u}` : 'まだ記録なし'}</small></button>`).join('')}</div></section>
     ${nu || due ? `<div class="actions">${due ? `<button class="action" data-act="redo-due" data-s=""><b>きょうの復習をはじめる</b><small>間隔をあけて出し直す${due}問(最大30問ずつ)</small></button>` : ''}${nu ? `<button class="action" data-act="newq"><b>新着問題を解く <span class="chip new">NEW</span></b><small>${dayLabel(LATEST)}の更新で追加・未回答の${nu}問</small></button>` : ''}</div>` : ''}
     ${SUBJ.map(card).join('')}
     <div class="actions"><button class="action" data-act="examintro"><b>模擬試験</b><small>120問・60分。5教科を本番の配分で</small></button></div>`;
@@ -303,7 +348,7 @@
     <div class="sticky"><button class="primary" data-act="start">${u.n}問をはじめる</button></div>`;
   }
   function vQuiz() {
-    const z = S.quiz, q = z.qs[z.i], exam = z.mode === 'exam', done = z.picked !== null, sel = exam ? z.answers[z.i] : z.picked;
+    const z = S.quiz, q = z.qs[z.i], exam = z.mode === 'exam', arc = z.mode === 'arcade', done = z.picked !== null, sel = exam ? z.answers[z.i] : z.picked;
     const choices = q.order.map((orig, d) => {
       let cls = '';
       if (exam) cls = sel === d ? 'sel' : '';
@@ -312,16 +357,17 @@
     }).join('');
     const ok = done && z.picked >= 0 && q.order[z.picked] === 0;
     const requeued = done && !ok && (q.re || 0) < 2, guessed = z.last && z.last.g;
-    const fb = !exam && done ? `<section id="feedback" class="feedback ${ok ? 'ok' : 'ng'}"><p class="verdict">${ok ? '○ 正解' : z.picked < 0 ? '× 時間切れ' : '× 不正解'}</p><p class="ans">正解:${MARK[q.order.indexOf(0)]} ${esc(q.ch[0])}</p><div class="expl"><h4>解説</h4><p>${esc(q.e)}</p></div>
+    const fb = !exam && !arc && done ? `<section id="feedback" class="feedback ${ok ? 'ok' : 'ng'}"><p class="verdict">${ok ? '○ 正解' : z.picked < 0 ? '× 時間切れ' : '× 不正解'}</p><p class="ans">正解:${MARK[q.order.indexOf(0)]} ${esc(q.ch[0])}</p><div class="expl"><h4>解説</h4><p>${esc(q.e)}</p></div>
       ${requeued ? '<p class="hint">解説を読んだら、数問あとにもう一度出します。答えを見ずに思い出せるか試してください。</p>' : ''}
       ${ok ? `<button class="sure ${guessed ? 'on' : ''}" data-act="guess" aria-pressed="${guessed ? 'true' : 'false'}">${guessed ? '復習に回しました(押すと取り消し)' : '自信がなかった・勘で当たった → 復習に回す'}</button>` : ''}</section>` : '';
-    const hide = !exam && !done && P.recall && !z.shown;
+    const hide = !exam && !arc && !done && P.recall && !z.shown;
     const answered = z.answers.filter((a) => a !== null).length;
     const foot = exam
       ? `<div class="sticky two"><button class="ghost" data-act="prev" ${z.i === 0 ? 'disabled' : ''}>前へ</button>${z.i + 1 < z.qs.length ? '<button class="primary" data-act="enext">次へ</button>' : `<button class="primary" data-act="grade">${S.confirm === 'grade' ? 'もう一度押して採点' : '採点する'}</button>`}</div>`
-      : done ? `<div class="sticky"><button class="primary" data-act="next">${z.i + 1 < z.qs.length ? '次の問題へ' : '結果を見る'}</button></div>` : '';
+      : done && !arc ? `<div class="sticky"><button class="primary" data-act="next">${z.i + 1 < z.qs.length ? '次の問題へ' : '結果を見る'}</button></div>` : '';
     return `<header class="quizbar"><button class="back" data-act="quit" aria-label="中断する">${S.confirm === 'quit' ? '中断する?' : '×'}</button>
-      <div class="progress"><span>${z.i + 1}<small> / ${z.qs.length}</small></span><div class="bar"><i style="width:${((z.i + (done ? 1 : 0)) / z.qs.length) * 100}%"></i></div></div>
+      ${arc ? `<div class="hud"><span class="hud-score"><b>${z.score}</b><small>${z.game === 'ta' ? '点' : '問正解'}</small></span>${z.game === 'sv' ? `<span class="lives" aria-label="残り${z.lives}回">${[0, 1, 2].map((i) => `<i class="${i < z.lives ? 'on' : ''}"></i>`).join('')}</span>` : ''}${z.combo >= 2 ? `<span class="combo">${z.combo}連続</span>` : ''}${z.bonus ? '<span class="combo bonus">+5秒</span>' : ''}</div>`
+      : `<div class="progress"><span>${z.i + 1}<small> / ${z.qs.length}</small>${!exam && z.combo >= 3 ? `<em class="combo">${z.combo}連続正解</em>` : ''}</span><div class="bar"><i style="width:${((z.i + (done ? 1 : 0)) / z.qs.length) * 100}%"></i></div></div>`}
       ${exam || z.timed ? `<span id="timer" class="timer">${exam ? mmss(z.left) : z.left + '秒'}</span>` : '<span class="timer off"></span>'}</header>
     ${exam ? `<p class="exam-info"><span>回答済み ${answered} / ${z.qs.length}</span><span><button class="link" data-act="grid">${z.open ? '一覧を閉じる' : '問題一覧'}</button><button class="link" data-act="grade">${S.confirm === 'grade' ? 'もう一度押して採点' : '終了して採点'}</button></span></p>${z.open ? `<div class="grid">${z.qs.map((_, i) => `<button class="${i === z.i ? 'cur' : ''} ${z.answers[i] !== null ? 'done' : ''}" data-act="jump" data-i="${i}" aria-label="${i + 1}問目${z.answers[i] !== null ? '(回答済み)' : '(未回答)'}">${i + 1}</button>`).join('')}</div>` : ''}` : ''}
     <article class="question"><p class="q-meta">${chip(q.s)}<span>${esc(q.c)}</span>${q.nw ? '<span class="chip new">NEW</span>' : ''}${q.re ? '<span class="chip again">もう一度</span>' : ''}</p><p class="q-text">${qText(q.q)}</p>${figHtml(q.f)}</article>
@@ -329,11 +375,14 @@
   }
   function vResult() {
     const r = S.result, ok = r.recs.filter((x) => x.ok).length, n = r.recs.length, ng = n - ok, bs = bySubj(r.recs), tm = r.recs.filter((x) => x.d), avg = tm.length ? Math.round(tm.reduce((a, x) => a + x.d, 0) / tm.length) : 0, slow = tm.filter((x) => x.d > PACE).length, need = Math.ceil((n * TARGET) / 100), skip = r.recs.filter((x) => x.u < 0).length, low = bs.filter((x) => pct(x.ok, x.n) < TARGET);
+    const g = r.game ? GAME[r.game] : null, isNew = g && r.score > (r.prevBest || 0), xp = r.recs.reduce((a, x) => a + xpOf(x), 0), lv = xpInfo();
     return `<header class="top"><p class="eyebrow">${esc(r.title)}</p><h1>結果</h1></header>
+    ${g ? `<section class="hero game-${r.game} endcard"><p class="hero-label">${g.n}</p><div class="hero-num"><b>${r.score}</b><span>${g.u}</span></div><p class="hero-date">${isNew ? '自己ベスト更新!' : `自己ベスト ${r.prevBest}${g.u}`}・最大${r.maxCombo}連続正解</p></section>` : ''}
+    <p class="xpline"><b>+${xp} XP</b><span>Lv${lv.L} ${lv.title}・次のレベルまで${lv.nxt - lv.xp} XP</span></p>
     <section class="score"><div class="score-num"><b>${ok}</b><span>/ ${n}問 正解</span></div>${r.mode === 'exam' ? `<p class="verdict-line ${pct(ok, n) >= TARGET ? 'ok' : 'ng'}">${pct(ok, n) >= TARGET ? `目標の8割(${need}問)に到達しました` : `目標の8割(${need}問)まであと${need - ok}問`}</p>` : ''}<p class="score-rate">正答率 ${pct(ok, n)}%${avg ? `・1問あたり平均${avg}秒(本番の目安は30秒)${slow ? `・30秒を超えた問題 ${slow}問` : ''}` : ''}</p>${r.mode === 'exam' ? targetBar(ok, n) : scoreBar(ok, n)}</section>
     ${r.mode === 'exam' ? `<ul class="tips">${skip ? `<li>未回答が${skip}問ありました。誤答で減点はないので、残り1分になったら空欄をすべて埋めてください。</li>` : ''}${r.total && !skip && r.used < r.total * 0.85 ? `<li>${Math.round(r.used / 60)}分で終えています。余った時間は、飛ばした問題と計算問題の見直しに使えます。</li>` : ''}${slow ? `<li>30秒を超えた問題が${slow}問。迷ったら印をつけて飛ばし、最後に戻る練習をしましょう(「問題一覧」から戻れます)。</li>` : ''}${low.length ? `<li>8割に届いていない教科:${low.map((x) => `${x.s.k}(${pct(x.ok, x.n)}%)`).join('、')}。この教科を優先して復習すると、得点が伸びやすくなります。</li>` : ''}</ul>` : ''}
     ${bs.length > 1 ? `<table class="tbl"><thead><tr><th>教科</th><th>正解</th><th>正答率</th></tr></thead><tbody>${bs.map((x) => `<tr><td>${chip(x.s.k)}</td><td>${x.ok} / ${x.n}</td><td>${pct(x.ok, x.n)}%</td></tr>`).join('')}</tbody></table>` : ''}
-    <div class="actions">${ng ? `<button class="action" data-act="retry-result"><b>間違えた${ng}問を解き直す</b><small>正解するまで繰り返すのが近道です</small></button>` : ''}<button class="action" data-act="go" data-v="home"><b>ホームへ戻る</b><small>この結果はきょうの履歴に保存済みです</small></button></div>
+    <div class="actions">${ng ? `<button class="action" data-act="retry-result"><b>間違えた${ng}問を解き直す</b><small>正解するまで繰り返すのが近道です</small></button>` : ''}${g ? `<button class="action" data-act="${r.game}"><b>もう一度 ${g.n}</b><small>${g.d}</small></button>` : ''}<button class="action" data-act="go" data-v="home"><b>ホームへ戻る</b><small>この結果はきょうの履歴に保存済みです</small></button></div>
     <h2>解答と解説</h2><div class="recs">${r.recs.map(recItem).join('')}</div>`;
   }
   function vHistory() {
@@ -426,17 +475,19 @@
     cat: (d) => { const c = S.setup.cats, i = c.indexOf(d.c); if (i < 0) c.push(d.c); else c.splice(i, 1); render(); },
     set: (d) => { if (d.k === 'goal') { P.goal = +d.v; savePrefs(); return render(); } if (d.k === 'recall') { P.recall = d.v === '1'; savePrefs(); return render(); } if (d.k === 'old') { P.old = d.v === '1'; savePrefs(); relive(); Store.rev++; return render(); } const u = S.setup; if (d.k === 'n') u.n = +d.v; else if (d.k === 'timed') u.timed = d.v === '1'; else u.order = d.v; render(); },
     start: () => { const u = S.setup; startQuiz(buildSet(u.s, u.cats, u.n, u.order), 'practice', u.s + (u.cats.length ? '(' + u.cats.join('・') + ')' : ''), u.timed); },
-    pick: (d) => { const z = S.quiz; if (z.mode === 'exam') { z.answers[z.i] = z.answers[z.i] === +d.d ? null : +d.d; S.confirm = ''; render(); paintTimer(); } else answer(+d.d); },
+    pick: (d) => { const z = S.quiz; if (z.mode === 'exam') { z.answers[z.i] = z.answers[z.i] === +d.d ? null : +d.d; S.confirm = ''; render(); paintTimer(); } else if (z.mode === 'arcade') arcadeAnswer(+d.d); else answer(+d.d); },
     next, prev: () => { lap(); S.quiz.i--; S.confirm = ''; render(); paintTimer(); window.scrollTo(0, 0); },
     enext: () => { lap(); S.quiz.i++; S.confirm = ''; render(); paintTimer(); window.scrollTo(0, 0); },
     grade: () => twice('grade', finishExam),
     grid: () => { S.quiz.open = !S.quiz.open; render(); paintTimer(); },
     jump: (d) => { lap(); S.quiz.i = +d.i; S.quiz.open = false; S.confirm = ''; render(); paintTimer(); window.scrollTo(0, 0); },
-    quit: () => { const z = S.quiz; if (z.mode !== 'exam' && !z.recs.length) return go('home'); twice('quit', () => { if (z.mode === 'exam') { clearInterval(tick); S.quiz = null; go('home'); } else finish(); }); paintTimer(); },
+    quit: () => { const z = S.quiz; if (z.mode !== 'exam' && !z.recs.length) return go('home'); twice('quit', () => { if (z.mode === 'exam') { clearInterval(tick); S.quiz = null; go('home'); } else if (z.mode === 'arcade') finishArcade(); else finish(); }); paintTimer(); },
     examintro: () => go('examintro'),
     newq: () => startQuiz(shuffle(newUnseen()).slice(0, 30).map(fromBank), 'practice', '新着問題', false),
     exam: () => startQuiz(buildExam(), 'exam', '模擬試験(120問・60分)', true, EXAM_SEC),
     miniexam: () => startQuiz(buildExam(true), 'exam', 'ミニ模試(30問・15分)', true, 15 * 60),
+    ta: () => startQuiz(arcadeBatch(), 'arcade', GAME.ta.n, true, 0, { game: 'ta', score: 0, left: 60 }),
+    sv: () => startQuiz(arcadeBatch(), 'arcade', GAME.sv.n, true, 0, { game: 'sv', score: 0, lives: 3, left: 20 }),
     show: () => { S.quiz.shown = true; render(); paintTimer(); },
     guess: () => { const r = S.quiz && S.quiz.last; if (!r || !r.ok) return; if (r.g) delete r.g; else r.g = 1; Store.rev++; Store.saveLocal(); Store.dirty.add(dayKey(r.t / 10)); Store.flushSoon(); render(); paintTimer(); },
     'retry-result': () => startQuiz(S.result.recs.filter((r) => !r.ok).map(recToQ).filter(Boolean), 'review', '解き直し', false),
