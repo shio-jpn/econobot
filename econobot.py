@@ -2305,8 +2305,12 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
                 lines += (f'\n      <p class="today-jpy-sp">円で見たS&amp;P 500の目安:<strong>{_esc(j["text"])}</strong>'
                           f'(株の動き {_esc(j["sp"])} と、ドル円の動き {_esc(j["fx"])} を合わせたもの)'
                           f'<span class="today-note">円建ての投資信託の値段は日本の朝の為替レートで決まるため、この数字と一致はしません。</span></p>')
-        missing = (f"{t['trade_label']}の値動きの理由を書いた記事は、まだ取得できていません"
-                   "(使っているニュースの一部は約1日遅れで届くため)。")
+        if econ.get("ai_failed"):
+            # 11-17 verifier指摘:AIが失敗した日は理由の欄が空になる本当の理由を書く(記事の遅れのせいにしない)
+            missing = "今日はAIの要約を作れなかったため、値動きの理由は載せていません。"
+        else:
+            missing = (f"{t['trade_label']}の値動きの理由を書いた記事は、まだ取得できていません"
+                       "(使っているニュースの一部は約1日遅れで届くため)。")
         mm = econ.get("market_move") if econ.get("ok") else None
         if mm and mm["same_day"]:
             why = f'値動きの理由(報道より):{_esc(mm["text"])}{_src_links(mm["sources"], econ_articles)}'
@@ -2814,7 +2818,7 @@ def build_slack_payload(page_url, econ, major, major_articles, now=None):
             blocks.append({"type": "section", "text": {"type": "mrkdwn",
                            "text": f"*今日の用語* {_slack_esc(g[0][1])}:{_slack_esc(g[0][2])}"}})
     blocks.append({"type": "section", "text": {"type": "mrkdwn",
-                   "text": f"<{page_url}|ページで続きを読む(理由・指標・今後の予定)>  ・  <{page_url}#major|主要ニュースへ>"}})
+                   "text": (f"<{page_url}|ページで数字と見出しを見る>" if econ.get("ai_failed") else f"<{page_url}|ページで続きを読む(理由・指標・今後の予定)>") + f"  ・  <{page_url}#major|主要ニュースへ>"}})
     head = headline if econ["ok"] else f"{date_str}(要約準備中)"
     if t:
         parts = [f"米国株 S&P 500 {t['sp_text']}"]

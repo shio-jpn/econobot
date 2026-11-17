@@ -1158,11 +1158,15 @@ class TimeoutResilienceTest(unittest.TestCase):
         self.assertIn("今日はAIの要約を作れませんでした(数字は通常どおり)。", visible(page))
         self.assertIn("米国株は下落。S&P 500 −0.42%", visible(page))      # 数字はそのまま
         self.assertIn('id="today"', page)
+        self.assertNotIn("約1日遅れ", visible(page))                          # 11-17 verifier:AIの失敗を記事の遅れのせいにしない
+        self.assertIn("今日はAIの要約を作れなかったため、値動きの理由は載せていません。", visible(page))
         econ, major, major_articles = posted[0][1], posted[0][2], posted[0][3]
         slack = eb.build_slack_payload("https://shio-jpn.github.io/econobot/", econ, major, major_articles, now=NOW)
         s = json.dumps(slack, ensure_ascii=False)
         self.assertIn("今日はAIの要約を作れませんでした(数字は通常どおり)。", s)
         self.assertIn("S&amp;P 500 −0.42%", s)
+        self.assertIn("ページで数字と見出しを見る", s)
+        self.assertNotIn("理由・指標・今後の予定", s)
         self.assertEqual(len(notified), 1)                                    # 投稿とは別の失敗通知
         self.assertIn("AIの要約", notified[0][0])
         self.assertIn("TimeoutError", notified[0][1])
