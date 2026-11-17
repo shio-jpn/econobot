@@ -11,6 +11,8 @@ import json
 import re
 import time
 import base64
+import socket
+import http.client
 import concurrent.futures
 import csv
 import io
@@ -340,13 +342,29 @@ GEMINI_MODELS = [
 # 最初からスキーマ無しにする(同じ400を毎回踏んで呼び出し回数を増やさないため)
 _SCHEMA_REJECTED = {"value": False}
 
+# 時間切れ・接続の失敗(HTTPErrorでない通信の失敗)。urllibは「送る前」の失敗をURLErrorに包み、
+# 「送った後の返事待ち」の時間切れはTimeoutErrorのまま投げる(2026-11-17の本番はこれで全体が止まった)
+_NET_ERRORS = (TimeoutError, socket.timeout, urllib.error.URLError, ConnectionError, http.client.HTTPException)
+GEMINI_TIMEOUT = 120    # 1回の返事を待つ上限(秒)。指示文とschemaが大きくなり60秒では足りない日がある
+GEMINI_BUDGET = 480     # 1回の実行でGeminiに使う時間の合計の上限(秒。経済・主要の2回分)。超えたら要約をあきらめて公開へ進む
+_GEMINI_CLOCK = {"start": None}
+
+
+def _gemini_left():
+    if _GEMINI_CLOCK["start"] is None:
+        _GEMINI_CLOCK["start"] = time.monotonic()
+    return GEMINI_BUDGET - (time.monotonic() - _GEMINI_CLOCK["start"])
+
 
 def _call_gemini(prompt, schema, label):
     """Geminiを呼んで本文テキストを返す。JSONで返すよう指定し、スキーマも付ける。
     - 429/503 は待って同じモデルで最大3回(従来どおり)
     - スキーマ付きで400が返ったら、同じモデルでスキーマ無し(JSON指定のみ)で1回だけ送り直す
+    - 時間切れ・接続の失敗は、同じモデルで1回だけ取り直し、だめなら次のモデルへ(2026-11-17)
     - 404やその他の失敗は次のモデルへ
-    全モデルで失敗したら RuntimeError"""
+    - 1回の実行でGeminiに使う時間の合計はGEMINI_BUDGET秒まで(超えそうなら呼ばずにあきらめる)
+    全モデルで失敗したら RuntimeError(各モデルの最後の失敗の理由つき。失敗通知で原因が分かるように)"""
+    fails = []
     for model in GEMINI_MODELS:
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models"
@@ -354,7 +372,12 @@ def _call_gemini(prompt, schema, label):
         )
         use_schema = schema is not None and not _SCHEMA_REJECTED["value"]
         attempt = 0
+        net_fail = 0
         while attempt < 3:
+            left = _gemini_left()
+            if left < 20:
+                print(f"  [WARN] Geminiに使える時間(合計{GEMINI_BUDGET}秒)を使い切ったため、要約をあきらめる")
+                raise RuntimeError(f"Geminiの時間の上限({GEMINI_BUDGET}秒)に達しました")
             gen_cfg = {"temperature": 0.2, "responseMimeType": "application/json"}
             if use_schema:
                 gen_cfg["responseSchema"] = schema
@@ -369,7 +392,7 @@ def _call_gemini(prompt, schema, label):
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(req, timeout=60) as res:
+                with urllib.request.urlopen(req, timeout=min(GEMINI_TIMEOUT, left)) as res:
                     data = json.loads(res.read().decode())
                 print(f"  成功: {model}")
                 try:
@@ -384,15 +407,31 @@ def _call_gemini(prompt, schema, label):
                     _SCHEMA_REJECTED["value"] = True
                     use_schema = False
                     continue  # attemptは増やさない(400の送り直しは1回だけ)
-                if e.code in (503, 429) and attempt < 2:
+                if e.code in (503, 429) and attempt < 2 and _gemini_left() > 15 * (attempt + 1) + 20:
                     wait = 15 * (attempt + 1)
                     print(f"  HTTP {e.code} → {wait}秒後にリトライ ({attempt+1}/3)...")
                     time.sleep(wait)
                     attempt += 1
                     continue
                 print(f"  {model} 失敗(HTTP {e.code})、次のモデルへ...")
+                fails.append(f"{model}: HTTP {e.code}")
                 break
-    raise RuntimeError("全モデルで失敗しました")
+            except _NET_ERRORS as e:
+                net_fail += 1
+                if net_fail < 2:
+                    print(f"  {model} 時間切れ・接続の失敗({type(e).__name__}: {e})→ 同じモデルで1回だけ取り直し")
+                    attempt += 1
+                    continue
+                print(f"  {model} 失敗({type(e).__name__}: {e})、次のモデルへ...")
+                fails.append(f"{model}: {type(e).__name__}: {e}")
+                break
+            except ValueError as e:   # 返事がJSONとして読めない
+                print(f"  {model} 失敗(応答が読めない {type(e).__name__})、次のモデルへ...")
+                fails.append(f"{model}: 応答が読めない {type(e).__name__}")
+                break
+        else:
+            fails.append(f"{model}: 3回試して返事が得られない")
+    raise RuntimeError("全モデルで失敗しました(" + " / ".join(fails) + ")")
 
 
 def _body_of(a):
@@ -690,13 +729,9 @@ def summarize_with_gemini(econ_articles, last_trade_label="(取得できませ�
 
 
 def summarize_major_news(major_articles):
-    """主要ニュースの要約(Gemini 1回)。失敗しても例外にせず空文字を返し、見出しのみ表示に切り替える"""
+    """主要ニュースの要約(Gemini 1回)。失敗はbuild_outputsが受け止め、見出しのみ表示に切り替える"""
     prompt = MAJOR_PROMPT.format(numbered_news_text=_numbered(major_articles))
-    try:
-        return _call_gemini(prompt, MAJOR_SCHEMA, "主要ニュース")
-    except Exception as e:
-        print(f"  [WARN] 主要ニュースの要約に失敗: {e}")
-        return ""
+    return _call_gemini(prompt, MAJOR_SCHEMA, "主要ニュース")
 
 
 # ========================================
@@ -2002,6 +2037,9 @@ _ICONS = {
 }
 
 
+AI_FAILED_LINE = "今日はAIの要約を作れませんでした(数字は通常どおり)。"
+
+
 def _esc(s):
     """HTMLへの埋め込み用にエスケープ(外部APIの文字列を信用しない)"""
     return html.escape(s or "", quote=True)
@@ -2449,7 +2487,7 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
 
     notice = ""
     if not econ["ok"]:
-        notice = '\n    <p class="notice">本日はAIによる要約を作れなかったため、元記事の見出しのみ掲載しています。</p>'
+        notice = ('\n    <p class="notice">' + (AI_FAILED_LINE + "ニュースは元記事の見出しのみ掲載しています。" if econ.get("ai_failed") else "本日はAIによる要約を作れなかったため、元記事の見出しのみ掲載しています。") + "</p>")
 
     headline = econ["headline"]
     return f"""<!DOCTYPE html>
@@ -2667,26 +2705,51 @@ def publish_to_github_pages(html_content):
         "User-Agent": "EconoBot/1.0",
     }
 
-    # 既存ファイルのSHAを取得
-    sha = None
-    req = urllib.request.Request(api_base, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=10) as res:
-            sha = json.loads(res.read().decode()).get("sha")
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            raise
+    def get_current():
+        """今のindex.htmlの(sha, 中身のbytes)。無ければ(None, None)。読むだけなので時間切れは1回取り直してよい"""
+        for i in range(2):
+            try:
+                with urllib.request.urlopen(urllib.request.Request(api_base, headers=headers), timeout=10) as res:
+                    d = json.loads(res.read().decode())
+                content = d.get("content")
+                return d.get("sha"), (base64.b64decode(content) if content else None)
+            except urllib.error.HTTPError as e:
+                if e.code != 404:
+                    raise
+                return None, None
+            except _NET_ERRORS as e:
+                if i == 1:
+                    raise
+                print(f"  公開先の確認が時間切れ・接続の失敗({type(e).__name__})→ 1回だけ取り直し")
 
-    content_b64 = base64.b64encode(html_content.encode("utf-8")).decode("ascii")
+    sha, _ = get_current()
+    new_bytes = html_content.encode("utf-8")
+    content_b64 = base64.b64encode(new_bytes).decode("ascii")
     now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
     payload = {"message": f"📰 EconoBot update: {now_str}", "content": content_b64, "branch": "main"}
     if sha:
         payload["sha"] = sha
 
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(api_base, data=body, headers=headers, method="PUT")
-    with urllib.request.urlopen(req, timeout=15) as res:
-        json.loads(res.read().decode())
+    for i in range(2):
+        req = urllib.request.Request(api_base, data=json.dumps(payload).encode("utf-8"), headers=headers, method="PUT")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as res:
+                json.loads(res.read().decode())
+            break
+        except _NET_ERRORS as e:
+            if isinstance(e, urllib.error.HTTPError) or i == 1:
+                raise
+            # 返事が来ないだけで反映済みのことがある。今の中身を読み、同じなら取り直さない(二重のコミットを作らない)
+            print(f"  公開が時間切れ・接続の失敗({type(e).__name__})→ 反映されたか確かめる")
+            sha2, now_bytes = get_current()
+            if now_bytes == new_bytes:
+                print("  すでに反映済みのため、取り直さない")
+                break
+            print("  まだ反映されていないため、1回だけ取り直す")
+            if sha2:
+                payload["sha"] = sha2
+            else:
+                payload.pop("sha", None)
 
     username, reponame = GITHUB_REPO.split("/")
     page_url = f"https://{username}.github.io/{reponame}/"
@@ -2730,7 +2793,7 @@ def build_slack_payload(page_url, econ, major, major_articles, now=None):
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}})
     else:
         blocks.append({"type": "section", "text": {"type": "mrkdwn",
-                       "text": "本日はAI要約を作れなかったため、元記事の見出しのみ掲載しています"}})
+                       "text": AI_FAILED_LINE if econ.get("ai_failed") else "本日はAI要約を作れなかったため、元記事の見出しのみ掲載しています"}})
     nd = econ.get("news_date")
     srcs = {c.get("source_name") for c in econ.get("markets", []) if c.get("official")}
     num_src = ("Yahoo Finance" + ("・米国財務省" if "米国財務省" in srcs else "") + ("(一部FRED)" if "FRED" in srcs else "")
@@ -2783,15 +2846,29 @@ def _post_json(url, payload):
         return res.status
 
 
+def _post_slack_once(url, payload):
+    """Slackへ1回送る。「送る前」の失敗(URLError:接続できない・接続の時間切れ)は届いていないので1回だけ取り直す。
+    「送った後の返事待ち」の時間切れは、届いている可能性があるため取り直さない(Webhookには二重投稿を防ぐ仕組みが無い)"""
+    try:
+        return _post_json(url, payload)
+    except urllib.error.HTTPError:
+        raise
+    except urllib.error.URLError as e:
+        print(f"  Slackに接続できない({e.reason})→ 届いていないため1回だけ取り直し")
+        return _post_json(url, payload)
+    except (TimeoutError, socket.timeout, ConnectionError, http.client.HTTPException) as e:
+        raise RuntimeError(f"Slackの返事を待つ間に失敗({type(e).__name__})。届いたかは不明で、二重投稿を避けるため送り直していません") from e
+
+
 def post_to_slack(page_url, econ, major, major_articles):
     payload = build_slack_payload(page_url, econ, major, major_articles)
     try:
-        status = _post_json(SLACK_WEBHOOK_URL, payload)
+        status = _post_slack_once(SLACK_WEBHOOK_URL, payload)
     except urllib.error.HTTPError as e:
         if e.code != 400:
             raise
         print("  blocks付き投稿が400 → 文字だけで1回送り直し")
-        status = _post_json(SLACK_WEBHOOK_URL, _slack_text_only(payload, page_url))
+        status = _post_slack_once(SLACK_WEBHOOK_URL, _slack_text_only(payload, page_url))
     print(f"  Slack投稿完了: {status}")
 
 
@@ -2821,6 +2898,17 @@ def build_outputs(now=None, econ_summarizer=None, major_summarizer=None):
     now = now or datetime.now(JST)
     econ_summarizer = econ_summarizer or summarize_with_gemini
     major_summarizer = major_summarizer or summarize_major_news
+    _GEMINI_CLOCK["start"] = None
+    ai_errors = []
+
+    def summarize(fn, label, *args):
+        """AIの要約が例外になっても止めず、空の要約(要約準備中・英語見出しの表示)として続ける。数字・表・見出しは公開する"""
+        try:
+            return fn(*args)
+        except Exception as e:
+            print(f"  [WARN] {label}の要約に失敗(数字・見出しはそのまま公開する): {type(e).__name__}: {e}")
+            ai_errors.append(f"{label}: {type(e).__name__}: {e}")
+            return ""
 
     print("📈 市場の数値を取得中(Yahoo Finance、予備にFRED)...")
     market = fetch_market_data()
@@ -2837,7 +2925,8 @@ def build_outputs(now=None, econ_summarizer=None, major_summarizer=None):
     print(f"  {len(major_articles)}件取得")
 
     print("🤖 経済ニュースを要約中...")
-    econ = parse_summary(econ_summarizer(econ_articles, trade_label), econ_articles, td)
+    econ = parse_summary(summarize(econ_summarizer, "経済ニュース", econ_articles, trade_label), econ_articles, td)
+    econ["ai_failed"] = bool(ai_errors)
     official = build_market_cards(market)
     econ["markets"] = merge_markets(official, econ["markets"] if econ["ok"] else [])
     econ["trade_date"] = td
@@ -2849,7 +2938,7 @@ def build_outputs(now=None, econ_summarizer=None, major_summarizer=None):
     print(f"  見出し: {econ['headline']}")
 
     print("🤖 主要ニュースを要約中...")
-    major = parse_major_news(major_summarizer(major_articles), major_articles,
+    major = parse_major_news(summarize(major_summarizer, "主要ニュース", major_articles), major_articles,
                              econ_used_urls(econ, econ_articles))
     for it in major["items"]:
         print(f"  主要: [{it['connection']}] {it['title']}")
@@ -2858,7 +2947,7 @@ def build_outputs(now=None, econ_summarizer=None, major_summarizer=None):
     print("🎨 HTMLページ生成中...")
     page_html = generate_html(econ, econ_articles, major, major_articles, now=now)
     return {"html": page_html, "econ": econ, "major": major, "market": market,
-            "econ_articles": econ_articles, "major_articles": major_articles}
+            "econ_articles": econ_articles, "major_articles": major_articles, "ai_errors": ai_errors}
 
 
 def main():
@@ -2874,6 +2963,9 @@ def main():
         print("📤 Slackに投稿中...")
         post_to_slack(page_url, out["econ"], out["major"], out["major_articles"])
 
+        if out["ai_errors"]:
+            # 公開・投稿は済ませたうえで、AIの失敗は別のメッセージで知らせる
+            notify_failure(stage="AIの要約(ページとSlackは要約なしで公開済み)", error=" / ".join(out["ai_errors"]))
         print("✅ 完了！")
     except Exception as e:
         print(f"❌ エラー発生: {e}")

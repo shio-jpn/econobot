@@ -5,6 +5,7 @@
 
 ここの記事・JSONはすべて試験用の架空データ(2026-10-08朝の見出しの傾向を真似たもの)。
 """
+import base64
 import io
 import json
 import os
@@ -12,6 +13,7 @@ import re
 import sys
 import unittest
 import urllib.error
+import urllib.parse
 from datetime import datetime
 from html.parser import HTMLParser
 from unittest import mock
@@ -1096,3 +1098,169 @@ class TreasuryTest(unittest.TestCase):
         econ = eb.parse_summary(up_json(), UP_ARTS, TD)
         page = eb.generate_html(econ, UP_ARTS, {"ok": True, "items": []}, UP_MAJOR, now=NOW)
         self.assertIn("・数値:Yahoo Finance・米国財務省(米2年債利回り)の終値と米政府統計", visible(page))
+
+
+class TimeoutResilienceTest(unittest.TestCase):
+    """2026-11-17 本番の失敗(Geminiの返事待ちの時間切れ TimeoutError で全体が止まり、公開もSlack投稿もされなかった)の再発防止。
+    例外は本物と同じ形にする:返事待ちの時間切れは TimeoutError('The read operation timed out')、
+    接続の時間切れは URLError(reason=TimeoutError('timed out'))"""
+
+    class Resp(io.BytesIO):
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def _fetch_mocks(self):
+        policy = {"lo": 3.75, "hi": 4.0, "as_of": TD, "changed": "2026-09-17", "delta": 0.25}
+        return [mock.patch.object(eb, "fetch_market_data", lambda now=None: BASIC),
+                mock.patch.object(eb, "fetch_rss", lambda: []),
+                mock.patch.object(eb, "fetch_news", lambda rss=(): UP_ARTS),
+                mock.patch.object(eb, "fetch_major_news", lambda rss=(): UP_MAJOR),
+                mock.patch.object(eb, "fetch_macro", lambda: []),
+                mock.patch.object(eb, "fetch_policy_rate", lambda: policy)]
+
+    def test_gemini_timeouts_still_publish_and_post(self):
+        """Geminiが毎回時間切れ → 同じモデルで1回取り直し → 次のモデル → 全部だめでも、ページを作り、公開・投稿し、注意の1行と別の失敗通知を出す"""
+        gemini_calls = []
+
+        def fake_urlopen(req, timeout=None):
+            url = req.full_url
+            if "generativelanguage" in url:
+                gemini_calls.append((url.split("/models/")[1].split(":")[0], timeout))
+                raise TimeoutError("The read operation timed out")
+            raise AssertionError("ほかの通信はしない: " + url)
+        published, posted, notified = [], [], []
+        env = {k: "x" for k in eb._REQUIRED_ENV}
+        patches = self._fetch_mocks() + [
+            mock.patch.dict(os.environ, env),
+            mock.patch.object(eb.urllib.request, "urlopen", side_effect=fake_urlopen),
+            mock.patch.object(eb, "publish_to_github_pages", side_effect=lambda h: published.append(h) or "https://shio-jpn.github.io/econobot/"),
+            mock.patch.object(eb, "post_to_slack", side_effect=lambda *a: posted.append(a)),
+            mock.patch.object(eb, "notify_failure", side_effect=lambda stage, error: notified.append((stage, error)))]
+        for p in patches:
+            p.start()
+        try:
+            eb._SCHEMA_REJECTED["value"] = False
+            eb.main()   # 例外で止まらないこと
+        finally:
+            for p in patches:
+                p.stop()
+        models = [m for m, _ in gemini_calls]
+        self.assertEqual(models, ["gemini-2.5-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash"] * 2)
+        self.assertTrue(all(t == eb.GEMINI_TIMEOUT for _, t in gemini_calls))   # 待つ上限は120秒
+        self.assertEqual(len(published), 1)
+        self.assertEqual(len(posted), 1)
+        page = published[0]
+        self.assertIn("今日はAIの要約を作れませんでした(数字は通常どおり)。", visible(page))
+        self.assertIn("米国株は下落。S&P 500 −0.42%", visible(page))      # 数字はそのまま
+        self.assertIn('id="today"', page)
+        econ, major, major_articles = posted[0][1], posted[0][2], posted[0][3]
+        slack = eb.build_slack_payload("https://shio-jpn.github.io/econobot/", econ, major, major_articles, now=NOW)
+        s = json.dumps(slack, ensure_ascii=False)
+        self.assertIn("今日はAIの要約を作れませんでした(数字は通常どおり)。", s)
+        self.assertIn("S&amp;P 500 −0.42%", s)
+        self.assertEqual(len(notified), 1)                                    # 投稿とは別の失敗通知
+        self.assertIn("AIの要約", notified[0][0])
+        self.assertIn("TimeoutError", notified[0][1])
+
+    def test_gemini_time_budget(self):
+        """Geminiに使える時間の合計を超えそうな時は、呼ばずにあきらめる(実行全体の時間の上限を決めるため)"""
+        calls = []
+        with mock.patch.object(eb, "GEMINI_BUDGET", 10), \
+             mock.patch.object(eb.urllib.request, "urlopen", side_effect=lambda r, timeout=None: calls.append(1)):
+            eb._GEMINI_CLOCK["start"] = None
+            with self.assertRaises(RuntimeError):
+                eb.summarize_with_gemini(UP_ARTS)
+        eb._GEMINI_CLOCK["start"] = None
+        self.assertEqual(calls, [])
+
+    def _gh(self, applied_on_timeout):
+        """GitHubの contents API。1回目のPUTが返事待ちで時間切れ。applied_on_timeout=True はサーバー側では反映済みの場合"""
+        state = {"content": b"<html>old</html>", "sha": "sha-old"}
+        log = []
+
+        def fake_urlopen(req, timeout=None):
+            m = req.get_method()
+            log.append(m)
+            if m == "GET":
+                body = {"sha": state["sha"], "encoding": "base64",
+                        "content": base64.encodebytes(state["content"]).decode()}   # 本物は60字ごとに改行が入る
+                return self.Resp(json.dumps(body).encode())
+            sent = json.loads(req.data.decode())
+            if log.count("PUT") == 1:
+                if applied_on_timeout:
+                    state.update(content=base64.b64decode(sent["content"]), sha="sha-new")
+                raise TimeoutError("The read operation timed out")
+            self.assertEqual(sent.get("sha"), state["sha"])
+            state.update(content=base64.b64decode(sent["content"]), sha="sha-new2")
+            return self.Resp(json.dumps({"content": {"sha": "sha-new2"}, "commit": {"sha": "c"}}).encode())
+        with mock.patch.object(eb, "GITHUB_REPO", "shio-jpn/econobot"), mock.patch.object(eb, "GITHUB_TOKEN", "t"), \
+             mock.patch.object(eb.urllib.request, "urlopen", side_effect=fake_urlopen):
+            url = eb.publish_to_github_pages("<html>new</html>")
+        return url, log, state
+
+    def test_publish_timeout_retries_once(self):
+        """公開が1回時間切れ(反映されていない)→ 確かめてから1回だけ取り直す"""
+        url, log, state = self._gh(applied_on_timeout=False)
+        self.assertEqual(log, ["GET", "PUT", "GET", "PUT"])
+        self.assertEqual(state["content"], b"<html>new</html>")
+        self.assertEqual(url, "https://shio-jpn.github.io/econobot/")
+
+    def test_publish_timeout_already_applied_no_double_commit(self):
+        """公開の返事が時間切れでも、実は反映済みなら取り直さない(二重のコミットを作らない)"""
+        url, log, state = self._gh(applied_on_timeout=True)
+        self.assertEqual(log, ["GET", "PUT", "GET"])
+        self.assertEqual(state["sha"], "sha-new")
+
+    def test_slack_connect_failure_retries_once(self):
+        """Slackへ送る前の失敗(接続の時間切れ)→ 届いていないので1回だけ取り直す"""
+        calls = []
+
+        def fake_urlopen(req, timeout=None):
+            calls.append(json.loads(req.data.decode())["text"])
+            if len(calls) == 1:
+                raise urllib.error.URLError(TimeoutError("timed out"))
+            return self.Resp(b"ok")
+        econ = eb.parse_summary(up_json(), UP_ARTS, TD)
+        with mock.patch.object(eb, "SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/x"), \
+             mock.patch.object(eb.urllib.request, "urlopen", side_effect=fake_urlopen):
+            eb.post_to_slack("https://shio-jpn.github.io/econobot/", econ, {"ok": True, "items": []}, UP_MAJOR)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0], calls[1])
+
+    def test_slack_read_timeout_not_resent(self):
+        """Slackの返事待ちの時間切れ → 届いた可能性があるので送り直さない(二重投稿を防ぐ)。失敗として知らせる"""
+        calls = []
+
+        def fake_urlopen(req, timeout=None):
+            calls.append(1)
+            raise TimeoutError("The read operation timed out")
+        econ = eb.parse_summary(up_json(), UP_ARTS, TD)
+        with mock.patch.object(eb, "SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/x"), \
+             mock.patch.object(eb.urllib.request, "urlopen", side_effect=fake_urlopen):
+            with self.assertRaises(RuntimeError):
+                eb.post_to_slack("https://shio-jpn.github.io/econobot/", econ, {"ok": True, "items": []}, UP_MAJOR)
+        self.assertEqual(len(calls), 1)
+
+    def test_every_network_call_times_out(self):
+        """取得(NewsAPI・RSS・Yahoo・FRED・財務省)もGeminiも、すべての通信が時間切れでも build_outputs はページを返す"""
+        hosts = []
+
+        def fake_urlopen(req, timeout=None):
+            url = req.full_url if hasattr(req, "full_url") else req
+            hosts.append(urllib.parse.urlparse(url).hostname)
+            raise TimeoutError("The read operation timed out")
+        with mock.patch.object(eb, "NEWS_API_KEY", "k"), \
+             mock.patch.object(eb.urllib.request, "urlopen", side_effect=fake_urlopen):
+            eb._SCHEMA_REJECTED["value"] = False
+            out = eb.build_outputs(now=NOW)
+        self.assertTrue(out["html"].startswith("<!DOCTYPE html>"))
+        self.assertEqual(len(out["ai_errors"]), 2)
+        self.assertIn("今日はAIの要約を作れませんでした(数字は通常どおり)。", visible(out["html"]))
+        for h in ("newsapi.org", "search.cnbc.com", "query1.finance.yahoo.com", "fred.stlouisfed.org",
+                  "home.treasury.gov", "generativelanguage.googleapis.com"):
+            self.assertIn(h, hosts)
