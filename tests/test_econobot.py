@@ -1143,7 +1143,7 @@ class TimeoutResilienceTest(unittest.TestCase):
             mock.patch.object(eb, "notify_failure", side_effect=lambda stage, error: notified.append((stage, error))),
             # 2026-11-18:mainは投稿済みの記録の読み書きと8:00の待ちもするようになった。この試験はAIの失敗だけを見るので差し替える
             mock.patch.object(eb, "posted_today", lambda today: (False, True)),
-            mock.patch.object(eb, "record_posted", lambda when, trigger: None),
+            mock.patch.object(eb, "record_posted", lambda *a, **k: None),
             mock.patch.object(eb, "wait_for_post_time", lambda: 0)]
         for p in patches:
             p.start()
@@ -1287,8 +1287,8 @@ class PostTimeTest(unittest.TestCase):
         def __exit__(self, *a):
             return False
 
-    def _clock(self, h, m, s=0):
-        state = {"now": datetime(2026, 11, 18, h, m, s, tzinfo=eb.JST), "sleeps": []}
+    def _clock(self, h, m, s=0, day=18):
+        state = {"now": datetime(2026, 11, day, h, m, s, tzinfo=eb.JST), "sleeps": []}
 
         def sleep(sec):
             state["sleeps"].append(sec)
@@ -1323,9 +1323,13 @@ class PostTimeTest(unittest.TestCase):
             self.assertEqual(st["sleeps"], [])
 
     # ---- mainの流れ ----
-    def _run_main(self, h, m, record=None, env=None, gh_fail=None, appear_during_wait=False):
-        """record:state/last_posted.txt の中身(Noneなら無い=404)。gh_fail:"read"(GETが時間切れ)/"write"(PUTが500)"""
-        st, ps = self._clock(h, m)
+    def _run_main(self, h, m, record=None, env=None, gh_fail=None, appear_during_wait=False,
+                  day=18, slack_exc=None, build_minutes=0):
+        """record:state/last_posted.txt の中身(Noneなら無い=404)。
+        gh_fail:"read"(GETが時間切れ)/"read_urlerror"(つながらない)/"read_502"(502でHTMLが返る)/
+                "read_badb64"(contentがbase64として読めない)/"write"(PUTが500)。readの失敗は記録を書く前の確認のGETにも起きる
+        slack_exc:post_to_slackが投げる例外。build_minutes:取得・要約にかかる分(時計を進める)"""
+        st, ps = self._clock(h, m, day=day)
         files = {}
         if record is not None:
             files["state/last_posted.txt"] = {"content": record.encode(), "sha": "sha-state"}
@@ -1338,6 +1342,13 @@ class PostTimeTest(unittest.TestCase):
             if meth == "GET":
                 if gh_fail == "read":
                     raise TimeoutError("The read operation timed out")
+                if gh_fail == "read_urlerror":
+                    raise urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+                if gh_fail == "read_502":
+                    raise urllib.error.HTTPError(url, 502, "Bad Gateway", {"Content-Type": "text/html"},
+                                                 io.BytesIO(b"<html><body><h1>502 Bad Gateway</h1></body></html>"))
+                if gh_fail == "read_badb64":
+                    return self.Resp(json.dumps({"sha": "sha-x", "encoding": "base64", "content": "%%%not-base64%%%"}).encode())
                 if appear_during_wait and st["sleeps"]:
                     files["state/last_posted.txt"] = {"content": b"2026-11-18 08:00:01 JST \xe4\xba\x88\xe5\x82\x99\n", "sha": "s2"}
                 f = files.get("state/last_posted.txt")
@@ -1353,6 +1364,7 @@ class PostTimeTest(unittest.TestCase):
 
         def fake_build():
             built.append(st["now"])
+            st["now"] = st["now"] + eb.timedelta(minutes=build_minutes)
             econ = eb.parse_summary(up_json(), UP_ARTS, TD)
             return {"html": "<!DOCTYPE html><html><body><p>page</p></body></html>", "econ": econ,
                     "major": {"ok": True, "items": []}, "major_articles": [], "ai_errors": []}
@@ -1365,18 +1377,21 @@ class PostTimeTest(unittest.TestCase):
             mock.patch.object(eb.urllib.request, "urlopen", side_effect=fake_urlopen),
             mock.patch.object(eb, "build_outputs", fake_build),
             mock.patch.object(eb, "publish_to_github_pages", side_effect=lambda h: published.append((st["now"], h)) or "https://shio-jpn.github.io/econobot/"),
-            mock.patch.object(eb, "post_to_slack", side_effect=lambda *a: posted.append(st["now"])),
+            mock.patch.object(eb, "post_to_slack", side_effect=lambda *a: (posted.append(st["now"]), slack_exc and (_ for _ in ()).throw(slack_exc))),
             mock.patch.object(eb, "notify_failure", side_effect=lambda stage, error: notified.append((stage, error)))]
+        err = None
         for p in patches:
             p.start()
         try:
             eb.main()
+        except Exception as e:   # mainは失敗を知らせてから例外を投げ直す(workflowを失敗にするため)
+            err = e
         finally:
             for p in patches:
                 p.stop()
         rec = files.get("state/last_posted.txt", {}).get("content", b"").decode()
         return {"log": log, "published": published, "posted": posted, "notified": notified, "built": built,
-                "record": rec, "sleeps": st["sleeps"]}
+                "record": rec, "sleeps": st["sleeps"], "error": err}
 
     CRON = {"EVENT_NAME": "workflow_dispatch", "TRIGGER_SOURCE": "cron-job"}
 
@@ -1387,7 +1402,7 @@ class PostTimeTest(unittest.TestCase):
         self.assertEqual(r["built"], [datetime(2026, 11, 18, 7, 30, tzinfo=eb.JST)])
         self.assertEqual([t for t, _ in r["published"]], [eight])
         self.assertEqual(r["posted"], [eight])
-        self.assertEqual(r["record"], "2026-11-18 08:00:00 JST 7:30の起動(cron-job.org)\n")
+        self.assertEqual(r["record"], "2026-11-18 投稿 2026-11-18 08:00:00 JST 7:30の起動(cron-job.org)\n")
         self.assertIn("<!-- 起動: 7:30の起動(cron-job.org) JST 2026-11-18 07:30 -->", r["published"][0][1])
         self.assertEqual(r["notified"], [])
 
@@ -1396,7 +1411,7 @@ class PostTimeTest(unittest.TestCase):
         r = self._run_main(8, 20, env={"EVENT_NAME": "schedule"})
         self.assertEqual(r["sleeps"], [])
         self.assertEqual(len(r["posted"]), 1)
-        self.assertTrue(r["record"].startswith("2026-11-18 08:20:00 JST 予備の起動"))
+        self.assertTrue(r["record"].startswith("2026-11-18 投稿 2026-11-18 08:20:00 JST 予備の起動"))
 
     def test_already_posted_today_does_nothing(self):
         """今日の分が記録済み → 取得も公開も投稿もせず、正常に終わる"""
@@ -1416,7 +1431,7 @@ class PostTimeTest(unittest.TestCase):
                            env={"EVENT_NAME": "workflow_dispatch", "FORCE": "true"})
         self.assertEqual(len(r["published"]), 1)
         self.assertEqual(len(r["posted"]), 1)
-        self.assertEqual(r["record"], "2026-11-18 09:15:00 JST 手動実行\n")
+        self.assertEqual(r["record"], "2026-11-18 投稿 2026-11-18 09:15:00 JST 手動実行\n")
 
     def test_posted_by_other_run_during_wait(self):
         """8:00を待つ間に、ほかの起動が投稿して記録した → 公開も投稿もしない"""
@@ -1452,3 +1467,74 @@ class PostTimeTest(unittest.TestCase):
         for ev, src, want in (("workflow_dispatch", "cron-job", "7:30の起動(cron-job.org)"), ("workflow_dispatch", "", "手動実行")):
             with mock.patch.dict(os.environ, {"EVENT_NAME": ev, "TRIGGER_SOURCE": src}):
                 self.assertEqual(eb.trigger_label(), want)
+
+    # ---- 2026-11-18 verifier指摘の試験 ----
+    def test_slack_read_timeout_records_and_backup_skips(self):
+        """7:30の起動でSlackの返事待ちが時間切れ → 「Slack不明」と記録し失敗として知らせる → 8:10の予備は何もしない"""
+        r1 = self._run_main(7, 30, env=self.CRON, slack_exc=eb.SlackDeliveryUnknown(
+            "Slackの返事を待つ間に失敗(TimeoutError)。届いたかは不明で、二重投稿を避けるため送り直していません"))
+        self.assertIsInstance(r1["error"], eb.SlackDeliveryUnknown)
+        self.assertEqual(len(r1["published"]), 1)
+        self.assertEqual(r1["record"], "2026-11-18 投稿 2026-11-18 08:00:00 JST 7:30の起動(cron-job.org) Slack不明(返事待ちの時間切れ)\n")
+        self.assertIn("今日の分は投稿済み(Slack不明)として記録しました", r1["notified"][-1][1])
+        r2 = self._run_main(8, 10, record=r1["record"], env={"EVENT_NAME": "schedule"})
+        self.assertEqual((r2["built"], r2["published"], r2["posted"], r2["error"]), ([], [], [], None))
+
+    def test_slack_connect_failure_backup_posts(self):
+        """Slackの接続の段階の失敗(URLError=届いていない)→ 記録しない → 8:10の予備が投稿する"""
+        r1 = self._run_main(7, 30, env=self.CRON, slack_exc=urllib.error.URLError(ConnectionRefusedError(111, "Connection refused")))
+        self.assertIsInstance(r1["error"], urllib.error.URLError)
+        self.assertEqual(r1["record"], "")
+        self.assertEqual(len(r1["notified"]), 1)
+        r2 = self._run_main(8, 10, record=None, env={"EVENT_NAME": "schedule"})
+        self.assertEqual(len(r2["published"]), 1)
+        self.assertEqual(len(r2["posted"]), 1)
+        self.assertTrue(r2["record"].startswith("2026-11-18 投稿 2026-11-18 08:10:00 JST 予備の起動"))
+
+    def test_slack_retry_then_read_timeout_is_unknown(self):
+        """Slackの1回目が接続の失敗、取り直しが返事待ちの時間切れ → 届いたか不明として扱う(生のTimeoutErrorで抜けない)"""
+        calls = []
+
+        def fake(url, payload):
+            calls.append(1)
+            if len(calls) == 1:
+                raise urllib.error.URLError(TimeoutError("timed out"))
+            raise TimeoutError("The read operation timed out")
+        with mock.patch.object(eb, "_post_json", fake):
+            with self.assertRaises(eb.SlackDeliveryUnknown):
+                eb._post_slack_once("https://hooks.slack.com/services/x", {"text": "t"})
+        self.assertEqual(len(calls), 2)
+
+    def test_cross_midnight_manual_then_morning(self):
+        """23:50の手動実行が取得に15分かかり、投稿が翌0:05になっても、記録は起動した日 → 翌朝7:30の起動は投稿する"""
+        r1 = self._run_main(23, 50, env={"EVENT_NAME": "workflow_dispatch"}, build_minutes=15)
+        self.assertEqual(r1["posted"], [datetime(2026, 11, 19, 0, 5, tzinfo=eb.JST)])
+        self.assertEqual(r1["record"], "2026-11-18 投稿 2026-11-19 00:05:00 JST 手動実行\n")
+        r2 = self._run_main(7, 30, day=19, record=r1["record"], env=self.CRON)
+        self.assertEqual(len(r2["published"]), 1)
+        self.assertEqual(len(r2["posted"]), 1)
+        self.assertTrue(r2["record"].startswith("2026-11-19 投稿 2026-11-19 08:00:00 JST 7:30の起動"))
+
+    def _assert_read_failure_flow(self, mode):
+        r = self._run_main(8, 10, env={"EVENT_NAME": "schedule"}, gh_fail=mode)
+        self.assertIsNone(r["error"], mode)
+        self.assertEqual((len(r["published"]), len(r["posted"]), len(r["notified"])), (1, 1, 2), mode)
+        msgs = [e for _, e in r["notified"]]
+        self.assertIn("投稿済みの記録(state/last_posted.txt)を読めなかったため、確認せずに投稿しました", msgs[0])
+        self.assertIn("投稿は済みましたが、投稿済みの記録を書けませんでした", msgs[1])
+        return msgs
+
+    def test_record_read_urlerror(self):
+        """記録の読み取りがつながらない(URLError)→ 最後まで進み、公開1回・投稿1回・知らせ2通"""
+        msgs = self._assert_read_failure_flow("read_urlerror")
+        self.assertIn("(URLError)", msgs[1])
+
+    def test_record_read_502_html(self):
+        """記録の読み取りが壊れた返事(502でHTML)→ 最後まで進み、公開1回・投稿1回・知らせ2通"""
+        msgs = self._assert_read_failure_flow("read_502")
+        self.assertIn("(HTTPError)", msgs[1])
+
+    def test_record_read_bad_base64(self):
+        """記録の中身がbase64として読めない → 最後まで進み、公開1回・投稿1回・知らせ2通"""
+        msgs = self._assert_read_failure_flow("read_badb64")
+        self.assertIn("(Error)", msgs[1])   # binascii.Error

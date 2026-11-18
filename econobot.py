@@ -2836,9 +2836,10 @@ def posted_today(today):
     return first == today.isoformat(), True
 
 
-def record_posted(when, trigger):
-    _gh_put_file(STATE_PATH, f"{when:%Y-%m-%d %H:%M:%S} JST {trigger}\n".encode("utf-8"),
-                 f"econobot: {when:%Y-%m-%d} の投稿済みを記録")
+def record_posted(day, when, trigger, note=""):
+    """その日の投稿済みを記録する。先頭の日付は「起動した日」(投稿の時刻が日付をまたいでも、翌朝の分を消さないため)"""
+    line = f"{day.isoformat()} 投稿 {when:%Y-%m-%d %H:%M:%S} JST {trigger}" + (f" {note}" if note else "") + "\n"
+    _gh_put_file(STATE_PATH, line.encode("utf-8"), f"econobot: {day.isoformat()} の投稿済みを記録")
 
 
 # ========================================
@@ -2930,18 +2931,26 @@ def _post_json(url, payload):
         return res.status
 
 
+class SlackDeliveryUnknown(RuntimeError):
+    """Slackへ送った後の返事待ちで失敗した(届いたかは不明)。送り直すと二重投稿になりうる"""
+
+
 def _post_slack_once(url, payload):
     """Slackへ1回送る。「送る前」の失敗(URLError:接続できない・接続の時間切れ)は届いていないので1回だけ取り直す。
-    「送った後の返事待ち」の時間切れは、届いている可能性があるため取り直さない(Webhookには二重投稿を防ぐ仕組みが無い)"""
-    try:
-        return _post_json(url, payload)
-    except urllib.error.HTTPError:
-        raise
-    except urllib.error.URLError as e:
-        print(f"  Slackに接続できない({e.reason})→ 届いていないため1回だけ取り直し")
-        return _post_json(url, payload)
-    except (TimeoutError, socket.timeout, ConnectionError, http.client.HTTPException) as e:
-        raise RuntimeError(f"Slackの返事を待つ間に失敗({type(e).__name__})。届いたかは不明で、二重投稿を避けるため送り直していません") from e
+    「送った後の返事待ち」の時間切れは、届いている可能性があるため取り直さない(Webhookには二重投稿を防ぐ仕組みが無い)。
+    取り直しの2回目が返事待ちで失敗した時も同じ扱い"""
+    for i in range(2):
+        try:
+            return _post_json(url, payload)
+        except urllib.error.HTTPError:
+            raise
+        except urllib.error.URLError as e:
+            if i == 1:
+                raise
+            print(f"  Slackに接続できない({e.reason})→ 届いていないため1回だけ取り直し")
+        except (TimeoutError, socket.timeout, ConnectionError, http.client.HTTPException) as e:
+            raise SlackDeliveryUnknown(f"Slackの返事を待つ間に失敗({type(e).__name__})。届いたかは不明で、"
+                                       "二重投稿を避けるため送り直していません") from e
 
 
 def post_to_slack(page_url, econ, major, major_articles):
@@ -3067,10 +3076,21 @@ def main():
         page_url = publish_to_github_pages(out["html"])
 
         print("📤 Slackに投稿中...")
-        post_to_slack(page_url, out["econ"], out["major"], out["major_articles"])
+        try:
+            post_to_slack(page_url, out["econ"], out["major"], out["major_articles"])
+        except SlackDeliveryUnknown as e:
+            # 届いた可能性がある。予備の起動が送り直さないよう、今日の分を「Slack不明」として記録してから、失敗として知らせる。
+            # 接続の段階の失敗(URLError=届いていない)はここに来ず、記録しないので、予備の起動が投稿する
+            try:
+                record_posted(today, _now_jst(), trigger, note="Slack不明(返事待ちの時間切れ)")
+                extra = ("予備の起動が二重に投稿しないよう、今日の分は投稿済み(Slack不明)として記録しました。"
+                         "Slackに届いていなければ、forceで再実行してください")
+            except Exception as e2:
+                extra = f"投稿済みの記録も書けませんでした({type(e2).__name__})。予備の起動で二重に投稿される場合があります"
+            raise SlackDeliveryUnknown(f"{e} {extra}") from e
 
         try:
-            record_posted(_now_jst(), trigger)
+            record_posted(today, _now_jst(), trigger)
             print(f"  投稿済みを記録: {STATE_PATH}")
         except Exception as e:
             print(f"  [WARN] 投稿済みの記録を書けない({type(e).__name__}: {e})")
