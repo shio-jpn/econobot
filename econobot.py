@@ -2700,65 +2700,145 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
 # ========================================
 # 5. GitHub PagesにHTMLをコミット
 # ========================================
-def publish_to_github_pages(html_content):
-    api_base = f"https://api.github.com/repos/{GITHUB_REPO}/contents/index.html"
-    headers = {
+def _gh_headers():
+    return {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
         "Content-Type": "application/json",
         "User-Agent": "EconoBot/1.0",
     }
 
-    def get_current():
-        """今のindex.htmlの(sha, 中身のbytes)。無ければ(None, None)。読むだけなので時間切れは1回取り直してよい"""
-        for i in range(2):
-            try:
-                with urllib.request.urlopen(urllib.request.Request(api_base, headers=headers), timeout=10) as res:
-                    d = json.loads(res.read().decode())
-                content = d.get("content")
-                return d.get("sha"), (base64.b64decode(content) if content else None)
-            except urllib.error.HTTPError as e:
-                if e.code != 404:
-                    raise
-                return None, None
-            except _NET_ERRORS as e:
-                if i == 1:
-                    raise
-                print(f"  公開先の確認が時間切れ・接続の失敗({type(e).__name__})→ 1回だけ取り直し")
 
-    sha, _ = get_current()
-    new_bytes = html_content.encode("utf-8")
-    content_b64 = base64.b64encode(new_bytes).decode("ascii")
-    now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
-    payload = {"message": f"📰 EconoBot update: {now_str}", "content": content_b64, "branch": "main"}
+def _gh_get_file(path):
+    """リポジトリ(main)のファイルの(sha, 中身のbytes)。無ければ(None, None)。読むだけなので時間切れは1回取り直してよい"""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}?ref=main"
+    for i in range(2):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=_gh_headers()), timeout=10) as res:
+                d = json.loads(res.read().decode())
+            content = d.get("content")
+            return d.get("sha"), (base64.b64decode(content) if content else None)
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+            return None, None
+        except _NET_ERRORS as e:
+            if i == 1:
+                raise
+            print(f"  GitHubの{path}の確認が時間切れ・接続の失敗({type(e).__name__})→ 1回だけ取り直し")
+
+
+def _gh_put_file(path, new_bytes, message):
+    """リポジトリ(main)のファイルを書く。時間切れの時は今の中身を読み、同じなら取り直さない(二重のコミットを作らない)"""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
+    sha, _ = _gh_get_file(path)
+    payload = {"message": message, "content": base64.b64encode(new_bytes).decode("ascii"), "branch": "main"}
     if sha:
         payload["sha"] = sha
-
     for i in range(2):
-        req = urllib.request.Request(api_base, data=json.dumps(payload).encode("utf-8"), headers=headers, method="PUT")
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=_gh_headers(), method="PUT")
         try:
             with urllib.request.urlopen(req, timeout=15) as res:
                 json.loads(res.read().decode())
-            break
+            return
         except _NET_ERRORS as e:
             if isinstance(e, urllib.error.HTTPError) or i == 1:
                 raise
-            # 返事が来ないだけで反映済みのことがある。今の中身を読み、同じなら取り直さない(二重のコミットを作らない)
-            print(f"  公開が時間切れ・接続の失敗({type(e).__name__})→ 反映されたか確かめる")
-            sha2, now_bytes = get_current()
+            print(f"  GitHubへの{path}の書き込みが時間切れ・接続の失敗({type(e).__name__})→ 反映されたか確かめる")
+            sha2, now_bytes = _gh_get_file(path)
             if now_bytes == new_bytes:
                 print("  すでに反映済みのため、取り直さない")
-                break
+                return
             print("  まだ反映されていないため、1回だけ取り直す")
             if sha2:
                 payload["sha"] = sha2
             else:
                 payload.pop("sha", None)
 
+
+def publish_to_github_pages(html_content):
+    now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
+    _gh_put_file("index.html", html_content.encode("utf-8"), f"📰 EconoBot update: {now_str}")
     username, reponame = GITHUB_REPO.split("/")
     page_url = f"https://{username}.github.io/{reponame}/"
     print(f"  公開URL: {page_url}")
     return page_url
+
+
+# ========================================
+# 5b. 投稿の時刻(JST 8:00)と、その日の投稿済みの記録(2026-11-18)
+# ========================================
+# GitHubのscheduleは後回しにされ、10/09〜11/17は7:41〜12:19の起動だった。外部の時計サービス(cron-job.org)が
+# 7:30にworkflow_dispatchで起動し、取得・要約を済ませて8:00:00に公開・投稿する。scheduleは8:10の予備
+POST_HOUR = 8            # 公開・投稿の時刻(JST)。日本に夏時間は無いので、JSTの時計だけで判定すれば夏時間の影響は受けない
+EARLY_LIMIT_HOUR = 7     # これより前の起動は待たずに投稿する(待つのは最長1時間)。理由は wait_for_post_time に書いた
+STATE_PATH = "state/last_posted.txt"
+
+
+def _now_jst():
+    return datetime.now(JST)
+
+
+def _sleep(sec):
+    time.sleep(sec)
+
+
+def wait_for_post_time():
+    """JST 7:00〜8:00の起動なら8:00:00まで待つ。8:00以降はすぐ。7:00より前は待たない。
+    7:00より前を待たないのは、その時刻の起動は手動か設定の誤りで、何時間も実行機を止めて待たせる理由が無いため
+    (待つのを最長1時間に抑え、workflowのtimeout-minutesも見積もれるようにする)。返り値は待った秒数"""
+    now = _now_jst()
+    target = now.replace(hour=POST_HOUR, minute=0, second=0, microsecond=0)
+    if now >= target:
+        print(f"  {now:%H:%M:%S}の時点で8:00を過ぎているため、すぐ公開・投稿する")
+        return 0
+    if now.hour < EARLY_LIMIT_HOUR:
+        print(f"  [WARN] {now:%H:%M:%S}は{EARLY_LIMIT_HOUR}:00より前の起動のため、8:00まで待たずに公開・投稿する")
+        return 0
+    waited = 0.0
+    print(f"  8:00:00まで待つ(あと{(target - now).total_seconds():.0f}秒)")
+    while True:
+        left = (target - _now_jst()).total_seconds()
+        if left <= 0:
+            break
+        step = min(left, 60)   # 1分ごとに時計を見直す(待つ間の時計のずれに強くする)
+        _sleep(step)
+        waited += step
+    print(f"  {_now_jst():%H:%M:%S} 公開・投稿を始める")
+    return waited
+
+
+def trigger_label():
+    """何の起動か(workflowが環境変数で渡す。ログと失敗の知らせに出す)"""
+    ev = os.environ.get("EVENT_NAME", "")
+    if ev == "schedule":
+        return "予備の起動(GitHubのschedule 8:10)"
+    if ev == "workflow_dispatch":
+        return "7:30の起動(cron-job.org)" if os.environ.get("TRIGGER_SOURCE") == "cron-job" else "手動実行"
+    return "ローカル実行" if not ev else ev
+
+
+def _force():
+    return os.environ.get("FORCE", "").strip().lower() == "true"
+
+
+def posted_today(today):
+    """(今日の分が投稿済みか, 記録を読めたか)。記録は state/last_posted.txt の先頭の日付(JST)。
+    読めない時(GitHubの時間切れ・HTTPエラー)は「投稿済みでない」として投稿する側に倒す。
+    1日の投稿が欠けるのは、まれに二重になるより困る(11-17は投稿が欠けた)。二重を防ぐ主な仕組みはworkflowのconcurrency
+    (同時に動かさない)で、記録はその上の2段目。読めなかった時は投稿のあとに知らせる"""
+    try:
+        _, body = _gh_get_file(STATE_PATH)
+    except Exception as e:
+        print(f"  [WARN] 投稿済みの記録を読めない({type(e).__name__}: {e})→ 確認せずに進める")
+        return False, False
+    first = (body or b"").decode("utf-8", "replace").strip().split(" ")[0]
+    return first == today.isoformat(), True
+
+
+def record_posted(when, trigger):
+    _gh_put_file(STATE_PATH, f"{when:%Y-%m-%d %H:%M:%S} JST {trigger}\n".encode("utf-8"),
+                 f"econobot: {when:%Y-%m-%d} の投稿済みを記録")
 
 
 # ========================================
@@ -2883,7 +2963,7 @@ def notify_failure(stage, error):
     """途中で失敗した場合、サイレントに落ちずSlackにも異常を知らせる"""
     try:
         payload = json.dumps({
-            "text": f":warning: *EconoBot エラー*\n段階: {stage}\n内容: {error}"
+            "text": f":warning: *EconoBot エラー*\n起動: {trigger_label()}\n段階: {stage}\n内容: {error}"
         }).encode("utf-8")
         req = urllib.request.Request(
             SLACK_WEBHOOK_URL, data=payload,
@@ -2958,8 +3038,30 @@ def main():
     missing = [k for k in _REQUIRED_ENV if not os.environ.get(k)]
     if missing:
         raise SystemExit(f"環境変数が未設定です: {', '.join(missing)}")
+    trigger, force = trigger_label(), _force()
+    started = _now_jst()
+    print(f"⏰ 起動: {trigger}(JST {started:%Y-%m-%d %H:%M:%S}){' / force:記録を無視してやり直す' if force else ''}")
+    warnings = []
     try:
+        today = started.date()
+        if not force:
+            done, ok = posted_today(today)
+            if done:
+                print(f"✅ {today}の分は投稿済みのため、公開も投稿もせずに終わる")
+                return
         out = build_outputs()
+        out["html"] = out["html"].replace("<body>", f"<body>\n<!-- 起動: {trigger} JST {started:%Y-%m-%d %H:%M} -->", 1)
+
+        print("⏳ 公開・投稿の時刻(JST 8:00)を待つ...")
+        wait_for_post_time()
+        if not force:
+            # 待つ間にほかの起動(予備など)が投稿していないかを、公開の直前にもう一度確かめる
+            done, ok = posted_today(today)
+            if done:
+                print(f"✅ 待つ間に{today}の分が投稿されたため、公開も投稿もせずに終わる")
+                return
+            if not ok:
+                warnings.append("投稿済みの記録(state/last_posted.txt)を読めなかったため、確認せずに投稿しました。二重になっている場合があります")
 
         print("🚀 GitHub Pagesに公開中...")
         page_url = publish_to_github_pages(out["html"])
@@ -2967,9 +3069,18 @@ def main():
         print("📤 Slackに投稿中...")
         post_to_slack(page_url, out["econ"], out["major"], out["major_articles"])
 
+        try:
+            record_posted(_now_jst(), trigger)
+            print(f"  投稿済みを記録: {STATE_PATH}")
+        except Exception as e:
+            print(f"  [WARN] 投稿済みの記録を書けない({type(e).__name__}: {e})")
+            warnings.append(f"投稿は済みましたが、投稿済みの記録を書けませんでした({type(e).__name__})。予備の起動で二重に投稿される場合があります")
+
         if out["ai_errors"]:
             # 公開・投稿は済ませたうえで、AIの失敗は別のメッセージで知らせる
             notify_failure(stage="AIの要約(ページとSlackは要約なしで公開済み)", error=" / ".join(out["ai_errors"]))
+        for w in warnings:
+            notify_failure(stage="投稿済みの記録", error=w)
         print("✅ 完了！")
     except Exception as e:
         print(f"❌ エラー発生: {e}")

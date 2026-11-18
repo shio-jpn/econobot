@@ -1,16 +1,35 @@
 name: EconoBot - 毎朝8時に米国経済ニュースをSlackに投稿
 
 on:
-  schedule:
-    # timezone指定があるのでcronは日本時間のまま書く(以前の'30 22'は夜22:30の意味になっていた)。
-    # 米国市場の終了(日本時間5〜6時)の後、GitHubの起動遅れを見込んで6:00に起動する
-    - cron: '0 6 * * *'
-      timezone: 'Asia/Tokyo'
+  # 主の起動:外部の時計サービス(cron-job.org)が毎朝JST 7:30に、GitHub APIでこのworkflow_dispatchを呼ぶ
+  # (本文 {"ref":"main","inputs":{"source":"cron-job"}})。取得・要約を済ませ、econobot.pyがJST 8:00:00まで待ってから公開・投稿する
   workflow_dispatch:
+    inputs:
+      force:
+        description: '今日の分が投稿済みでも、もう一度公開・投稿する(やり直し用)'
+        type: boolean
+        default: false
+      source:
+        description: '起動元(cron-job.orgは cron-job を渡す。手動ならそのまま)'
+        type: string
+        default: manual
+  schedule:
+    # 予備。GitHubのscheduleは後回しにされ、10/09〜11/17は7:41〜12:19の起動だった。
+    # 8:10にしておくと、7:30の起動が来なかった日も、後回しで9時台になってもその日の分を投稿する。投稿済みなら何もせず終わる。
+    # timezone指定があるのでcronは日本時間のまま書く
+    - cron: '10 8 * * *'
+      timezone: 'Asia/Tokyo'
+
+# 7:30の起動と予備が重なっても同時に動かさない(後から来た方は前の実行が終わるまで待ち、投稿済みの記録を見て何もせず終わる)
+concurrency:
+  group: econobot-post
+  cancel-in-progress: false
 
 jobs:
   post-news:
     runs-on: ubuntu-latest
+    # 8:00までの待ち(最長60分)+取得・要約・公開・投稿の最悪の時間(約25分)を見込む
+    timeout-minutes: 100
     permissions:
       contents: write
 
@@ -30,4 +49,8 @@ jobs:
           NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # 何の起動か(ログと失敗の知らせに出す)。scheduleの時、inputsは空
+          EVENT_NAME: ${{ github.event_name }}
+          TRIGGER_SOURCE: ${{ inputs.source }}
+          FORCE: ${{ inputs.force }}
         run: python econobot.py

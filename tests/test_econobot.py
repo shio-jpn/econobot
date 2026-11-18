@@ -1140,7 +1140,11 @@ class TimeoutResilienceTest(unittest.TestCase):
             mock.patch.object(eb.urllib.request, "urlopen", side_effect=fake_urlopen),
             mock.patch.object(eb, "publish_to_github_pages", side_effect=lambda h: published.append(h) or "https://shio-jpn.github.io/econobot/"),
             mock.patch.object(eb, "post_to_slack", side_effect=lambda *a: posted.append(a)),
-            mock.patch.object(eb, "notify_failure", side_effect=lambda stage, error: notified.append((stage, error)))]
+            mock.patch.object(eb, "notify_failure", side_effect=lambda stage, error: notified.append((stage, error))),
+            # 2026-11-18:mainは投稿済みの記録の読み書きと8:00の待ちもするようになった。この試験はAIの失敗だけを見るので差し替える
+            mock.patch.object(eb, "posted_today", lambda today: (False, True)),
+            mock.patch.object(eb, "record_posted", lambda when, trigger: None),
+            mock.patch.object(eb, "wait_for_post_time", lambda: 0)]
         for p in patches:
             p.start()
         try:
@@ -1268,3 +1272,183 @@ class TimeoutResilienceTest(unittest.TestCase):
         for h in ("newsapi.org", "search.cnbc.com", "query1.finance.yahoo.com", "fred.stlouisfed.org",
                   "home.treasury.gov", "generativelanguage.googleapis.com"):
             self.assertIn(h, hosts)
+
+
+class PostTimeTest(unittest.TestCase):
+    """2026-11-18:JST 8:00に公開・投稿し、その日の投稿済みを state/last_posted.txt に記録して二重投稿を防ぐ。
+    時計と待ちは差し替える(実際には待たない)。GitHubの応答は既存の試験と同じ形(sha・encoding・60字ごとに改行したcontent)"""
+
+    class Resp(io.BytesIO):
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def _clock(self, h, m, s=0):
+        state = {"now": datetime(2026, 11, 18, h, m, s, tzinfo=eb.JST), "sleeps": []}
+
+        def sleep(sec):
+            state["sleeps"].append(sec)
+            state["now"] = state["now"] + eb.timedelta(seconds=sec)
+        return state, [mock.patch.object(eb, "_now_jst", lambda: state["now"]), mock.patch.object(eb, "_sleep", sleep)]
+
+    def test_wait_from_0730(self):
+        """7:30の起動 → 8:00:00まで待つ(1分ごとに時計を見直す)"""
+        st, ps = self._clock(7, 30)
+        for p in ps:
+            p.start()
+        try:
+            waited = eb.wait_for_post_time()
+        finally:
+            for p in ps:
+                p.stop()
+        self.assertEqual(waited, 1800)
+        self.assertEqual(st["now"], datetime(2026, 11, 18, 8, 0, 0, tzinfo=eb.JST))
+        self.assertTrue(all(x <= 60 for x in st["sleeps"]))
+
+    def test_no_wait_after_8_or_before_7(self):
+        """8:20の起動はすぐ。6:30の起動(手動・設定の誤り)は待たない(待つのは最長1時間)"""
+        for h, m in ((8, 20), (8, 0), (6, 30)):
+            st, ps = self._clock(h, m)
+            for p in ps:
+                p.start()
+            try:
+                self.assertEqual(eb.wait_for_post_time(), 0, (h, m))
+            finally:
+                for p in ps:
+                    p.stop()
+            self.assertEqual(st["sleeps"], [])
+
+    # ---- mainの流れ ----
+    def _run_main(self, h, m, record=None, env=None, gh_fail=None, appear_during_wait=False):
+        """record:state/last_posted.txt の中身(Noneなら無い=404)。gh_fail:"read"(GETが時間切れ)/"write"(PUTが500)"""
+        st, ps = self._clock(h, m)
+        files = {}
+        if record is not None:
+            files["state/last_posted.txt"] = {"content": record.encode(), "sha": "sha-state"}
+        log, published, posted, notified, built = [], [], [], [], []
+
+        def fake_urlopen(req, timeout=None):
+            url, meth = req.full_url, req.get_method()
+            self.assertTrue(url.startswith("https://api.github.com/repos/shio-jpn/econobot/contents/state/last_posted.txt"), url)
+            log.append(meth)
+            if meth == "GET":
+                if gh_fail == "read":
+                    raise TimeoutError("The read operation timed out")
+                if appear_during_wait and st["sleeps"]:
+                    files["state/last_posted.txt"] = {"content": b"2026-11-18 08:00:01 JST \xe4\xba\x88\xe5\x82\x99\n", "sha": "s2"}
+                f = files.get("state/last_posted.txt")
+                if not f:
+                    raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+                return self.Resp(json.dumps({"sha": f["sha"], "encoding": "base64",
+                                             "content": base64.encodebytes(f["content"]).decode()}).encode())
+            if gh_fail == "write":
+                raise urllib.error.HTTPError(url, 500, "Internal Server Error", {}, None)
+            sent = json.loads(req.data.decode())
+            files["state/last_posted.txt"] = {"content": base64.b64decode(sent["content"]), "sha": "sha-new"}
+            return self.Resp(json.dumps({"content": {"sha": "sha-new"}, "commit": {"sha": "c"}}).encode())
+
+        def fake_build():
+            built.append(st["now"])
+            econ = eb.parse_summary(up_json(), UP_ARTS, TD)
+            return {"html": "<!DOCTYPE html><html><body><p>page</p></body></html>", "econ": econ,
+                    "major": {"ok": True, "items": []}, "major_articles": [], "ai_errors": []}
+        base_env = {k: "x" for k in eb._REQUIRED_ENV}
+        base_env.update({"GITHUB_REPOSITORY": "shio-jpn/econobot", "EVENT_NAME": "", "TRIGGER_SOURCE": "", "FORCE": ""})
+        base_env.update(env or {})
+        patches = ps + [
+            mock.patch.dict(os.environ, base_env),
+            mock.patch.object(eb, "GITHUB_REPO", "shio-jpn/econobot"),
+            mock.patch.object(eb.urllib.request, "urlopen", side_effect=fake_urlopen),
+            mock.patch.object(eb, "build_outputs", fake_build),
+            mock.patch.object(eb, "publish_to_github_pages", side_effect=lambda h: published.append((st["now"], h)) or "https://shio-jpn.github.io/econobot/"),
+            mock.patch.object(eb, "post_to_slack", side_effect=lambda *a: posted.append(st["now"])),
+            mock.patch.object(eb, "notify_failure", side_effect=lambda stage, error: notified.append((stage, error)))]
+        for p in patches:
+            p.start()
+        try:
+            eb.main()
+        finally:
+            for p in patches:
+                p.stop()
+        rec = files.get("state/last_posted.txt", {}).get("content", b"").decode()
+        return {"log": log, "published": published, "posted": posted, "notified": notified, "built": built,
+                "record": rec, "sleeps": st["sleeps"]}
+
+    CRON = {"EVENT_NAME": "workflow_dispatch", "TRIGGER_SOURCE": "cron-job"}
+
+    def test_0730_dispatch_posts_at_8(self):
+        """7:30の起動 → 取得・要約を済ませ、8:00:00に公開・投稿し、記録を書く"""
+        r = self._run_main(7, 30, env=self.CRON)
+        eight = datetime(2026, 11, 18, 8, 0, 0, tzinfo=eb.JST)
+        self.assertEqual(r["built"], [datetime(2026, 11, 18, 7, 30, tzinfo=eb.JST)])
+        self.assertEqual([t for t, _ in r["published"]], [eight])
+        self.assertEqual(r["posted"], [eight])
+        self.assertEqual(r["record"], "2026-11-18 08:00:00 JST 7:30の起動(cron-job.org)\n")
+        self.assertIn("<!-- 起動: 7:30の起動(cron-job.org) JST 2026-11-18 07:30 -->", r["published"][0][1])
+        self.assertEqual(r["notified"], [])
+
+    def test_0820_schedule_posts_now(self):
+        """8:20の起動(予備のschedule)→ 待たずに公開・投稿"""
+        r = self._run_main(8, 20, env={"EVENT_NAME": "schedule"})
+        self.assertEqual(r["sleeps"], [])
+        self.assertEqual(len(r["posted"]), 1)
+        self.assertTrue(r["record"].startswith("2026-11-18 08:20:00 JST 予備の起動"))
+
+    def test_already_posted_today_does_nothing(self):
+        """今日の分が記録済み → 取得も公開も投稿もせず、正常に終わる"""
+        r = self._run_main(8, 12, record="2026-11-18 08:00:02 JST 7:30の起動(cron-job.org)\n", env={"EVENT_NAME": "schedule"})
+        self.assertEqual((r["built"], r["published"], r["posted"], r["notified"]), ([], [], [], []))
+        self.assertEqual(r["log"], ["GET"])
+
+    def test_yesterday_record_posts(self):
+        """記録が前の日の日付なら投稿する"""
+        r = self._run_main(8, 5, record="2026-11-17 08:00:01 JST 7:30の起動(cron-job.org)\n", env=self.CRON)
+        self.assertEqual(len(r["posted"]), 1)
+        self.assertTrue(r["record"].startswith("2026-11-18"))
+
+    def test_force_ignores_record(self):
+        """force:記録済みでも投稿し、記録を上書きする"""
+        r = self._run_main(9, 15, record="2026-11-18 08:00:02 JST 7:30の起動(cron-job.org)\n",
+                           env={"EVENT_NAME": "workflow_dispatch", "FORCE": "true"})
+        self.assertEqual(len(r["published"]), 1)
+        self.assertEqual(len(r["posted"]), 1)
+        self.assertEqual(r["record"], "2026-11-18 09:15:00 JST 手動実行\n")
+
+    def test_posted_by_other_run_during_wait(self):
+        """8:00を待つ間に、ほかの起動が投稿して記録した → 公開も投稿もしない"""
+        r = self._run_main(7, 40, env=self.CRON, appear_during_wait=True)
+        self.assertEqual((r["published"], r["posted"]), ([], []))
+        self.assertEqual(len(r["built"]), 1)
+
+    def test_record_unreadable_posts_and_warns(self):
+        """記録が読めない(GitHubが時間切れ)→ 投稿する側に倒し、二重の可能性を知らせる。記録も書けなければそれも知らせる"""
+        r = self._run_main(8, 10, env={"EVENT_NAME": "schedule"}, gh_fail="read")
+        self.assertEqual(len(r["published"]), 1)
+        self.assertEqual(len(r["posted"]), 1)
+        msgs = " / ".join(e for _, e in r["notified"])
+        self.assertIn("投稿済みの記録(state/last_posted.txt)を読めなかったため、確認せずに投稿しました", msgs)
+        self.assertIn("投稿済みの記録を書けませんでした(TimeoutError)", msgs)
+
+    def test_record_write_fails_after_post(self):
+        """投稿のあと記録を書けない(GitHubがHTTP 500)→ 実行は失敗にせず、二重の可能性を知らせる"""
+        r = self._run_main(8, 1, env=self.CRON, gh_fail="write")
+        self.assertEqual(len(r["posted"]), 1)
+        self.assertEqual(len(r["notified"]), 1)
+        self.assertIn("投稿は済みましたが、投稿済みの記録を書けませんでした(HTTPError)", r["notified"][0][1])
+
+    def test_trigger_label_in_failure_notice(self):
+        """失敗の知らせに、何の起動かが入る"""
+        bodies = []
+        with mock.patch.dict(os.environ, {"EVENT_NAME": "schedule"}), \
+             mock.patch.object(eb, "SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/x"), \
+             mock.patch.object(eb.urllib.request, "urlopen",
+                               side_effect=lambda req, timeout=None: bodies.append(json.loads(req.data.decode())["text"]) or self.Resp(b"ok")):
+            eb.notify_failure("TimeoutError", "The read operation timed out")
+        self.assertIn("起動: 予備の起動(GitHubのschedule 8:10)", bodies[0])
+        for ev, src, want in (("workflow_dispatch", "cron-job", "7:30の起動(cron-job.org)"), ("workflow_dispatch", "", "手動実行")):
+            with mock.patch.dict(os.environ, {"EVENT_NAME": ev, "TRIGGER_SOURCE": src}):
+                self.assertEqual(eb.trigger_label(), want)
