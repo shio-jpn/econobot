@@ -1559,13 +1559,13 @@ class PostTimeTest(unittest.TestCase):
         return out
 
     def test_0230_waits_fetch_at_0605_posts_at_8(self):
-        """2:30の起動 → 6:20まで待って取得(取得は1回)→ 8:00:00に公開・投稿"""
+        """2:30の起動 → 7:25まで待って取得(取得は1回)→ 8:00:00に公開・投稿"""
         r = self._run_main(2, 30, env=self.EARLY1)
-        self.assertEqual(r["built"], [datetime(2026, 11, 18, 6, 20, tzinfo=eb.JST)])
+        self.assertEqual(r["built"], [datetime(2026, 11, 18, 7, 25, tzinfo=eb.JST)])
         self.assertEqual([t for t, _ in r["published"]], [datetime(2026, 11, 18, 8, 0, tzinfo=eb.JST)])
         self.assertEqual(r["posted"], [datetime(2026, 11, 18, 8, 0, tzinfo=eb.JST)])
         self.assertEqual(r["record"], "2026-11-18 投稿 2026-11-18 08:00:00 JST 早い起動(JST 2:17の予定)\n")
-        self.assertEqual(sum(r["sleeps"]), (8 * 60 - (2 * 60 + 30)) * 60)   # 5時間30分(6:20まで+8:00まで)
+        self.assertEqual(sum(r["sleeps"]), (8 * 60 - (2 * 60 + 30)) * 60)   # 5時間30分(7:25まで+8:00まで)
         self.assertEqual(r["log"], ["GET", "GET", "GET", "GET", "PUT"])    # 起動時・取得前・公開前の確認、記録の書き込み
 
     def test_first_posts_others_do_nothing(self):
@@ -1576,12 +1576,12 @@ class PostTimeTest(unittest.TestCase):
         self.assertTrue(all(r["error"] is None and not r["notified"] for r in rs))
 
     def test_first_fails_mid_fetch_next_posts(self):
-        """1回目が6:20の取得の途中で失敗 → 順番待ちの次の起動(6:25に始まる)が取得し、8:00に投稿する"""
+        """1回目が7:25の取得の途中で失敗 → 順番待ちの次の起動(7:30に始まる)が取得し、8:00に投稿する"""
         rs = self._seq([(2, 17, self.EARLY1, {"build_exc": urllib.error.URLError("network down")}),
-                        (6, 25, self.CRON, {}), (8, 10, self.BACKUP, {})])
+                        (7, 30, self.CRON, {}), (8, 10, self.BACKUP, {})])
         self.assertIsInstance(rs[0]["error"], urllib.error.URLError)
         self.assertEqual((rs[0]["posted"], rs[0]["record"], len(rs[0]["notified"])), ([], "", 1))
-        self.assertEqual(rs[1]["built"], [datetime(2026, 11, 18, 6, 25, tzinfo=eb.JST)])
+        self.assertEqual(rs[1]["built"], [datetime(2026, 11, 18, 7, 30, tzinfo=eb.JST)])
         self.assertEqual(rs[1]["posted"], [datetime(2026, 11, 18, 8, 0, tzinfo=eb.JST)])
         self.assertEqual(rs[2]["posted"], [])
 
@@ -1600,9 +1600,9 @@ class PostTimeTest(unittest.TestCase):
         self.assertTrue(r["record"].endswith("JST 手動実行\n"))
 
     def test_schedule_0630_waits_for_8(self):
-        """scheduleの6:30起動は、手動と違い8:00まで待つ(取得は6:20を過ぎているのですぐ)"""
+        """scheduleの6:30起動は、手動と違い7:25まで待って取得し、8:00まで待って投稿する"""
         r = self._run_main(6, 30, env=self.CRON)
-        self.assertEqual(r["built"], [datetime(2026, 11, 18, 6, 30, tzinfo=eb.JST)])
+        self.assertEqual(r["built"], [datetime(2026, 11, 18, 7, 25, tzinfo=eb.JST)])
         self.assertEqual(r["posted"], [datetime(2026, 11, 18, 8, 0, tzinfo=eb.JST)])
 
     def test_schedule_before_0215_does_nothing(self):
@@ -1631,7 +1631,13 @@ class PostTimeTest(unittest.TestCase):
             self.assertIn(f"- cron: '{cron}'", wf)
         wait_min = (eb.POST_HOUR * 60) - (eb.SCHEDULE_EARLIEST[0] * 60 + eb.SCHEDULE_EARLIEST[1])
         self.assertLessEqual(wait_min + 3 + 2, 360)
-        self.assertEqual(eb.FETCH_AFTER, (6, 20))
+        self.assertEqual(eb.FETCH_AFTER, (7, 25))
+        # 取得の時刻+取得・要約の最悪(約21分)が8:00に間に合う。打ち切りの線(2:15)からの実行時間は、8:00までの待ち
+        # (取得はその途中)+公開・投稿の最悪(約3分)+準備(約2分)で、取得の時刻を動かしても変わらない
+        fetch_end = eb.FETCH_AFTER[0] * 60 + eb.FETCH_AFTER[1] + 21
+        self.assertLessEqual(fetch_end, eb.POST_HOUR * 60)
+        total = max(fetch_end, eb.POST_HOUR * 60) + 3 + 2 - (eb.SCHEDULE_EARLIEST[0] * 60 + eb.SCHEDULE_EARLIEST[1])
+        self.assertLessEqual(total, 360)
 
     def test_fetch_after_close_confirmation(self):
         """取得の時刻は、冬の引け(JST 6:00)+_parse_yahooが終値の確定を待つ15分より後(6:05だと前の日の終値になっていた)。
@@ -1644,3 +1650,16 @@ class PostTimeTest(unittest.TestCase):
         self.assertEqual(eb._parse_yahoo(res, at(6, 5))[-1][0], "2026-11-12")    # 6:05:まだ確定しない扱い
         self.assertEqual(eb._parse_yahoo(res, at(*eb.FETCH_AFTER))[-1][0], "2026-11-13")
         self.assertGreaterEqual(eb.FETCH_AFTER, (6, 16))
+
+    def test_fetch_at_0725_treasury_row_used(self):
+        """7:25の取得で財務省に対象日の行がある場合は、2年債は財務省の当日の値になる(保存した本物の応答=11-14取得、11/13の行あり)。
+        7:25の時点で行が公表済みかどうか(公表時刻そのもの)は、保存した応答からは分からない(未確認)。無い日はFREDに日付つき(TreasuryTest)"""
+        st, ps = self._clock(*eb.FETCH_AFTER, day=14)
+        for p in ps:
+            p.start()
+        try:
+            m, c = TreasuryTest()._market("full")
+        finally:
+            for p in ps:
+                p.stop()
+        self.assertEqual((m["series"]["米2年債利回り"]["src"], c["value_text"], c["stale"]), ("米国財務省", "4.88%", False))
