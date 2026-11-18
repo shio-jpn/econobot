@@ -2768,10 +2768,14 @@ def publish_to_github_pages(html_content):
 # ========================================
 # 5b. 投稿の時刻(JST 8:00)と、その日の投稿済みの記録(2026-11-18)
 # ========================================
-# GitHubのscheduleは後回しにされ、10/09〜11/17は7:41〜12:19の起動だった。外部の時計サービス(cron-job.org)が
-# 7:30にworkflow_dispatchで起動し、取得・要約を済ませて8:00:00に公開・投稿する。scheduleは8:10の予備
-POST_HOUR = 8            # 公開・投稿の時刻(JST)。日本に夏時間は無いので、JSTの時計だけで判定すれば夏時間の影響は受けない
-EARLY_LIMIT_HOUR = 7     # これより前の起動は待たずに投稿する(待つのは最長1時間)。理由は wait_for_post_time に書いた
+# GitHubのscheduleは後回しにされ、10/09〜11/17は7:41〜12:19の起動だった(時刻どおりに来ない)。
+# そこでscheduleをJST 2:17・3:47・5:17(混みやすい00分・30分を避けた)と予備の8:10に置き、早く来た起動が
+# 米国の引けの後(6:20)まで待ってから取得し、8:00:00まで待って公開・投稿する。2回目以降の起動は記録を見て何もせず終わる
+POST_HOUR = 8                # 公開・投稿の時刻(JST)。日本に夏時間は無いので、JSTの時計だけで判定すれば夏時間の影響は受けない
+FETCH_AFTER = (6, 20)        # scheduleの起動はこの時刻(JST)まで待ってから取得する。米国の引けはJST 6:00(夏は5:00)。
+                             # _parse_yahooは引け後15分(冬は6:15)まで最後の足を「取引中」として捨てるため、6:05だと前の日の終値になる
+SCHEDULE_EARLIEST = (2, 15)  # これより前に始まったscheduleの起動は何もせず終える(理由はmainに書いた)
+EARLY_LIMIT_HOUR = 7         # 手動実行だけ:これより前の起動は8:00を待たずに投稿する(今までどおり)
 STATE_PATH = "state/last_posted.txt"
 
 
@@ -2783,38 +2787,66 @@ def _sleep(sec):
     time.sleep(sec)
 
 
+def _is_schedule():
+    return os.environ.get("EVENT_NAME") == "schedule"
+
+
+def _sleep_until(target, what):
+    """targetまで待つ。1分ごとに時計を見直す(待つ間の時計のずれに強くする)。返り値は待った秒数"""
+    now = _now_jst()
+    if now >= target:
+        return 0
+    print(f"  {what}:{target:%H:%M:%S}まで待つ(あと{(target - now).total_seconds():.0f}秒)")
+    waited = 0.0
+    while True:
+        left = (target - _now_jst()).total_seconds()
+        if left <= 0:
+            break
+        step = min(left, 60)
+        _sleep(step)
+        waited += step
+    return waited
+
+
+def wait_before_fetch():
+    """scheduleの起動だけ:JST 6:20より前なら6:20まで待ってから取得する(8:00前に取った数字が前の日の値にならないように)。
+    手動実行は待たない(頼まれた時点のデータで作る)"""
+    if not _is_schedule():
+        return 0
+    now = _now_jst()
+    return _sleep_until(now.replace(hour=FETCH_AFTER[0], minute=FETCH_AFTER[1], second=0, microsecond=0),
+                        "米国の引けの後に取得するため")
+
+
 def wait_for_post_time():
-    """JST 7:00〜8:00の起動なら8:00:00まで待つ。8:00以降はすぐ。7:00より前は待たない。
-    7:00より前を待たないのは、その時刻の起動は手動か設定の誤りで、何時間も実行機を止めて待たせる理由が無いため
-    (待つのを最長1時間に抑え、workflowのtimeout-minutesも見積もれるようにする)。返り値は待った秒数"""
+    """8:00:00まで待ってから公開・投稿する。8:00以降の起動はすぐ。
+    手動実行だけは、7:00より前の起動なら待たずに投稿する(今までどおり。頼んだ人がすぐ見たい時のため)。
+    scheduleの起動は常に8:00まで待つ。返り値は待った秒数"""
     now = _now_jst()
     target = now.replace(hour=POST_HOUR, minute=0, second=0, microsecond=0)
     if now >= target:
         print(f"  {now:%H:%M:%S}の時点で8:00を過ぎているため、すぐ公開・投稿する")
         return 0
-    if now.hour < EARLY_LIMIT_HOUR:
-        print(f"  [WARN] {now:%H:%M:%S}は{EARLY_LIMIT_HOUR}:00より前の起動のため、8:00まで待たずに公開・投稿する")
+    if not _is_schedule() and now.hour < EARLY_LIMIT_HOUR:
+        print(f"  [WARN] 手動実行で{now:%H:%M:%S}({EARLY_LIMIT_HOUR}:00より前)の起動のため、8:00まで待たずに公開・投稿する")
         return 0
-    waited = 0.0
-    print(f"  8:00:00まで待つ(あと{(target - now).total_seconds():.0f}秒)")
-    while True:
-        left = (target - _now_jst()).total_seconds()
-        if left <= 0:
-            break
-        step = min(left, 60)   # 1分ごとに時計を見直す(待つ間の時計のずれに強くする)
-        _sleep(step)
-        waited += step
+    waited = _sleep_until(target, "公開・投稿の時刻")
     print(f"  {_now_jst():%H:%M:%S} 公開・投稿を始める")
     return waited
 
 
+_CRON_LABEL = {"17 2 * * *": "早い起動(JST 2:17の予定)", "47 3 * * *": "早い起動(JST 3:47の予定)",
+               "17 5 * * *": "早い起動(JST 5:17の予定)", "10 8 * * *": "予備の起動(JST 8:10の予定)"}
+
+
 def trigger_label():
-    """何の起動か(workflowが環境変数で渡す。ログと失敗の知らせに出す)"""
+    """何の起動か(workflowが環境変数で渡す。ログ・失敗の知らせ・記録・ページのコメントに出す)"""
     ev = os.environ.get("EVENT_NAME", "")
     if ev == "schedule":
-        return "予備の起動(GitHubのschedule 8:10)"
+        cron = os.environ.get("SCHEDULE_CRON", "")
+        return _CRON_LABEL.get(cron, f"定時の起動({cron or '予定不明'})")
     if ev == "workflow_dispatch":
-        return "7:30の起動(cron-job.org)" if os.environ.get("TRIGGER_SOURCE") == "cron-job" else "手動実行"
+        return "手動実行"
     return "ローカル実行" if not ev else ev
 
 
@@ -3050,6 +3082,11 @@ def main():
     trigger, force = trigger_label(), _force()
     started = _now_jst()
     print(f"⏰ 起動: {trigger}(JST {started:%Y-%m-%d %H:%M:%S}){' / force:記録を無視してやり直す' if force else ''}")
+    if _is_schedule() and (started.hour, started.minute) < SCHEDULE_EARLIEST:
+        # GitHubのジョブの時間の上限は6時間(timeout-minutes 360)。2:15より前に始まると、8:00までの待ちと公開・投稿で
+        # 上限を超え、待っている途中で打ち切られる(投稿されない)。何もせず終え、後の起動(3:47・5:17・8:10)に任せる
+        print(f"  {started:%H:%M}は{SCHEDULE_EARLIEST[0]}:{SCHEDULE_EARLIEST[1]:02d}より前のため、6時間の上限を超えないよう何もせず終わる")
+        return
     warnings = []
     try:
         today = started.date()
@@ -3057,6 +3094,12 @@ def main():
             done, ok = posted_today(today)
             if done:
                 print(f"✅ {today}の分は投稿済みのため、公開も投稿もせずに終わる")
+                return
+        if wait_before_fetch() and not force:
+            # 待つ間にほかの起動が投稿していないか(concurrencyで同時には動かないが、念のため取得の前にも見る)
+            done, ok = posted_today(today)
+            if done:
+                print(f"✅ 待つ間に{today}の分が投稿されたため、公開も投稿もせずに終わる")
                 return
         out = build_outputs()
         out["html"] = out["html"].replace("<body>", f"<body>\n<!-- 起動: {trigger} JST {started:%Y-%m-%d %H:%M} -->", 1)

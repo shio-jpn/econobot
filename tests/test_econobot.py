@@ -1324,7 +1324,7 @@ class PostTimeTest(unittest.TestCase):
 
     # ---- mainの流れ ----
     def _run_main(self, h, m, record=None, env=None, gh_fail=None, appear_during_wait=False,
-                  day=18, slack_exc=None, build_minutes=0):
+                  day=18, slack_exc=None, build_minutes=0, build_exc=None):
         """record:state/last_posted.txt の中身(Noneなら無い=404)。
         gh_fail:"read"(GETが時間切れ)/"read_urlerror"(つながらない)/"read_502"(502でHTMLが返る)/
                 "read_badb64"(contentがbase64として読めない)/"write"(PUTが500)。readの失敗は記録を書く前の確認のGETにも起きる
@@ -1365,11 +1365,13 @@ class PostTimeTest(unittest.TestCase):
         def fake_build():
             built.append(st["now"])
             st["now"] = st["now"] + eb.timedelta(minutes=build_minutes)
+            if build_exc:
+                raise build_exc
             econ = eb.parse_summary(up_json(), UP_ARTS, TD)
             return {"html": "<!DOCTYPE html><html><body><p>page</p></body></html>", "econ": econ,
                     "major": {"ok": True, "items": []}, "major_articles": [], "ai_errors": []}
         base_env = {k: "x" for k in eb._REQUIRED_ENV}
-        base_env.update({"GITHUB_REPOSITORY": "shio-jpn/econobot", "EVENT_NAME": "", "TRIGGER_SOURCE": "", "FORCE": ""})
+        base_env.update({"GITHUB_REPOSITORY": "shio-jpn/econobot", "EVENT_NAME": "", "SCHEDULE_CRON": "", "FORCE": ""})
         base_env.update(env or {})
         patches = ps + [
             mock.patch.dict(os.environ, base_env),
@@ -1393,7 +1395,12 @@ class PostTimeTest(unittest.TestCase):
         return {"log": log, "published": published, "posted": posted, "notified": notified, "built": built,
                 "record": rec, "sleeps": st["sleeps"], "error": err}
 
-    CRON = {"EVENT_NAME": "workflow_dispatch", "TRIGGER_SOURCE": "cron-job"}
+    # 2026-11-18(2回目):cron-job.orgはやめ、scheduleを2:17・3:47・5:17・予備8:10にした。起動の種類は github.event.schedule で分かる
+    CRON = {"EVENT_NAME": "schedule", "SCHEDULE_CRON": "17 5 * * *"}     # 5:17の早い起動(遅れて7:30などに来ることもある)
+    EARLY1 = {"EVENT_NAME": "schedule", "SCHEDULE_CRON": "17 2 * * *"}
+    EARLY2 = {"EVENT_NAME": "schedule", "SCHEDULE_CRON": "47 3 * * *"}
+    BACKUP = {"EVENT_NAME": "schedule", "SCHEDULE_CRON": "10 8 * * *"}
+    MANUAL = {"EVENT_NAME": "workflow_dispatch"}
 
     def test_0730_dispatch_posts_at_8(self):
         """7:30の起動 → 取得・要約を済ませ、8:00:00に公開・投稿し、記録を書く"""
@@ -1402,32 +1409,32 @@ class PostTimeTest(unittest.TestCase):
         self.assertEqual(r["built"], [datetime(2026, 11, 18, 7, 30, tzinfo=eb.JST)])
         self.assertEqual([t for t, _ in r["published"]], [eight])
         self.assertEqual(r["posted"], [eight])
-        self.assertEqual(r["record"], "2026-11-18 投稿 2026-11-18 08:00:00 JST 7:30の起動(cron-job.org)\n")
-        self.assertIn("<!-- 起動: 7:30の起動(cron-job.org) JST 2026-11-18 07:30 -->", r["published"][0][1])
+        self.assertEqual(r["record"], "2026-11-18 投稿 2026-11-18 08:00:00 JST 早い起動(JST 5:17の予定)\n")
+        self.assertIn("<!-- 起動: 早い起動(JST 5:17の予定) JST 2026-11-18 07:30 -->", r["published"][0][1])
         self.assertEqual(r["notified"], [])
 
     def test_0820_schedule_posts_now(self):
         """8:20の起動(予備のschedule)→ 待たずに公開・投稿"""
-        r = self._run_main(8, 20, env={"EVENT_NAME": "schedule"})
+        r = self._run_main(8, 20, env=self.BACKUP)
         self.assertEqual(r["sleeps"], [])
         self.assertEqual(len(r["posted"]), 1)
         self.assertTrue(r["record"].startswith("2026-11-18 投稿 2026-11-18 08:20:00 JST 予備の起動"))
 
     def test_already_posted_today_does_nothing(self):
         """今日の分が記録済み → 取得も公開も投稿もせず、正常に終わる"""
-        r = self._run_main(8, 12, record="2026-11-18 08:00:02 JST 7:30の起動(cron-job.org)\n", env={"EVENT_NAME": "schedule"})
+        r = self._run_main(8, 12, record="2026-11-18 08:00:02 JST 早い起動(JST 5:17の予定)\n", env=self.BACKUP)
         self.assertEqual((r["built"], r["published"], r["posted"], r["notified"]), ([], [], [], []))
         self.assertEqual(r["log"], ["GET"])
 
     def test_yesterday_record_posts(self):
         """記録が前の日の日付なら投稿する"""
-        r = self._run_main(8, 5, record="2026-11-17 08:00:01 JST 7:30の起動(cron-job.org)\n", env=self.CRON)
+        r = self._run_main(8, 5, record="2026-11-17 08:00:01 JST 早い起動(JST 5:17の予定)\n", env=self.CRON)
         self.assertEqual(len(r["posted"]), 1)
         self.assertTrue(r["record"].startswith("2026-11-18"))
 
     def test_force_ignores_record(self):
         """force:記録済みでも投稿し、記録を上書きする"""
-        r = self._run_main(9, 15, record="2026-11-18 08:00:02 JST 7:30の起動(cron-job.org)\n",
+        r = self._run_main(9, 15, record="2026-11-18 08:00:02 JST 早い起動(JST 5:17の予定)\n",
                            env={"EVENT_NAME": "workflow_dispatch", "FORCE": "true"})
         self.assertEqual(len(r["published"]), 1)
         self.assertEqual(len(r["posted"]), 1)
@@ -1441,7 +1448,7 @@ class PostTimeTest(unittest.TestCase):
 
     def test_record_unreadable_posts_and_warns(self):
         """記録が読めない(GitHubが時間切れ)→ 投稿する側に倒し、二重の可能性を知らせる。記録も書けなければそれも知らせる"""
-        r = self._run_main(8, 10, env={"EVENT_NAME": "schedule"}, gh_fail="read")
+        r = self._run_main(8, 10, env=self.BACKUP, gh_fail="read")
         self.assertEqual(len(r["published"]), 1)
         self.assertEqual(len(r["posted"]), 1)
         msgs = " / ".join(e for _, e in r["notified"])
@@ -1458,14 +1465,16 @@ class PostTimeTest(unittest.TestCase):
     def test_trigger_label_in_failure_notice(self):
         """失敗の知らせに、何の起動かが入る"""
         bodies = []
-        with mock.patch.dict(os.environ, {"EVENT_NAME": "schedule"}), \
+        with mock.patch.dict(os.environ, {"EVENT_NAME": "schedule", "SCHEDULE_CRON": "10 8 * * *"}), \
              mock.patch.object(eb, "SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/x"), \
              mock.patch.object(eb.urllib.request, "urlopen",
                                side_effect=lambda req, timeout=None: bodies.append(json.loads(req.data.decode())["text"]) or self.Resp(b"ok")):
             eb.notify_failure("TimeoutError", "The read operation timed out")
-        self.assertIn("起動: 予備の起動(GitHubのschedule 8:10)", bodies[0])
-        for ev, src, want in (("workflow_dispatch", "cron-job", "7:30の起動(cron-job.org)"), ("workflow_dispatch", "", "手動実行")):
-            with mock.patch.dict(os.environ, {"EVENT_NAME": ev, "TRIGGER_SOURCE": src}):
+        self.assertIn("起動: 予備の起動(JST 8:10の予定)", bodies[0])
+        for ev, cron, want in (("schedule", "17 2 * * *", "早い起動(JST 2:17の予定)"), ("schedule", "47 3 * * *", "早い起動(JST 3:47の予定)"),
+                               ("schedule", "17 5 * * *", "早い起動(JST 5:17の予定)"), ("schedule", "10 8 * * *", "予備の起動(JST 8:10の予定)"),
+                               ("workflow_dispatch", "", "手動実行")):
+            with mock.patch.dict(os.environ, {"EVENT_NAME": ev, "SCHEDULE_CRON": cron}):
                 self.assertEqual(eb.trigger_label(), want)
 
     # ---- 2026-11-18 verifier指摘の試験 ----
@@ -1475,9 +1484,9 @@ class PostTimeTest(unittest.TestCase):
             "Slackの返事を待つ間に失敗(TimeoutError)。届いたかは不明で、二重投稿を避けるため送り直していません"))
         self.assertIsInstance(r1["error"], eb.SlackDeliveryUnknown)
         self.assertEqual(len(r1["published"]), 1)
-        self.assertEqual(r1["record"], "2026-11-18 投稿 2026-11-18 08:00:00 JST 7:30の起動(cron-job.org) Slack不明(返事待ちの時間切れ)\n")
+        self.assertEqual(r1["record"], "2026-11-18 投稿 2026-11-18 08:00:00 JST 早い起動(JST 5:17の予定) Slack不明(返事待ちの時間切れ)\n")
         self.assertIn("今日の分は投稿済み(Slack不明)として記録しました", r1["notified"][-1][1])
-        r2 = self._run_main(8, 10, record=r1["record"], env={"EVENT_NAME": "schedule"})
+        r2 = self._run_main(8, 10, record=r1["record"], env=self.BACKUP)
         self.assertEqual((r2["built"], r2["published"], r2["posted"], r2["error"]), ([], [], [], None))
 
     def test_slack_connect_failure_backup_posts(self):
@@ -1486,7 +1495,7 @@ class PostTimeTest(unittest.TestCase):
         self.assertIsInstance(r1["error"], urllib.error.URLError)
         self.assertEqual(r1["record"], "")
         self.assertEqual(len(r1["notified"]), 1)
-        r2 = self._run_main(8, 10, record=None, env={"EVENT_NAME": "schedule"})
+        r2 = self._run_main(8, 10, record=None, env=self.BACKUP)
         self.assertEqual(len(r2["published"]), 1)
         self.assertEqual(len(r2["posted"]), 1)
         self.assertTrue(r2["record"].startswith("2026-11-18 投稿 2026-11-18 08:10:00 JST 予備の起動"))
@@ -1513,10 +1522,10 @@ class PostTimeTest(unittest.TestCase):
         r2 = self._run_main(7, 30, day=19, record=r1["record"], env=self.CRON)
         self.assertEqual(len(r2["published"]), 1)
         self.assertEqual(len(r2["posted"]), 1)
-        self.assertTrue(r2["record"].startswith("2026-11-19 投稿 2026-11-19 08:00:00 JST 7:30の起動"))
+        self.assertTrue(r2["record"].startswith("2026-11-19 投稿 2026-11-19 08:00:00 JST 早い起動"))
 
     def _assert_read_failure_flow(self, mode):
-        r = self._run_main(8, 10, env={"EVENT_NAME": "schedule"}, gh_fail=mode)
+        r = self._run_main(8, 10, env=self.BACKUP, gh_fail=mode)
         self.assertIsNone(r["error"], mode)
         self.assertEqual((len(r["published"]), len(r["posted"]), len(r["notified"])), (1, 1, 2), mode)
         msgs = [e for _, e in r["notified"]]
@@ -1538,3 +1547,100 @@ class PostTimeTest(unittest.TestCase):
         """記録の中身がbase64として読めない → 最後まで進み、公開1回・投稿1回・知らせ2通"""
         msgs = self._assert_read_failure_flow("read_badb64")
         self.assertIn("(Error)", msgs[1])   # binascii.Error
+
+    # ---- 2026-11-18(2回目):scheduleを2:17・3:47・5:17・予備8:10にした方式の試験 ----
+    def _seq(self, runs):
+        """runs:[(時, 分, env, その他の引数)]。前の実行の記録を引き継ぎながら順に動かす(concurrencyで同時には動かない)"""
+        rec, out = None, []
+        for h, m, env, kw in runs:
+            r = self._run_main(h, m, record=rec, env=env, **kw)
+            rec = r["record"] or rec
+            out.append(r)
+        return out
+
+    def test_0230_waits_fetch_at_0605_posts_at_8(self):
+        """2:30の起動 → 6:20まで待って取得(取得は1回)→ 8:00:00に公開・投稿"""
+        r = self._run_main(2, 30, env=self.EARLY1)
+        self.assertEqual(r["built"], [datetime(2026, 11, 18, 6, 20, tzinfo=eb.JST)])
+        self.assertEqual([t for t, _ in r["published"]], [datetime(2026, 11, 18, 8, 0, tzinfo=eb.JST)])
+        self.assertEqual(r["posted"], [datetime(2026, 11, 18, 8, 0, tzinfo=eb.JST)])
+        self.assertEqual(r["record"], "2026-11-18 投稿 2026-11-18 08:00:00 JST 早い起動(JST 2:17の予定)\n")
+        self.assertEqual(sum(r["sleeps"]), (8 * 60 - (2 * 60 + 30)) * 60)   # 5時間30分(6:20まで+8:00まで)
+        self.assertEqual(r["log"], ["GET", "GET", "GET", "GET", "PUT"])    # 起動時・取得前・公開前の確認、記録の書き込み
+
+    def test_first_posts_others_do_nothing(self):
+        """1回目が投稿 → 3:47・5:17・8:10の起動(1回目が終わってから順に動く)は何もしない"""
+        rs = self._seq([(2, 17, self.EARLY1, {}), (8, 1, self.EARLY2, {}), (8, 1, self.CRON, {}), (8, 10, self.BACKUP, {})])
+        self.assertEqual([len(r["posted"]) for r in rs], [1, 0, 0, 0])
+        self.assertEqual([len(r["built"]) for r in rs], [1, 0, 0, 0])
+        self.assertTrue(all(r["error"] is None and not r["notified"] for r in rs))
+
+    def test_first_fails_mid_fetch_next_posts(self):
+        """1回目が6:20の取得の途中で失敗 → 順番待ちの次の起動(6:25に始まる)が取得し、8:00に投稿する"""
+        rs = self._seq([(2, 17, self.EARLY1, {"build_exc": urllib.error.URLError("network down")}),
+                        (6, 25, self.CRON, {}), (8, 10, self.BACKUP, {})])
+        self.assertIsInstance(rs[0]["error"], urllib.error.URLError)
+        self.assertEqual((rs[0]["posted"], rs[0]["record"], len(rs[0]["notified"])), ([], "", 1))
+        self.assertEqual(rs[1]["built"], [datetime(2026, 11, 18, 6, 25, tzinfo=eb.JST)])
+        self.assertEqual(rs[1]["posted"], [datetime(2026, 11, 18, 8, 0, tzinfo=eb.JST)])
+        self.assertEqual(rs[2]["posted"], [])
+
+    def test_all_three_late_at_0820(self):
+        """3回とも遅れて8:20以降に起動 → 最初の1回がすぐ投稿し、残りは何もしない"""
+        rs = self._seq([(8, 20, self.EARLY1, {}), (8, 21, self.EARLY2, {}), (8, 22, self.CRON, {})])
+        self.assertEqual(rs[0]["posted"], [datetime(2026, 11, 18, 8, 20, tzinfo=eb.JST)])
+        self.assertEqual(rs[0]["sleeps"], [])
+        self.assertEqual([len(r["posted"]) for r in rs[1:]], [0, 0])
+
+    def test_manual_0630_posts_without_waiting(self):
+        """手動の6:30起動 → 今まで通り、取得も投稿も待たない"""
+        r = self._run_main(6, 30, env=self.MANUAL)
+        self.assertEqual((r["sleeps"], r["built"], r["posted"]),
+                         ([], [datetime(2026, 11, 18, 6, 30, tzinfo=eb.JST)], [datetime(2026, 11, 18, 6, 30, tzinfo=eb.JST)]))
+        self.assertTrue(r["record"].endswith("JST 手動実行\n"))
+
+    def test_schedule_0630_waits_for_8(self):
+        """scheduleの6:30起動は、手動と違い8:00まで待つ(取得は6:20を過ぎているのですぐ)"""
+        r = self._run_main(6, 30, env=self.CRON)
+        self.assertEqual(r["built"], [datetime(2026, 11, 18, 6, 30, tzinfo=eb.JST)])
+        self.assertEqual(r["posted"], [datetime(2026, 11, 18, 8, 0, tzinfo=eb.JST)])
+
+    def test_schedule_before_0215_does_nothing(self):
+        """2:15より前に始まったscheduleの起動は、6時間の上限を超えないよう何もせず終わる(記録も読まない)"""
+        r = self._run_main(1, 50, env=self.EARLY1)
+        self.assertEqual((r["log"], r["built"], r["posted"], r["error"], r["notified"]), ([], [], [], None, []))
+
+    def test_force_in_schedule_window(self):
+        """force(手動)は記録済みでも、待たずに取得・投稿する"""
+        r = self._run_main(6, 40, record="2026-11-18 投稿 2026-11-18 08:00:00 JST 早い起動(JST 2:17の予定)\n",
+                           env={"EVENT_NAME": "workflow_dispatch", "FORCE": "true"})
+        self.assertEqual((len(r["posted"]), r["sleeps"]), (1, []))
+
+    def test_slack_unknown_on_early_run_blocks_later_runs(self):
+        """早い起動でSlackの返事待ちが時間切れ → 「Slack不明」と記録 → 後の起動(5:17・8:10)は送り直さない"""
+        rs = self._seq([(2, 17, self.EARLY1, {"slack_exc": eb.SlackDeliveryUnknown("返事待ちの時間切れ")}),
+                        (8, 1, self.CRON, {}), (8, 10, self.BACKUP, {})])
+        self.assertIn("Slack不明", rs[0]["record"])
+        self.assertEqual([len(r["posted"]) for r in rs], [1, 0, 0])
+
+    def test_timeout_budget_matches_workflow(self):
+        """workflowのtimeout-minutesは360(上限)。最も早い2:15の起動から8:00までの待ち+公開・投稿の最悪(約3分)+準備(約2分)が収まる"""
+        wf = open(os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "econobot.yml"), encoding="utf-8").read()
+        self.assertIn("timeout-minutes: 360", wf)
+        for cron in ("17 2 * * *", "47 3 * * *", "17 5 * * *", "10 8 * * *"):
+            self.assertIn(f"- cron: '{cron}'", wf)
+        wait_min = (eb.POST_HOUR * 60) - (eb.SCHEDULE_EARLIEST[0] * 60 + eb.SCHEDULE_EARLIEST[1])
+        self.assertLessEqual(wait_min + 3 + 2, 360)
+        self.assertEqual(eb.FETCH_AFTER, (6, 20))
+
+    def test_fetch_after_close_confirmation(self):
+        """取得の時刻は、冬の引け(JST 6:00)+_parse_yahooが終値の確定を待つ15分より後(6:05だと前の日の終値になっていた)。
+        保存した本物の^GSPCの応答で、引け後15分以内は最後の足を捨て、それより後は使うことを確かめる"""
+        with open(os.path.join(os.path.dirname(__file__), "fixtures", "yahoo_GSPC_1d_2y_2026-11-14.json"), encoding="utf-8") as f:
+            res = json.load(f)["chart"]["result"][0]
+        end = res["meta"]["currentTradingPeriod"]["regular"]["end"]          # 11/13 16:00 ET = 11/14 6:00 JST
+        at = lambda h, m: datetime(2026, 11, 14, h, m, tzinfo=eb.JST)
+        self.assertEqual(datetime.fromtimestamp(end, eb.JST), at(6, 0))
+        self.assertEqual(eb._parse_yahoo(res, at(6, 5))[-1][0], "2026-11-12")    # 6:05:まだ確定しない扱い
+        self.assertEqual(eb._parse_yahoo(res, at(*eb.FETCH_AFTER))[-1][0], "2026-11-13")
+        self.assertGreaterEqual(eb.FETCH_AFTER, (6, 16))
