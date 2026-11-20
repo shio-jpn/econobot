@@ -21,6 +21,8 @@
     review: svg('<path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/>'),
     exam: svg('<circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.5 2M9.5 3h5"/>'),
     settings: svg('<path d="M4 7h10M18 7h2M4 12h3M11 12h9M4 17h12M20 17h0"/><circle cx="16" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="18" cy="17" r="2"/>'),
+    book: svg('<path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H19v14H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19M9 8h6M9 11h4"/>'),
+    flask: svg('<path d="M9.5 3.5h5M10.5 3.5v6L5 19a1.5 1.5 0 0 0 1.3 2h11.4a1.5 1.5 0 0 0 1.3-2l-5.5-9.5v-6"/><path d="M7.5 15h9"/>'),
     plus: svg('<path d="M12 5v14M5 12h14"/>'),
     chev: svg('<path d="M9 6l6 6-6 6"/>'),
     menu: svg('<path d="M5 9h14M5 15h14"/>'),
@@ -224,9 +226,9 @@
   function buildExam(mini) { return SUBJ.flatMap((s, i) => buildSet(s.k, [], mini ? MINI[i] : s.n, 'rand')); }
 
   /* ---------- 状態 ---------- */
-  const S = { view: 'home', setup: null, quiz: null, result: null, day: null, dayFilter: '', confirm: '', msg: '' };
+  const S = { view: 'home', sheet: null, note: null, setup: null, quiz: null, result: null, day: null, dayFilter: '', confirm: '', msg: '' };
   let tick = 0;
-  function go(v) { S.view = v; S.confirm = ''; S.msg = ''; clearInterval(tick); render(); window.scrollTo(0, 0); }
+  function go(v) { S.view = v; S.confirm = ''; S.msg = ''; S.sheet = null; clearInterval(tick); render(); window.scrollTo(0, 0); }
 
   function startQuiz(qs, mode, title, timed, secs, extra) {
     if (!qs.length) { S.msg = '出題できる問題がありません。'; render(); return; }
@@ -302,7 +304,7 @@
     const q = r.id ? BY_ID[r.id] : r; if (!q) return '';
     const ch = q.ch, body = ch.map((c, j) => `<li class="${j === 0 ? 'is-ok' : j === r.u ? 'is-ng' : ''}">${esc(c)}${j === 0 ? '<b>正解</b>' : ''}${j === r.u ? '<b>あなたの回答</b>' : ''}</li>`).join('');
     return `<details class="rec ${r.ok ? 'ok' : 'ng'}"><summary><span class="judge">${r.ok ? '○' : '×'}</span><span class="rec-q">${chip(r.s)}<span class="rec-cat">${esc(r.c)}</span>${r.d ? `<span class="rec-cat ${r.d > PACE ? 'slow' : ''}">${r.d}秒</span>` : ''}<span class="rec-t">${esc(q.q)}</span></span></summary>
-      <div class="rec-body"><p class="q-text">${qText(q.q)}</p>${figHtml(q.fig || q.f)}<ul class="rec-ch">${body}</ul>${r.u < 0 ? '<p class="note">時間切れ・未回答</p>' : ''}<div class="expl"><h4>解説</h4><p>${esc(q.e)}</p></div></div></details>`;
+      <div class="rec-body"><p class="q-text">${qText(q.q)}</p>${figHtml(q.fig || q.f)}<ul class="rec-ch">${body}</ul>${r.u < 0 ? '<p class="note">時間切れ・未回答</p>' : ''}<div class="expl"><h4>解説</h4><p>${esc(q.e)}</p></div>${noteLink({ s: r.s, c: r.c, q: q.q, e: q.e, ch: q.ch })}</div></details>`;
   }
   function targetBar(ok, n) { return `<div class="bar target" role="img" aria-label="正答率${pct(ok, n)}%、目標${TARGET}%"><i style="width:${pct(ok, n)}%"></i><u style="left:${TARGET}%"></u></div>`; }
   function scoreBar(ok, n) { return `<div class="bar" role="img" aria-label="正答率${pct(ok, n)}%"><i style="width:${pct(ok, n)}%"></i></div>`; }
@@ -332,7 +334,7 @@
       <div class="games">${['ta', 'sv'].map((k) => `<button class="game game-${k}" data-act="${k}"><b>${GAME[k].n}</b><small>${bestScore(k) ? `ベスト ${bestScore(k)}${GAME[k].u}` : 'まだ記録なし'}</small></button>`).join('')}</div></section>
     ${nu || due ? `<div class="actions">${due ? `<button class="action" data-act="redo-due" data-s=""><b>きょうの復習をはじめる</b><small>間隔をあけて出し直す${due}問(最大30問ずつ)</small></button>` : ''}${nu ? `<button class="action" data-act="newq"><b>新着問題を解く <span class="chip new">NEW</span></b><small>${dayLabel(LATEST)}の更新で追加・未回答の${nu}問</small></button>` : ''}</div>` : ''}
     ${SUBJ.map(card).join('')}
-    <div class="actions"><button class="action" data-act="examintro"><b>模擬試験</b><small>120問・60分。5教科を本番の配分で</small></button></div>`;
+    <div class="actions"><button class="action" data-act="go" data-v="notes"><b>苦手克服ノート(歴史・理科)</b><small>流れのまとめ・年表・一問一答・公式計算・遺伝の交配表</small></button><button class="action" data-act="examintro"><b>模擬試験</b><small>120問・60分。5教科を本番の配分で</small></button></div>`;
   }
   function vSetup() {
     const u = S.setup, cats = catsOf(u.s), st = LIVE.filter((b) => b.s === u.s).length, hasGen = (GEN[u.s] || []).length;
@@ -357,7 +359,7 @@
     }).join('');
     const ok = done && z.picked >= 0 && q.order[z.picked] === 0;
     const requeued = done && !ok && (q.re || 0) < 2, guessed = z.last && z.last.g;
-    const fb = !exam && !arc && done ? `<section id="feedback" class="feedback ${ok ? 'ok' : 'ng'}"><p class="verdict">${ok ? '○ 正解' : z.picked < 0 ? '× 時間切れ' : '× 不正解'}</p><p class="ans">正解:${MARK[q.order.indexOf(0)]} ${esc(q.ch[0])}</p><div class="expl"><h4>解説</h4><p>${esc(q.e)}</p></div>
+    const fb = !exam && !arc && done ? `<section id="feedback" class="feedback ${ok ? 'ok' : 'ng'}"><p class="verdict">${ok ? '○ 正解' : z.picked < 0 ? '× 時間切れ' : '× 不正解'}</p><p class="ans">正解:${MARK[q.order.indexOf(0)]} ${esc(q.ch[0])}</p><div class="expl"><h4>解説</h4><p>${esc(q.e)}</p></div>${noteLink(q)}
       ${requeued ? '<p class="hint">解説を読んだら、数問あとにもう一度出します。答えを見ずに思い出せるか試してください。</p>' : ''}
       ${ok ? `<button class="sure ${guessed ? 'on' : ''}" data-act="guess" aria-pressed="${guessed ? 'true' : 'false'}">${guessed ? '復習に回しました(押すと取り消し)' : '自信がなかった・勘で当たった → 復習に回す'}</button>` : ''}</section>` : '';
     const hide = !exam && !arc && !done && P.recall && !z.shown;
@@ -454,13 +456,167 @@
     <table class="tbl"><thead><tr><th>教科</th><th>目安</th><th>収録</th></tr></thead><tbody>${SUBJ.map((s) => `<tr><td>${chip(s.k)}</td><td>${s.n}問</td><td>${LIVE.filter((b) => b.s === s.k).length}問${(GEN[s.k] || []).length ? ' + 自動生成' + GEN[s.k].length + '種' : ''}</td></tr>`).join('')}</tbody></table>`;
   }
 
-  const VIEWS = { home: vHome, setup: vSetup, quiz: vQuiz, result: vResult, history: vHistory, day: vDay, review: vReview, examintro: vExamIntro, settings: vSettings };
-  const TABS = [[['home', 'ホーム', 'home'], ['history', '履歴', 'history']], [['review', '復習', 'review'], ['examintro', '模試', 'exam'], ['settings', '設定', 'settings']]];
+  /* ---------- 苦手克服ノート(歴史・理科):まとめ・年表・並べ替え・一問一答・公式計算・遺伝 ---------- */
+  const NOTES = Array.isArray(window.SCOA_NOTES) ? window.SCOA_NOTES : [];
+  const NOTE_BY = Object.fromEntries(NOTES.map((n) => [n.k, n]));
+  const md = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  const plain = (s) => String(s).replace(/\*\*/g, '');
+  const yr = (y) => (y < 0 ? `前${-y}年` : `${y}年`);
+  const CARD_KEY = 'scoa-a.cards'; let CK = {};
+  try { CK = JSON.parse(localStorage.getItem(CARD_KEY) || '{}') || {}; } catch (e) { CK = {}; }
+  const saveCK = () => { try { localStorage.setItem(CARD_KEY, JSON.stringify(CK)); } catch (e) { /* 保存できなくても続ける */ } };
+  const cardsOf = (n) => n.secs.flatMap((s, si) => s.cards.map(([f, b]) => ({ id: hash(n.k + '|' + f), f, b, si })));
+  /* 問題文の年号(「前221年」「1945年」)を取り出す。「以前」「午前」は紀元前と見なさない */
+  function yearsIn(t) {
+    const out = [], re = /(紀元前|前)?(\d{1,4})年/g; let m;
+    while ((m = re.exec(t))) { const pre = t[m.index - 1] || '', neg = m[1] === '紀元前' || (m[1] === '前' && !/[以午直年]/.test(pre)); const y = neg ? -m[2] : +m[2]; if (y < 0 || y >= 50) out.push(y); }
+    return out;
+  }
+  /* 問題に最も関係するまとめの節を探す:年号が時代の範囲に入るか、正解の語が節に出てくるか、キーワードが問題文にあるか */
+  function secFor(n, q) {
+    const ys = yearsIn(q.q).concat(yearsIn(q.e || '')), ans = q.ch && q.ch[0] ? String(q.ch[0]) : ''; let best = -1, bs = 0;
+    n.secs.forEach((s, i) => {
+      let sc = 0;
+      if (s.y && ys.length) { if (ys[0] >= s.y[0] && ys[0] <= s.y[1]) sc += 10; else if (ys.some((y) => y >= s.y[0] && y <= s.y[1])) sc += 4; }
+      const body = plain(s.t + (s.flow || '') + s.pts.join('') + s.cards.map((c) => c.join('')).join(''));
+      if (ans.length >= 2 && body.includes(ans)) sc += 6;
+      (s.kw || []).forEach((k) => { if (q.q.includes(k)) sc += 2; });
+      if (sc > bs) { bs = sc; best = i; }
+    });
+    return best;
+  }
+  const noteFor = (q) => { if (!q || q.s !== '常識') return null; const n = NOTES.find((x) => x.cat === q.c); if (!n) return null; const si = secFor(n, q); return si < 0 ? null : { n, si }; };
+  const noteLink = (q) => { const t = noteFor(q); return t ? `<button class="nb-link" data-act="sheet" data-k="${esc(t.n.k)}" data-i="${t.si}">${IC.book}<span>ノートで「${esc(t.n.secs[t.si].t)}」を確認</span></button>` : ''; };
+  let secCache = { live: null, map: {} };
+  function secQs(n, si) {
+    if (secCache.live !== LIVE) secCache = { live: LIVE, map: {} };
+    if (!secCache.map[n.k]) { const m = n.secs.map(() => []); LIVE.filter((b) => b.s === '常識' && b.c === n.cat).forEach((b) => { const i = secFor(n, b); if (i >= 0) m[i].push(b); }); secCache.map[n.k] = m; }
+    return secCache.map[n.k][si] || [];
+  }
+  function noteAcc(n) { const rs = Store.all().filter((r) => r.s === '常識' && r.c === n.cat); return { n: rs.length, ok: rs.filter((r) => r.ok).length }; }
+  const FIG = {
+    earth: `<figure class="nb-fig"><svg viewBox="0 0 300 132" role="img" aria-label="地球の内部構造:外側から地殻、マントル、外核(液体)、内核"><circle cx="66" cy="66" r="62" class="e-crust"/><circle cx="66" cy="66" r="58" class="e-mantle"/><circle cx="66" cy="66" r="32" class="e-outer"/><circle cx="66" cy="66" r="15" class="e-inner"/>
+      <g class="e-lead"><path d="M118 32H150"/><path d="M108 56H150"/><path d="M90 80H150"/><path d="M74 104H150" transform="translate(0 0)"/></g>
+      <g class="e-txt"><text x="156" y="36">地殻(固体・とても薄い)</text><text x="156" y="60">マントル(固体)</text><text x="156" y="84">外核(液体)</text><text x="156" y="108">内核(固体)</text></g></svg></figure>`,
+  };
+
+  function newNote(k, si) { const n = NOTE_BY[k]; return { k, tab: 'sum', open: si >= 0 ? si : -1, hide: '', rev: new Set(), ord: null, deck: null, scope: 'todo', fx: -1, tg: '', vals: {}, res: '', g1: 'Aa', g2: 'Aa', b1: 'AO', b2: 'BO', ordOk: 0, ordN: 0, n }; }
+  function vNotes() {
+    const row = (n) => {
+      const a = noteAcc(n), cs = cardsOf(n), kn = cs.filter((c) => CK[c.id]).length, weak = a.n >= 4 && pct(a.ok, a.n) < TARGET;
+      const parts = [`まとめ${n.secs.length}`]; if (n.kind === 'hist') parts.push(`年表${n.secs.reduce((x, s) => x + (s.ev || []).length, 0)}`); if (n.fx) parts.push(`公式${n.fx.length}`); if (n.tools) parts.push('遺伝ツール'); parts.push(`カード 覚えた${kn}/${cs.length}`);
+      return `<button class="subject gen" data-act="note" data-k="${esc(n.k)}">${n.kind === 'hist' ? IC.book : IC.flask}<span class="s-main"><b>${esc(n.k)}${weak ? ' <span class="chip again">苦手</span>' : ''}</b><small>${parts.join('・')}</small>${scoreBar(kn, cs.length)}</span><span class="s-rate">${a.n ? pct(a.ok, a.n) : '—'}<small>${a.n ? '%' : ''}</small></span></button>`;
+    };
+    return `<header class="top"><p class="eyebrow">歴史と理科を、流れと仕組みで理解する</p><h1>ノート</h1></header>
+    <p class="lead">まとめを読む → 一問一答で思い出す → 問題を解く、の順がおすすめです。右の数字はその分野の問題の正答率、バーは一問一答で覚えたカードの割合です。</p>
+    <h2>歴史</h2><div class="subjects">${NOTES.filter((n) => n.kind === 'hist').map(row).join('')}</div>
+    <h2>理科</h2><div class="subjects">${NOTES.filter((n) => n.kind === 'sci').map(row).join('')}</div>
+    <p class="lead small">問題の解説画面にある「ノートで確認」から、その問題に関係するまとめをすぐ開けます。</p>`;
+  }
+  function vNote() {
+    const st = S.note, n = st.n, tabs = [['sum', 'まとめ']];
+    if (n.kind === 'hist') tabs.push(['tl', '年表'], ['ord', '並べ替え']);
+    if (n.fx) tabs.push(['fx', '公式計算']);
+    if (n.tools) tabs.push(['gen', '遺伝']);
+    tabs.push(['card', '一問一答']);
+    const a = noteAcc(n);
+    const body = { sum: noteSum, tl: noteTl, ord: noteOrd, fx: noteFx, gen: noteGen, card: noteCard }[st.tab](st, n);
+    return `<header class="top sub"><button class="back" data-act="go" data-v="notes" aria-label="ノート一覧へ戻る">←</button><div><p class="eyebrow">ノート・常識${a.n ? `・正答率${pct(a.ok, a.n)}%` : ''}</p><h1>${esc(n.k)}</h1></div></header>
+    <div class="seg nb-tabs" role="tablist">${tabs.map(([v, l]) => `<button role="tab" class="${st.tab === v ? 'on' : ''}" aria-selected="${st.tab === v}" data-act="ntab" data-v="${v}">${l}</button>`).join('')}</div>
+    ${body}
+    <div class="actions"><button class="action" data-act="notequiz"><b>${esc(n.k)}の問題を解く</b><small>苦手・未出題を優先して10問(${LIVE.filter((b) => b.s === '常識' && b.c === n.cat).length}問から)</small></button></div>`;
+  }
+  function noteSum(st, n) {
+    const range = (s) => (s.y && s.y[0] > 0 ? `${s.y[0]}〜${s.y[1] >= 2026 ? '' : s.y[1] + '年'}` : '');
+    return `<p class="lead">${md(n.lead)}</p>
+    <div class="nb-secs">${n.secs.map((s, i) => { const qs = secQs(n, i); return `<details class="nb-sec" id="sec-${i}" ${st.open === i ? 'open' : ''}><summary><span class="nb-no">${i + 1}</span><span class="nb-t"><b>${esc(s.t)}</b>${range(s) ? `<small>${range(s)}</small>` : ''}</span>${IC.chev}</summary>
+      <div class="nb-body">${s.flow ? `<div class="nb-flow"><h4>流れをつかむ</h4><p>${md(s.flow)}</p></div>` : ''}${s.fig ? FIG[s.fig] || '' : ''}
+        <h4>押さえる要点</h4><ul class="nb-pts">${s.pts.map((p) => `<li>${md(p)}</li>`).join('')}</ul>
+        ${qs.length ? `<button class="ghost wide" data-act="notesec" data-i="${i}">この範囲の問題を解く(${Math.min(10, qs.length)}問)</button>` : ''}</div></details>`; }).join('')}</div>
+    ${n.tips ? `<h3>解くときのコツ</h3><ul class="tips">${n.tips.map((t) => `<li>${md(t)}</li>`).join('')}</ul>` : ''}`;
+  }
+  function noteTl(st, n) {
+    const modes = [['', 'すべて表示'], ['year', '年を隠す'], ['ev', '出来事を隠す']];
+    return `<p class="lead">${st.hide ? '隠れているところを思い出してからタップすると答えが出ます。' : '時代ごとの主な出来事です。「年を隠す」「出来事を隠す」で、思い出す練習ができます。'}</p>
+    <div class="seg">${modes.map(([v, l]) => `<button class="${st.hide === v ? 'on' : ''}" data-act="tlhide" data-v="${v}">${l}</button>`).join('')}</div>
+    ${n.secs.filter((s) => (s.ev || []).length).map((s) => { const i = n.secs.indexOf(s); return `<section class="nb-tl"><h3>${esc(s.t)}</h3><ol>${s.ev.map(([y, t], j) => { const key = i + '-' + j, open = !st.hide || st.rev.has(key), hy = st.hide === 'year' && !open, he = st.hide === 'ev' && !open; return `<li><button class="tl-row ${hy || he ? 'hid' : ''}" data-act="tlrev" data-key="${key}" ${st.hide && !open ? '' : 'disabled'}><span class="tl-y">${hy ? '?' : yr(y)}</span><span class="tl-t">${he ? 'タップで表示' : esc(t)}</span></button></li>`; }).join('')}</ol></section>`; }).join('')}`;
+  }
+  function newOrd(n) {
+    const all = n.secs.flatMap((s) => s.ev || []).slice().sort((a, b) => a[0] - b[0]);
+    for (let tries = 0; tries < 50; tries++) {
+      const w = Math.min(all.length, 14), st = rnd(all.length - w + 1), win = shuffle(all.slice(st, st + w)), pick = [], ys = new Set();
+      for (const e of win) { if (!ys.has(e[0])) { ys.add(e[0]); pick.push(e); } if (pick.length === 4) break; }
+      if (pick.length === 4) return { items: shuffle(pick), picked: [] };
+    }
+    return { items: shuffle(all.slice(0, 4)), picked: [] };
+  }
+  function noteOrd(st, n) {
+    if (!st.ord) st.ord = newOrd(n);
+    const o = st.ord, done = o.picked.length === o.items.length;
+    const sorted = o.items.slice().sort((a, b) => a[0] - b[0]), ok = done && o.picked.every((idx, k) => o.items[idx][0] === sorted[k][0]);
+    return `<p class="lead">4つの出来事を、<b>古い順</b>にタップしてください。年号を覚えていなくても、原因と結果のつながりから並べられます。</p>
+    <p class="nb-score">正解 ${st.ordOk} / ${st.ordN}</p>
+    <div class="choices">${o.items.map(([y, t], idx) => { const k = o.picked.indexOf(idx); return `<button class="choice ${k >= 0 ? 'sel' : ''}" data-act="ordpick" data-i="${idx}" ${k >= 0 || done ? 'disabled' : ''}><span class="oval">${k >= 0 ? k + 1 : ''}</span><span class="c-text">${esc(t)}${done ? `<small class="tl-ans">${yr(y)}</small>` : ''}</span></button>`; }).join('')}</div>
+    ${done ? `<section class="feedback ${ok ? 'ok' : 'ng'}"><p class="verdict">${ok ? '○ 正しい順番です' : '× 正しい順番はこちら'}</p><ol class="nb-pts">${sorted.map(([y, t]) => `<li><b>${yr(y)}</b> ${esc(t)}</li>`).join('')}</ol></section>
+      <div class="sticky"><button class="primary" data-act="ordnext">次の問題</button></div>` : o.picked.length ? '<div class="row"><button class="ghost" data-act="ordundo">1つ戻す</button></div>' : ''}`;
+  }
+  function deckOf(st, n) { let cs = cardsOf(n); if (st.scope === 'todo') { const t = cs.filter((c) => !CK[c.id]); if (t.length) cs = t; } return { list: shuffle(cs), i: 0, show: false, done: 0 }; }
+  function noteCard(st, n) {
+    const cs = cardsOf(n), kn = cs.filter((c) => CK[c.id]).length;
+    if (!st.deck) st.deck = deckOf(st, n);
+    const d = st.deck, c = d.list[d.i];
+    const head = `<section class="score"><p class="score-rate">覚えたカード ${kn} / ${cs.length}枚</p>${scoreBar(kn, cs.length)}</section>
+    <div class="seg">${[['todo', 'まだ覚えていないカード'], ['all', 'すべてのカード']].map(([v, l]) => `<button class="${st.scope === v ? 'on' : ''}" data-act="cardscope" data-v="${v}">${l}</button>`).join('')}</div>`;
+    if (!c) return `${head}<div class="empty"><p>このデッキは終わりです(${d.done}枚)。</p><p>「もう一度」にしたカードは、時間をおいてまた解くと定着します。</p><button class="primary" data-act="cardrestart">もう一度シャッフルして始める</button></div>`;
+    return `${head}<section class="nb-card ${d.show ? 'flip' : ''}"><p class="eyebrow">${d.i + 1} / ${d.list.length}・${esc(n.secs[c.si].t)}${CK[c.id] ? '・覚えた' : ''}</p><p class="nb-q">${esc(c.f)}</p>${d.show ? `<p class="nb-a">${esc(c.b)}</p>` : '<p class="nb-hint">答えを頭の中で言ってから、めくってください。</p>'}</section>
+    ${d.show ? '<div class="sticky two"><button class="ghost" data-act="cardng">もう一度</button><button class="primary" data-act="cardok">覚えていた</button></div>' : '<div class="sticky"><button class="primary" data-act="cardshow">答えを見る</button></div>'}`;
+  }
+  const fmtNum = (x) => { if (!isFinite(x)) return null; const ax = Math.abs(x); if (ax !== 0 && (ax >= 1e7 || ax < 1e-3)) { const [m, e] = x.toExponential(3).split('e'); return `${+m}×10^${+e}`; } return String(+x.toFixed(4)); };
+  const toNum = (s) => { const t = String(s).trim().replace(/[０-９．－]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/[−ー]/g, '-').replace(/,/g, ''); return t === '' ? NaN : Number(t); };
+  function noteFx(st, n) {
+    return `<p class="lead">公式を選び、求めたい量を選んで数値を入れると答えが出ます。問題の数値を入れて、自分の計算と答え合わせに使ってください。</p>
+    <div class="nb-fxs">${n.fx.map((f, i) => { const open = st.fx === i, tg = open ? st.tg : ''; return `<section class="nb-fx ${open ? 'open' : ''}"><button class="nb-fx-head" data-act="fxopen" data-i="${i}" aria-expanded="${open}"><b>${esc(f.n)}</b><code>${esc(f.f)}</code></button>
+      ${open ? `<div class="nb-fx-body"><p class="eyebrow">求めるもの</p><div class="seg">${Object.keys(f.solve).map((k) => { const v = f.v.find((x) => x[0] === k); return `<button class="${tg === k ? 'on' : ''}" data-act="fxtg" data-v="${k}">${esc(v[1])}</button>`; }).join('')}</div>
+        ${f.v.filter((v) => v[0] !== tg).map(([k, l, u]) => `<label class="nb-in"><span>${esc(l)}</span><input id="fx-${k}" inputmode="decimal" autocomplete="off" value="${esc(st.vals[k] ?? '')}" placeholder="数値"><small>${esc(u)}</small></label>`).join('')}
+        <button class="primary" data-act="fxcalc">計算する</button>${st.res ? `<p class="nb-res">${st.res}</p>` : ''}</div>` : ''}</section>`; }).join('')}</div>`;
+  }
+  function punnett(a, b, norm, label) {
+    const g1 = a.split(''), g2 = b.split(''), cells = g1.map((x) => g2.map((y) => norm(x, y))), cnt = {};
+    cells.flat().forEach((c) => { const l = label(c); cnt[l] = (cnt[l] || 0) + 1; });
+    return { table: `<table class="tbl nb-pun"><thead><tr><th></th>${g2.map((y) => `<th>${y}</th>`).join('')}</tr></thead><tbody>${g1.map((x, i) => `<tr><th>${x}</th>${cells[i].map((c) => `<td><b>${c}</b><small>${label(c)}</small></td>`).join('')}</tr>`).join('')}</tbody></table>`, cnt };
+  }
+  function noteGen(st) {
+    const gm = (x, y) => (x === y ? x + y : x < y ? x + y : y + x), gl = (c) => (c.includes('A') ? '顕性' : '潜性');
+    const p = punnett(st.g1, st.g2, gm, gl), gt = {}; [...st.g1].forEach((x) => [...st.g2].forEach((y) => { const k = gm(x, y); gt[k] = (gt[k] || 0) + 1; }));
+    const am = (x, y) => { const s = [x, y].sort((u, v) => (u === 'O') - (v === 'O') || (u < v ? -1 : 1)); return s.join(''); };
+    const al = (c) => (c.includes('A') && c.includes('B') ? 'AB型' : c.includes('A') ? 'A型' : c.includes('B') ? 'B型' : 'O型');
+    const q = punnett(st.b1, st.b2, am, al), sel = (key, val, opts) => `<select data-chg="${key}" aria-label="${key}">${opts.map(([v, l]) => `<option value="${v}" ${v === val ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    const GO = [['AA', 'AA'], ['Aa', 'Aa'], ['aa', 'aa']], BO = [['AA', 'A型(AA)'], ['AO', 'A型(AO)'], ['BB', 'B型(BB)'], ['BO', 'B型(BO)'], ['AB', 'AB型(AB)'], ['OO', 'O型(OO)']];
+    const ratio = (o) => Object.entries(o).map(([k, v]) => `${k} ${v * 25}%`).join('・');
+    return `<p class="lead">親の遺伝子の組み合わせを選ぶと、子の組み合わせが表(交配表)で分かります。表の4マスはどれも同じ確率(各25%)です。</p>
+    <section class="score"><h3>顕性・潜性(メンデルの法則)</h3><p class="score-rate">A が顕性、a が潜性。A を1つでも持てば顕性の形質になります。</p>
+      <div class="nb-sel"><label>親1 ${sel('g1', st.g1, GO)}</label><span>×</span><label>親2 ${sel('g2', st.g2, GO)}</label></div>${p.table}
+      <p class="nb-res">遺伝子型 ${Object.entries(gt).map(([k, v]) => `${k}:${v}`).join(' ')}/表現型 ${ratio(p.cnt)}</p></section>
+    <section class="score"><h3>ABO式血液型</h3><p class="score-rate">A と B はどちらも O に対して顕性で、A と B がそろうと AB型。A型の人は AA か AO のどちらかです。</p>
+      <div class="nb-sel"><label>親1 ${sel('b1', st.b1, BO)}</label><span>×</span><label>親2 ${sel('b2', st.b2, BO)}</label></div>${q.table}
+      <p class="nb-res">子の血液型 ${ratio(q.cnt)}</p></section>`;
+  }
+  function sheetHtml() {
+    const sh = S.sheet, n = NOTE_BY[sh.k], s = n && n.secs[sh.i]; if (!s) return '';
+    return `<div class="sheet-back" data-act="sheetclose"></div><aside class="sheet" role="dialog" aria-modal="true" aria-label="${esc(n.k)}のノート ${esc(s.t)}">
+      <div class="sheet-head"><div><p class="eyebrow">${esc(n.k)}のノート</p><h2>${esc(s.t)}</h2></div><button class="round" data-act="sheetclose" aria-label="ノートを閉じる">×</button></div>
+      <div class="sheet-body">${s.flow ? `<div class="nb-flow"><h4>流れをつかむ</h4><p>${md(s.flow)}</p></div>` : ''}${s.fig ? FIG[s.fig] || '' : ''}<h4>押さえる要点</h4><ul class="nb-pts">${s.pts.map((p) => `<li>${md(p)}</li>`).join('')}</ul></div>
+      <div class="sheet-foot">${S.view === 'quiz' ? '<button class="primary" data-act="sheetclose">問題に戻る</button>' : `<button class="primary" data-act="noteopen" data-k="${esc(n.k)}" data-i="${sh.i}">ノートを開く</button>`}</div></aside>`;
+  }
+
+  const VIEWS = { notes: vNotes, note: vNote, home: vHome, setup: vSetup, quiz: vQuiz, result: vResult, history: vHistory, day: vDay, review: vReview, examintro: vExamIntro, settings: vSettings };
+  const TABS = [[['home', 'ホーム', 'home'], ['notes', 'ノート', 'book'], ['history', '履歴', 'history']], [['review', '復習', 'review'], ['examintro', '模試', 'exam']]];
   function render() {
     const keep = S.view === 'settings' && $('#io') ? $('#io').value : null;
-    $('#app').innerHTML = VIEWS[S.view]();
+    $('#app').innerHTML = VIEWS[S.view]() + (S.sheet ? sheetHtml() : '');
+    document.body.classList.toggle('sheet-open', !!S.sheet);
     if (keep !== null && $('#io')) $('#io').value = keep;
-    const tabOf = { setup: 'home', result: 'home', day: 'history' }[S.view] || S.view;
+    const tabOf = { setup: 'home', result: 'home', day: 'history', note: 'notes' }[S.view] || S.view;
     $('#nav').hidden = S.view === 'quiz';
     $('#nav').innerHTML = `<div class="dock">${TABS.map((g) => `<div class="pill">${g.map(([v, l, ic]) => `<button class="${tabOf === v ? 'on' : ''}" data-act="go" data-v="${v}" ${tabOf === v ? 'aria-current="page"' : ''}>${IC[ic]}<span>${l}</span></button>`).join('')}</div>`).join('')}<button class="fab" data-act="quick" aria-label="きょうのメニュー(おすすめの20問)をはじめる">${IC.plus}</button></div>`;
     document.body.classList.toggle('in-quiz', S.view === 'quiz');
@@ -470,6 +626,34 @@
   const twice = (key, fn) => { if (S.confirm === key) { S.confirm = ''; fn(); } else { S.confirm = key; render(); } };
   const A = {
     go: (d) => go(d.v),
+    note: (d) => { S.note = newNote(d.k, d.i !== undefined ? +d.i : -1); go('note'); if (d.i !== undefined) setTimeout(() => { const el = document.getElementById('sec-' + d.i); if (el) el.scrollIntoView({ block: 'start' }); }, 0); },
+    ntab: (d) => { const st = S.note; st.tab = d.v; st.res = ''; if (d.v === 'card') st.deck = null; render(); window.scrollTo(0, 0); },
+    notequiz: () => { const n = S.note.n; startQuiz(buildSet('常識', [n.cat], 10, 'weak'), 'practice', `常識(${n.cat})`, false); },
+    notesec: (d) => { const n = S.note.n, s = n.secs[+d.i]; startQuiz(shuffle(secQs(n, +d.i)).slice(0, 10).map(fromBank), 'practice', `${n.k}(${s.t})`, false); },
+    tlhide: (d) => { S.note.hide = d.v; S.note.rev = new Set(); render(); },
+    tlrev: (d) => { S.note.rev.add(d.key); render(); },
+    ordpick: (d) => { const st = S.note, o = st.ord; if (o.picked.includes(+d.i)) return; o.picked.push(+d.i); if (o.picked.length === o.items.length) { const ys = o.picked.map((i) => o.items[i][0]); st.ordN++; if (ys.every((y, k) => !k || ys[k - 1] <= y)) st.ordOk++; } render(); },
+    ordundo: () => { S.note.ord.picked.pop(); render(); },
+    ordnext: () => { S.note.ord = newOrd(S.note.n); render(); window.scrollTo(0, 0); },
+    cardshow: () => { S.note.deck.show = true; render(); },
+    cardok: () => { const d = S.note.deck, c = d.list[d.i]; CK[c.id] = dayKey(Date.now()); saveCK(); d.i++; d.done++; d.show = false; render(); },
+    cardng: () => { const d = S.note.deck, c = d.list[d.i]; delete CK[c.id]; saveCK(); d.list.splice(Math.min(d.list.length, d.i + 4), 0, c); d.i++; d.show = false; render(); },
+    cardscope: (d) => { S.note.scope = d.v; S.note.deck = deckOf(S.note, S.note.n); render(); },
+    cardrestart: () => { S.note.deck = deckOf(S.note, S.note.n); render(); },
+    fxopen: (d) => { const st = S.note, i = +d.i; if (st.fx === i) { st.fx = -1; } else { st.fx = i; st.tg = Object.keys(st.n.fx[i].solve)[0]; st.vals = {}; } st.res = ''; render(); },
+    fxtg: (d) => { const st = S.note; keepFx(); st.tg = d.v; st.res = ''; render(); },
+    fxcalc: () => {
+      const st = S.note, f = st.n.fx[st.fx]; keepFx(); const names = f.v.map((v) => v[0]), vals = {};
+      const miss = f.v.filter(([k]) => k !== st.tg && !isFinite(vals[k] = toNum(st.vals[k] ?? '')));
+      if (miss.length) { st.res = `${miss.map((m) => esc(m[1])).join('・')}を数値で入れてください。`; return render(); }
+      let x; try { x = new Function(...names, `return ${f.solve[st.tg]};`)(...names.map((k) => vals[k])); } catch (e) { x = NaN; }
+      const out = f.v.find((v) => v[0] === st.tg), t = fmtNum(x);
+      st.res = t === null ? 'この値では計算できません(0で割るなど)。' : `${esc(out[1])} = <b>${esc(t)}</b> ${esc(out[2])}<small>${f.v.filter(([k]) => k !== st.tg).map(([k, l, u]) => `${esc(l)} ${esc(fmtNum(vals[k]))}${esc(u)}`).join('、')} を ${esc(f.f)} に当てはめた結果</small>`;
+      render();
+    },
+    sheet: (d) => { S.sheet = { k: d.k, i: +d.i }; render(); },
+    sheetclose: () => { S.sheet = null; render(); },
+    noteopen: (d) => A.note(d),
     setup: (d) => { S.setup = { s: d.s, cats: d.c ? [d.c] : [], n: 10, order: 'new', timed: false }; go('setup'); },
     quick: () => startQuiz(dailyMenu(), 'practice', 'きょうのメニュー', false),
     cat: (d) => { const c = S.setup.cats, i = c.indexOf(d.c); if (i < 0) c.push(d.c); else c.splice(i, 1); render(); },
@@ -509,6 +693,9 @@
     wipe: () => twice('wipe', async () => { await Store.clear(); S.msg = 'すべての履歴を消去しました。'; render(); }),
   };
   document.addEventListener('click', (ev) => { const el = ev.target.closest('[data-act]'); if (!el || el.disabled) return; const f = A[el.dataset.act]; if (f) f(el.dataset); });
+  const keepFx = () => { const st = S.note; if (!st || st.fx < 0) return; st.n.fx[st.fx].v.forEach(([k]) => { const el = document.getElementById('fx-' + k); if (el) st.vals[k] = el.value; }); };
+  document.addEventListener('change', (ev) => { const el = ev.target.closest('[data-chg]'); if (!el || !S.note) return; S.note[el.dataset.chg] = el.value; render(); });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && S.sheet) { S.sheet = null; render(); } else if (ev.key === 'Enter' && ev.target.id && ev.target.id.startsWith('fx-')) A.fxcalc(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) Store.flush(); });
 
   Store.load(); render(); Store.initCloud();
