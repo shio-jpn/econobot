@@ -6,8 +6,8 @@
   var K = (window.KABU = window.KABU || {});
   var M = (K.mkt = {});
 
-  M.ORDER = ['SP500', 'NASDAQCOM', 'DJIA', 'NIKKEI225', 'DGS10', 'DGS2', 'T10Y2Y', 'DEXJPUS', 'VIXCLS', 'DCOILWTICO', 'BAMLH0A0HYM2'];
-  M.RATE_KINDS = { yield: 1, spread: 1 };
+  M.ORDER = ['SP500', 'NASDAQCOM', 'DJIA', 'NIKKEI225', 'DGS10', 'DGS2', 'T10Y2Y', 'DEXJPUS', 'DTWEXBGS', 'VIXCLS', 'VXVCLS', 'DCOILWTICO', 'BAMLH0A0HYM2', 'NFCI', 'WALCL'];
+  M.RATE_KINDS = { yield: 1, spread: 1, gauge: 1 };
 
   /* 読み込み。無ければ null(この画面はデータ無しの説明に切り替える) */
   var loading = null;
@@ -45,7 +45,7 @@
     var mean = rets.reduce(function (a, b) { return a + b; }, 0) / (rets.length || 1);
     var sd = Math.sqrt(rets.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / Math.max(1, rets.length - 1));
     var st = {
-      date: rows[n - 1][0], prevDate: rows[n - 2][0], last: last, rate: rate,
+      date: rows[n - 1][0], prevDate: rows[n - 2][0], last: last, rate: rate, kind: kind,
       d1: ch(1), d5: ch(5), d21: ch(21), d63: ch(63),
       sma20: smaAt(v, 20), sma50: s50, sma200: s200,
       slope200: s200 != null && s200prev != null ? (s200 / s200prev - 1) * 100 : null,

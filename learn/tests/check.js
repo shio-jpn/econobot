@@ -116,6 +116,23 @@ ok('市場データの分析: 実データの演習は20営業日後の結果を
   assert(c && c.win.length === 241 && c.split === 220 && c.pre === 60 && c.ans === 'up' && c.ret > 2);
   var b = K.mkt.baseRates(rows); assert(Math.abs(b.up - 100) < 1e-9);
 });
+ok('相場の見立て: 7つの視点を採点し、弱気の条件がそろえば下落寄り、強気がそろえば上昇寄りと判定する', function () {
+  function mk(trendUp, hyMove, y10Move, vixLast) {
+    var n = 400, px = series(n, function (i) { return trendUp ? 100 + i * 0.4 + Math.sin(i / 4) : 260 - i * 0.4 + Math.sin(i / 4); });
+    var flat = function (base, move, len) { var r = series(len || 300, function (i) { return base; }); for (var k = 1; k <= 21; k++) r[r.length - k][1] = base + move; return r; };
+    return { updated: 'x', series: { SP500: { name: 'S&P 500', kind: 'index', rows: px }, BAMLH0A0HYM2: { name: 'HY', kind: 'spread', rows: flat(4, hyMove) }, DGS10: { name: '10Y', kind: 'yield', rows: flat(4, y10Move) }, VIXCLS: { name: 'VIX', kind: 'vol', rows: flat(18, vixLast - 18) }, VXVCLS: { name: 'VIX3M', kind: 'vol', rows: flat(20, 0) }, NFCI: { name: 'NFCI', kind: 'gauge', rows: flat(-0.4, 0) }, WALCL: { name: 'FED', kind: 'liquidity', rows: flat(7000000, 0) }, DTWEXBGS: { name: 'USD', kind: 'fx', rows: flat(120, 0) } } };
+  }
+  var bad = K.mkt.outlook(mk(false, 0.6, 0.5, 18));
+  assert(bad.mid.score <= -2 && bad.mid.cls === 'down', JSON.stringify(bad.mid));
+  assert(bad.bear.length >= 3 && bad.scenarios.length === 3);
+  assert.strictEqual(bad.scenarios.reduce(function (a, x) { return a + x.p; }, 0), 100);
+  var good = K.mkt.outlook(mk(true, -0.3, 0, 18));
+  assert(good.mid.score >= 0.75 && good.mid.cls === 'up', JSON.stringify(good.mid));
+  var panic = K.mkt.outlook(mk(false, 0, 0, 30));
+  assert(panic.lenses.filter(function (l) { return l.id === 'options'; })[0].short >= 1.5, 'VIXの逆転は短期の反発材料');
+  assert(K.mkt.outlookContext(mk(true, 0, 0, 18), good).indexOf('採点結果') >= 0);
+  assert.strictEqual(K.mkt.outlook({ series: { SP500: { kind: 'index', rows: series(50, function (i) { return i; }) } } }), null);
+});
 ok('質問文から検索語を取り出す', function () {
   var k = K.keywords('逆イールドが解消に向かう時、なぜ警戒が必要なの?');
   assert(k.indexOf('逆イールド') >= 0, k.join(','));
