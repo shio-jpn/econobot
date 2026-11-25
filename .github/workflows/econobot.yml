@@ -1,16 +1,42 @@
 name: EconoBot - 毎朝8時に米国経済ニュースをSlackに投稿
 
 on:
+  # GitHubのscheduleは後回しにされ、10/09〜11/17は指定より1〜6時間遅い7:41〜12:19の起動だった。
+  # そこで早い時刻に3回(混みやすい00分・30分を避けた)と予備を1回置く。最初に始まった起動が、
+  # 7:25まで待って取得し(米国の引けJST 6:00・夏5:00の後で、米2年債の財務省の公表(米東部の夕方)も待つ)、8:00:00まで待ってから公開・投稿する(econobot.py)。
+  # 2回目以降の起動は、投稿済みの記録(state/last_posted.txt)を見て何もせず終わる。
+  # 予備の8:10は、早い3回がすべて失敗・欠けた日でも、後回しで9時台になってもその日の分を投稿するため。
+  # timezone指定があるのでcronは日本時間のまま書く
   schedule:
-    # timezone指定があるのでcronは日本時間のまま書く(以前の'30 22'は夜22:30の意味になっていた)。
-    # 米国市場の終了(日本時間5〜6時)の後、GitHubの起動遅れを見込んで6:00に起動する
-    - cron: '0 6 * * *'
+    - cron: '17 2 * * *'
       timezone: 'Asia/Tokyo'
+    - cron: '47 3 * * *'
+      timezone: 'Asia/Tokyo'
+    - cron: '17 5 * * *'
+      timezone: 'Asia/Tokyo'
+    - cron: '10 8 * * *'
+      timezone: 'Asia/Tokyo'
+  # 手動実行:待たずに取得する。7:00より前なら8:00も待たずに投稿する。forceで「今日の分は投稿済み」の記録を無視してやり直せる
   workflow_dispatch:
+    inputs:
+      force:
+        description: '今日の分が投稿済みでも、もう一度公開・投稿する(やり直し用)'
+        type: boolean
+        default: false
+
+# 同時に動かさない。GitHubは順番待ちを1つしか持たず、新しく来た起動が前の順番待ちを取り消す(実行中のものは取り消さない)。
+# 最初の起動が途中で失敗した日は、残っている順番待ちの起動が動いて、その日の分を投稿する
+concurrency:
+  group: econobot-post
+  cancel-in-progress: false
 
 jobs:
   post-news:
     runs-on: ubuntu-latest
+    # GitHubのジョブの上限(360分)にする。2:17の起動が遅れずに始まると、8:00までの待ち(約5時間43分。途中の7:25に取得・要約、最悪約21分で7:46に終わる)
+    # と公開・投稿(最悪約3分)で約5時間50分。
+    # 2:15より前に始まったscheduleの起動は、上限を超えないようeconobot.pyが何もせず終える
+    timeout-minutes: 360
     permissions:
       contents: write
 
@@ -30,4 +56,8 @@ jobs:
           NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # 何の起動か(ログ・失敗の知らせ・記録に出す)。scheduleの時はどの予定(cronの文字列)か、手動の時は空
+          EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+          FORCE: ${{ inputs.force }}
         run: python econobot.py
