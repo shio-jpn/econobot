@@ -224,6 +224,67 @@
   }
   K.renderChart = render;
 
+  /* 実データ(終値だけ)の折れ線チャート。
+     vals: 数値の配列 / opt: {w, h, labels(日付), mas:[20,50], split(この番号より後は「隠していた部分」), rsi, fmt, label} */
+  K.renderSeries = function (vals, opt) {
+    opt = opt || {};
+    var pre = Math.max(0, Math.min(opt.pre || 0, vals.length - 2));
+    var mas = (opt.mas || []).map(function (m) { return sma(vals, m).slice(pre); });
+    var rsiAll = opt.rsi ? rsi(vals, 14).slice(pre) : null;
+    vals = vals.slice(pre);
+    var labelsAll = opt.labels ? opt.labels.slice(pre) : null;
+    var n = vals.length, W = Math.max(280, opt.w || 680), padL = 6, padR = 52, top = 18;
+    var PH = opt.h || (W < 480 ? 190 : 240), IH = opt.rsi ? 70 : 0, gap = 10, bot = 20;
+    var H = top + PH + (IH ? gap + IH : 0) + bot;
+    var X = function (i) { return padL + i / Math.max(1, n - 1) * (W - padL - padR); };
+    var lo = Infinity, hi = -Infinity, i;
+    for (i = 0; i < n; i++) { if (vals[i] < lo) lo = vals[i]; if (vals[i] > hi) hi = vals[i]; }
+    mas.forEach(function (a) { a.forEach(function (v) { if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); });
+    if (hi === lo) hi = lo + 1;
+    var pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    var Y = function (v) { return top + (hi - v) / (hi - lo) * PH; };
+    var fmt = opt.fmt || function (v) { return Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('en-US') : (Math.round(v * 100) / 100).toString(); };
+    var s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(opt.label || '値動き') + '">';
+    var step = niceStep((hi - lo) / 4);
+    for (var g = Math.ceil(lo / step) * step; g < hi; g += step) {
+      s += '<line class="c-grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + f1(Y(g)) + '" y2="' + f1(Y(g)) + '"/><text class="c-axis" x="' + (W - padR + 6) + '" y="' + f1(Y(g) + 4) + '">' + esc(fmt(g)) + '</text>';
+    }
+    var split = opt.split != null && opt.split - pre < n - 1 ? opt.split - pre : null;
+    if (split != null) {
+      s += '<rect class="c-future-bg" x="' + f1(X(split)) + '" y="' + top + '" width="' + f1(X(n - 1) - X(split)) + '" height="' + PH + '"/>';
+      s += '<line class="c-split" x1="' + f1(X(split)) + '" x2="' + f1(X(split)) + '" y1="' + top + '" y2="' + (top + PH) + '"/>';
+    }
+    mas.forEach(function (a, j) { s += '<path class="c-ma c-ma' + (j + 1) + '" d="' + path(a, X, Y) + '"/>'; });
+    var past = vals.map(function (v, k) { return split == null || k <= split ? v : null; });
+    s += '<path class="c-price" d="' + path(past, X, Y) + '"/>';
+    if (split != null) s += '<path class="c-future" d="' + path(vals.map(function (v, k) { return k >= split ? v : null; }), X, Y) + '"/>';
+    var lastI = split != null ? split : n - 1;
+    s += '<circle class="c-dot" cx="' + f1(X(lastI)) + '" cy="' + f1(Y(vals[lastI])) + '" r="3"/>';
+    var legend = (opt.mas || []).map(function (m, j) { return '<tspan class="c-ma' + (j + 1) + 't">― ' + m + '日平均</tspan>'; });
+    if (legend.length) s += '<text class="c-legend" x="' + (padL + 4) + '" y="12">' + legend.join('<tspan dx="10"> </tspan>') + '</text>';
+    var y0 = top + PH;
+    if (IH) {
+      y0 += gap;
+      var R = rsiAll, YR = function (v) { return y0 + (100 - v) / 100 * IH; };
+      [70, 30].forEach(function (v) { s += '<line class="c-grid c-dash" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + f1(YR(v)) + '" y2="' + f1(YR(v)) + '"/><text class="c-axis" x="' + (W - padR + 6) + '" y="' + f1(YR(v) + 4) + '">' + v + '</text>'; });
+      s += '<path class="c-ind" d="' + path(R.map(function (v, k) { return split == null || k <= split ? v : null; }), X, YR) + '"/><text class="c-pane" x="' + (padL + 4) + '" y="' + (y0 + 10) + '">RSI(14)</text>';
+      y0 += IH;
+    }
+    if (labelsAll && labelsAll.length === n) {
+      s += '<text class="c-axis" x="' + padL + '" y="' + (y0 + 15) + '">' + esc(labelsAll[0]) + '</text>';
+      s += '<text class="c-axis" text-anchor="end" x="' + f1(X(lastI)) + '" y="' + (y0 + 15) + '">' + esc(labelsAll[lastI]) + '</text>';
+    }
+    return s + '</svg>';
+  };
+
+  /* 価格表の小さな推移線 */
+  K.renderTick = function (vals, w, h, up) {
+    if (!vals || vals.length < 2) return '';
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals); if (hi === lo) hi = lo + 1;
+    var d = vals.map(function (v, i) { return (i ? 'L' : 'M') + f1(i / (vals.length - 1) * (w - 2) + 1) + ' ' + f1(1 + (hi - v) / (hi - lo) * (h - 2)); }).join('');
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true"><path class="' + (up ? 'c-tick-up' : 'c-tick-dn') + '" d="' + d + '"/></svg>';
+  };
+
   /* ローソク足の形の図解: groups = [{t:ラベル, k:[{o,h,l,c}]}] 値は0〜100 */
   K.renderCandles = function (groups, w) {
     var per = 92, cols = Math.max(2, Math.min(groups.length, Math.floor(w / per)));

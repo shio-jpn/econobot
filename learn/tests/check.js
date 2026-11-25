@@ -4,7 +4,7 @@ var fs = require('fs'), path = require('path'), vm = require('vm'), assert = req
 var root = path.join(__dirname, '..');
 var store = {};
 var noop = function () {};
-var el = function () { return { addEventListener: noop, dataset: {}, style: {}, classList: { add: noop, toggle: noop }, querySelectorAll: function () { return []; }, querySelector: function () { return null; }, scrollIntoView: noop, focus: noop, set innerHTML(v) {}, value: '' }; };
+var el = function () { return { addEventListener: noop, dataset: {}, style: {}, classList: { add: noop, toggle: noop, remove: noop }, querySelectorAll: function () { return []; }, querySelector: function () { return null; }, scrollIntoView: noop, focus: noop, set innerHTML(v) {}, value: '' }; };
 var win = { addEventListener: noop, scrollTo: noop, localStorage: { getItem: function (k) { return store[k] || null; }, setItem: function (k, v) { store[k] = v; } } };
 var ctx = { window: win, document: { querySelector: el, querySelectorAll: function () { return []; }, addEventListener: noop, documentElement: { dataset: {} }, activeElement: { tagName: 'BODY' } }, location: { hash: '' }, localStorage: win.localStorage, setTimeout: setTimeout, clearTimeout: clearTimeout, console: console };
 vm.createContext(ctx);
@@ -40,7 +40,7 @@ ok('応用・実戦レッスンが5つの章に入り、ケース演習は章に
   });
   var seen = {};
   K.cases.forEach(function (c) { assert(!seen[c.id] && /^c-[a-z-]+$/.test(c.id), c.id); seen[c.id] = 1; assert.strictEqual(new Set(c.a).size, 4, c.id); assert(c.e && c.q, c.id); });
-  lessons.forEach(function (l) { assert(!l.lv || l.lv === '応用' || l.lv === '実戦', l.id); });
+  lessons.forEach(function (l) { assert(!l.lv || ['応用', '実戦', 'プロ'].indexOf(l.lv) >= 0, l.id); });
 });
 ok('5つの章の基礎レッスン全てに「プロはここまで見る」の深掘りと追加問題がある', function () {
   ['macro', 'fundamentals', 'technical', 'risk', 'strategy'].forEach(function (id) {
@@ -62,6 +62,64 @@ ok('5つの章の基礎レッスン全てに「具体例で理解する」があ
     var l = lessons.filter(function (x) { return x.id === id; })[0];
     assert(l && l.body.length > 1800 && l.quiz.length >= 3, id);
   });
+});
+ok('全レッスンがいずれかのトピックに入り、トピックの参照は全て存在する', function () {
+  var inTopic = {};
+  K.topics.forEach(function (t) {
+    assert(K.areas.some(function (a) { return a.id === t.area; }), t.id);
+    t.lessons.forEach(function (id) { assert(ids[id], t.id + ' -> ' + id); inTopic[id] = 1; });
+  });
+  lessons.forEach(function (l) { assert(inTopic[l.id], 'トピック未所属: ' + l.id); });
+  Object.keys(K.stageArea).forEach(function (st) { assert(K.stages.some(function (x) { return x.id === st; }), st); });
+});
+ok('プロのレッスンは十分な分量と3問以上の確認問題がある', function () {
+  var pro = lessons.filter(function (l) { return l.lv === 'プロ'; });
+  assert(pro.length >= 8);
+  pro.forEach(function (l) { assert(l.body.length > 2500 && l.quiz.length >= 3, l.id + " " + l.body.length); });
+});
+ok('チャート演習の隠す位置は、各チャートの長さの内側で、答えは上下のどちらか', function () {
+  Object.keys(K.drillCuts).forEach(function (id) {
+    var c = charts[id]; assert(c, id);
+    var d = K.buildSeries(c), cut = K.drillCuts[id][0];
+    assert(cut > 20 && cut < d.length - 5, id + ' cut');
+    assert(['up', 'down'].indexOf(K.drillCuts[id][1]) >= 0, id);
+    var after = d[d.length - 1].c - d[cut].c;
+    assert(K.drillCuts[id][1] === 'up' ? after > 0 : after < 0, id + ' 答えと値動きが逆');
+    assert(K.renderChart(c, { w: 400, data: d.slice(0, cut + 1), plain: true }).indexOf('NaN') < 0, id);
+  });
+});
+function series(n, f) { var r = []; for (var i = 0; i < n; i++) { var d = new Date(Date.UTC(2020, 0, 1) + i * 86400000); r.push([d.toISOString().slice(0, 10), f(i)]); } return r; }
+ok('市場データの分析: 上昇トレンドと下降トレンドを判定できる', function () {
+  var up = K.mkt.stats(series(400, function (i) { return 100 + i * 0.5 + Math.sin(i / 3); }), 'index');
+  assert.strictEqual(up.stage.id, 2); assert(up.sma50 > up.sma200 && up.rsi > 50 && up.fromHigh <= 0);
+  var dn = K.mkt.stats(series(400, function (i) { return 400 - i * 0.5 + Math.sin(i / 3); }), 'index');
+  assert.strictEqual(dn.stage.id, 4);
+  var y = K.mkt.stats(series(60, function (i) { return 4 + i * 0.01; }), 'yield');
+  assert(y.rate && Math.abs(y.d1 - 0.01) < 1e-9 && y.stage === null);
+  assert(K.mkt.describe(up).length >= 4);
+});
+ok('市場データの分析: 株・金利・VIXの組み合わせから値動きの型を当てはめる', function () {
+  function mk(eq, y10, vix) {
+    var s = function (base, last) { var r = series(260, function () { return base; }); r[r.length - 1] = [r[r.length - 1][0], last]; return r; };
+    return { updated: 'x', series: { SP500: { kind: 'index', rows: s(5000, 5000 * (1 + eq / 100)) }, DGS10: { kind: 'yield', rows: s(4, 4 + y10 / 100) }, VIXCLS: { kind: 'vol', rows: s(15, 15 + vix) } } };
+  }
+  assert.strictEqual(K.mkt.regime(mk(-1.5, 12, 2)).id, 'rate-up-down');
+  assert.strictEqual(K.mkt.regime(mk(-1.5, -10, 4)).id, 'risk-off');
+  assert.strictEqual(K.mkt.regime(mk(-1.0, 0, 1)).id, 'equity-specific');
+  assert.strictEqual(K.mkt.regime(mk(1.2, -8, -1)).id, 'easing-rally');
+  assert.strictEqual(K.mkt.regime(mk(1.2, 8, -1)).id, 'growth-rally');
+  assert.strictEqual(K.mkt.regime(mk(0.1, 0, 0)).id, 'quiet');
+  assert(K.mkt.context(mk(-1.5, 12, 2)).indexOf('S') >= 0);
+});
+ok('市場データの分析: 実データの演習は20営業日後の結果を正しく判定する', function () {
+  var rows = series(900, function (i) { return 100 * Math.pow(1.001, i); }), c = K.mkt.drillCase(rows, function () { return 0.5; });
+  assert(c && c.win.length === 241 && c.split === 220 && c.pre === 60 && c.ans === 'up' && c.ret > 2);
+  var b = K.mkt.baseRates(rows); assert(Math.abs(b.up - 100) < 1e-9);
+});
+ok('質問文から検索語を取り出す', function () {
+  var k = K.keywords('逆イールドが解消に向かう時、なぜ警戒が必要なの?');
+  assert(k.indexOf('逆イールド') >= 0, k.join(','));
+  assert(K.search(K.keywords('CPIが予想より高いと、どの業種が売られやすい?').join(' ')).hits.length > 0);
 });
 ok('本文が参照するチャートと図は存在する', function () {
   lessons.forEach(function (l) {

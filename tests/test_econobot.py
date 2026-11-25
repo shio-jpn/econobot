@@ -500,3 +500,42 @@ class StoryItemTest(unittest.TestCase):
         a = {"title": "T", "description": "Desc.", "content": "Stocks rose 1.23% on Monday"}
         self.assertIn("1.23%", eb._body_of(a))
         self.assertEqual(eb._body_of({"title": "T", "description": "Same text here", "content": "Same text here"}), "Same text here")
+
+
+class LearnMarketJsonTest(unittest.TestCase):
+    def test_build_keeps_fetched_series_and_points(self):
+        def fake(sid, days):
+            if sid == "DGS2":
+                raise OSError("timeout")
+            if sid == "T10Y2Y":
+                return [("2026-11-01", 0.5)] * 5  # 少なすぎる系列は入れない
+            return [(f"2026-01-{i % 28 + 1:02d}", 100.0 + i) for i in range(60)]
+        econ = {"ok": True, "headline": "見出し", "key_points": [{"text": "要点A", "category": "金利"}, {"text": ""}]}
+        d = eb.build_market_json(econ, fetch=fake, now=NOW)
+        self.assertIn("SP500", d["series"])
+        self.assertNotIn("DGS2", d["series"])
+        self.assertNotIn("T10Y2Y", d["series"])
+        self.assertEqual(d["series"]["SP500"]["kind"], "index")
+        self.assertEqual(len(d["series"]["SP500"]["rows"]), 60)
+        self.assertEqual(d["points"], [{"text": "要点A", "category": "金利"}])
+        self.assertEqual(d["headline"], "見出し")
+
+    def test_build_without_summary(self):
+        d = eb.build_market_json({"ok": False, "headline": "準備中"}, fetch=lambda s, n: [], now=NOW)
+        self.assertEqual((d["series"], d["points"], d["headline"]), ({}, [], ""))
+
+    def test_publish_skips_when_empty(self):
+        with mock.patch.object(eb, "build_market_json", return_value={"series": {}}), \
+             mock.patch.object(eb, "_put_repo_file") as put:
+            self.assertFalse(eb.publish_market_json({"ok": True}))
+            put.assert_not_called()
+
+    def test_publish_writes_compact_json(self):
+        data = {"updated": "x", "series": {"SP500": {"name": "S&P 500", "kind": "index", "rows": [["2026-11-01", 1.0]]}}}
+        with mock.patch.object(eb, "build_market_json", return_value=data), \
+             mock.patch.object(eb, "_put_repo_file") as put:
+            self.assertTrue(eb.publish_market_json({"ok": True}))
+            path, body, _msg = put.call_args[0]
+            self.assertEqual(path, "learn/data/market.json")
+            self.assertEqual(json.loads(body.decode("utf-8")), data)
+            self.assertNotIn(b" ", body.replace(b"S&P 500", b""))

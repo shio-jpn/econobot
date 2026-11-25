@@ -1483,8 +1483,9 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
 # ========================================
 # 5. GitHub PagesにHTMLをコミット
 # ========================================
-def publish_to_github_pages(html_content):
-    api_base = f"https://api.github.com/repos/{GITHUB_REPO}/contents/index.html"
+def _put_repo_file(path, content_bytes, message):
+    """GitHubのcontents APIで、mainブランチの1ファイルを作成または更新する"""
+    api_base = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
@@ -1494,7 +1495,7 @@ def publish_to_github_pages(html_content):
 
     # 既存ファイルのSHAを取得
     sha = None
-    req = urllib.request.Request(api_base, headers=headers)
+    req = urllib.request.Request(api_base + "?ref=main", headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=10) as res:
             sha = json.loads(res.read().decode()).get("sha")
@@ -1502,21 +1503,81 @@ def publish_to_github_pages(html_content):
         if e.code != 404:
             raise
 
-    content_b64 = base64.b64encode(html_content.encode("utf-8")).decode("ascii")
-    now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
-    payload = {"message": f"📰 EconoBot update: {now_str}", "content": content_b64, "branch": "main"}
+    payload = {"message": message, "content": base64.b64encode(content_bytes).decode("ascii"), "branch": "main"}
     if sha:
         payload["sha"] = sha
-
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(api_base, data=body, headers=headers, method="PUT")
-    with urllib.request.urlopen(req, timeout=15) as res:
+    with urllib.request.urlopen(req, timeout=30) as res:
         json.loads(res.read().decode())
 
+
+def publish_to_github_pages(html_content):
+    now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
+    _put_repo_file("index.html", html_content.encode("utf-8"), f"📰 EconoBot update: {now_str}")
     username, reponame = GITHUB_REPO.split("/")
     page_url = f"https://{username}.github.io/{reponame}/"
     print(f"  公開URL: {page_url}")
     return page_url
+
+
+# ========================================
+# 5b. 学習アプリ(learn/)向けの市場データ(2026-11追加)
+#     アプリの「今日の相場」「チャート演習」が読む。失敗してもニュースの配信は止めない
+# ========================================
+LEARN_MARKET_PATH = "learn/data/market.json"
+LEARN_SERIES = [
+    # (FRED系列, 表示名, 種類, 取得する日数)  指数と為替は演習用に約10年分
+    ("SP500", "S&P 500", "index", 3700),
+    ("NASDAQCOM", "ナスダック総合", "index", 3700),
+    ("DJIA", "ダウ平均", "index", 3700),
+    ("NIKKEI225", "日経平均", "index", 3700),
+    ("DGS10", "米10年債利回り", "yield", 800),
+    ("DGS2", "米2年債利回り", "yield", 800),
+    ("T10Y2Y", "米10年−2年金利差", "spread", 800),
+    ("DEXJPUS", "ドル円", "fx", 3700),
+    ("VIXCLS", "VIX(恐怖指数)", "vol", 800),
+    ("DCOILWTICO", "WTI原油", "commodity", 800),
+    ("BAMLH0A0HYM2", "米ハイイールド債スプレッド", "spread", 800),
+]
+
+
+def build_market_json(econ, fetch=None, now=None):
+    """FREDの系列とその日のニュース要約から、学習アプリ用のデータを作る。取れた系列だけを入れる"""
+    fetch = fetch or _fred_rows
+    now = now or datetime.now(JST)
+    series = {}
+    for sid, name, kind, days in LEARN_SERIES:
+        try:
+            rows = fetch(sid, days)
+        except Exception as e:  # 1系列の失敗で全体を止めない
+            print(f"    [FRED {sid} 学習用] 取得失敗: {e}")
+            continue
+        if len(rows) < 30:
+            continue
+        series[sid] = {"name": name, "kind": kind, "rows": [[d, round(v, 4)] for d, v in rows]}
+    ok = bool(econ and econ.get("ok"))
+    points = [{"text": p.get("text", ""), "category": p.get("category", "")}
+              for p in (econ.get("key_points") or [])] if ok else []
+    return {
+        "updated": now.isoformat(timespec="minutes"),
+        "source": "FRED(セントルイス連邦準備銀行)",
+        "headline": econ.get("headline", "") if ok else "",
+        "points": [p for p in points if p["text"]],
+        "series": series,
+    }
+
+
+def publish_market_json(econ):
+    data = build_market_json(econ)
+    if not data["series"]:
+        print("  学習アプリ用データ: 取得できた系列がないため更新しません")
+        return False
+    text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
+    _put_repo_file(LEARN_MARKET_PATH, text.encode("utf-8"), f"📈 学習アプリの市場データ更新: {now_str}")
+    print(f"  学習アプリ用データ: {len(data['series'])}系列を更新")
+    return True
 
 
 # ========================================
@@ -1653,6 +1714,12 @@ def main():
 
         print("📤 Slackに投稿中...")
         post_to_slack(page_url, econ, major, major_articles)
+
+        print("📈 学習アプリ用の市場データを更新中...")
+        try:
+            publish_market_json(econ)
+        except Exception as e:  # ニュースの配信は済んでいるので、ここでの失敗は記録だけにする
+            print(f"  [WARN] 学習アプリ用データの更新に失敗: {e}")
 
         print("✅ 完了！")
     except Exception as e:
