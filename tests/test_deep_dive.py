@@ -407,5 +407,18 @@ class StripCodesTest(unittest.TestCase):
         self.assertEqual(dd.strip_codes("PER（株価収益率）は高い。"), "PER（株価収益率）は高い。")
 
 
+
+class AskRetryTest(unittest.TestCase):
+    def test_retries_once_on_unreadable_json(self):
+        replies = iter(['{"ok": true, "issues": [{"problem": "途中で切れ', '{"ok": true, "issues": []}'])
+        with mock.patch.object(eb, "_call_gemini", lambda *a, **k: next(replies)):
+            self.assertEqual(dd._ask("p", None, "深掘り:査読"), {"ok": True, "issues": []})
+
+    def test_gives_up_after_two(self):
+        with mock.patch.object(eb, "_call_gemini", lambda *a, **k: "読めない"):
+            with self.assertRaises(ValueError):
+                dd._ask("p", None, "深掘り:査読")
+
+
 if __name__ == "__main__":
     unittest.main()

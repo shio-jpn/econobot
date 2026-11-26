@@ -888,13 +888,16 @@ BULL = ("bull", "強気筋(トレンドフォロワーとオプション・需�
         "政策の追い風を探し、弱気筋の主張のどこが弱いかを具体的に書く。items の impact は主に上昇要因。")
 
 
-def _ask(prompt, schema, label):
+def _ask(prompt, schema, label, tries=2):
+    """Geminiに聞いてJSONを返す。JSONとして読めない応答(長すぎて途中で切れた等)は1回だけ聞き直す"""
     eb = _eb()
-    text = eb._call_gemini(prompt, schema, label, models=DEEP_MODELS)
-    data = eb._loads_loose(text) if text else None
-    if not isinstance(data, dict):
-        raise ValueError(f"{label}: JSONとして読めない応答")
-    return data
+    for i in range(tries):
+        text = eb._call_gemini(prompt, schema, label, models=DEEP_MODELS)
+        data = eb._loads_loose(text) if text else None
+        if isinstance(data, dict):
+            return data
+        print(f"  [WARN] {label}: JSONとして読めない応答({len(text or '')}文字)" + (" → 聞き直す" if i + 1 < tries else ""))
+    raise ValueError(f"{label}: JSONとして読めない応答")
 
 
 def _analyst_prompt(role, data_txt, news_txt, prior):
@@ -950,6 +953,7 @@ def _review_prompt(data_txt, news_txt, draft):
 表やニュースに無い数字、根拠の無い断定、ニュースに無い出来事、
 米国と日本の取り違え、weightの合計が100でない、見通しが条件なしの断定になっている。
 問題がなければ ok=true・issues=[]。問題があれば ok=false で、場所(where)・問題(problem)・直し方(fix)を具体的に。
+issues は重要なものから最大10件まで(細かい言い回しの好みは含めない)。各項目は短く書く。
 """ + "\n■チーフの案\n" + json.dumps(draft, ensure_ascii=False) + "\n\n■データ\n" + data_txt + "\n\n■ニュース\n" + news_txt
 
 

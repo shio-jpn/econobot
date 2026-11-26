@@ -707,4 +707,14 @@ def numbers(flow, strat):
                 walk(v)
     walk({k: v for k, v in (flow or {}).items() if k not in ("putcall_hist",)})
     walk(strat)
+    # 損切りの目安としてAIが使う、ATRの倍数とその価格(画面の計算と同じ考え方)
+    move1d = ((flow or {}).get("options") or {}).get("move1d")
+    for v in (strat or {}).values():
+        lv = v.get("levels") or {}
+        c, atr = lv.get("close"), lv.get("atr")
+        if c and atr:
+            for k in (1, 1.5, 2, 2.5, 3):
+                out += [atr * k, c - atr * k, c + atr * k, lv.get("atr_pct", 0) * k]
+        if c and move1d:
+            out += [c * move1d / 100, c * (1 - move1d / 100), c * (1 + move1d / 100)]
     return out
