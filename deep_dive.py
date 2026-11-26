@@ -25,7 +25,10 @@ HISTORY_DAYS = 90          # 答え合わせ用に残す見立ての日数
 DEEP_BUDGET = 840          # 深掘り分析でGeminiに使う時間の合計の上限(秒)。投稿の後に動くので要約の時間とは別に数える
 CHIEF_RESERVE = 200        # チーフの統合と査読のために残しておく時間(秒)。足りなくなりそうなら残りの役割を飛ばす
 REVIEW_MIN = 100           # 査読と改訂を始める時に残っているべき時間(秒)
-DEEP_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]   # 推論が深い方を先に試す
+# Geminiの無料枠は1日の回数の上限がモデルごとにある(2026-11-26、試験を重ねて上限に達した)。
+# 7人の分析は軽いモデルを先に、統合・査読・改訂(いちばん大事)は推論の深いモデルを先に使い、1日の回数を2つの枠に分ける
+DEEP_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash"]    # 7人の分析
+CHIEF_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]   # チーフの統合・査読・改訂
 MIN_US = 8                 # 米国セクターがこれより少なく取れた日は分析しない
 
 # ---------- 対象 ----------
@@ -605,6 +608,229 @@ def fetch_movers(expected_us, get=None):
     return out[:15], errors
 
 
+# ---------- 2c. 構造の材料と「動きの型」(なぜそうなったかを、データで一段ずつたどるため) ----------
+# 「リスク回避」「内部要因」のような名前で止めず、なぜそれが起きたかを
+#   きっかけ(何が起きた) → 下地(なぜ効いたか: 偏り・過熱・借入) → 増幅(なぜ広がったか: 機械的な売買・損失確定) → 根本
+# の順にたどる。そのための材料をプログラムで計算し、AIに渡す。
+LEADERS_US = ["SMH", "XLK", "NVDA", "AVGO", "MSFT", "GOOGL", "AMZN", "META", "AAPL", "TSLA"]
+LEADERS_JP = ["8035.T", "6857.T", "9984.T", "9983.T", "6758.T", "1625.T"]
+
+
+def _rets(rows_s, sym):
+    return dict(_daily(rows_s, sym))
+
+
+def _corr(a, b):
+    n = len(a)
+    if n < 10:
+        return None
+    ma, mb = sum(a) / n, sum(b) / n
+    sa = math.sqrt(sum((x - ma) ** 2 for x in a))
+    sb = math.sqrt(sum((y - mb) ** 2 for y in b))
+    return sum((x - ma) * (y - mb) for x, y in zip(a, b)) / (sa * sb) if sa and sb else None
+
+
+def _avg_corr(rows, syms, start, end):
+    """銘柄どうしの日々の騰落の相関の平均(start〜end の日の範囲、末尾から数えた位置)"""
+    rs = [_rets(rows[s], s) for s in syms if s in rows]
+    if len(rs) < 4:
+        return None
+    days = sorted(set.intersection(*[set(r) for r in rs]))
+    days = days[len(days) - start:len(days) - end] if end else days[len(days) - start:]
+    vals = []
+    for i in range(len(rs)):
+        for j in range(i + 1, len(rs)):
+            c = _corr([rs[i][d] for d in days], [rs[j][d] for d in days])
+            if c is not None:
+                vals.append(c)
+    return _r(sum(vals) / len(vals), 2) if vals else None
+
+
+def _rv(rows_s, sym, n):
+    r = [x for _, x in _daily(rows_s, sym)][-n:]
+    if len(r) < n:
+        return None
+    m = sum(r) / n
+    return _r(math.sqrt(sum((x - m) ** 2 for x in r) / (n - 1)) * math.sqrt(252), 1)
+
+
+def _crosses(rows_s, look=15):
+    """直近 look 日に下抜け・上抜けした移動平均線(トレンド追随の売買が出やすい水準)"""
+    closes = [v for _, v in rows_s]
+    out = []
+    for n in (50, 100, 200):
+        if len(closes) < n + look + 1:
+            continue
+        for k in range(len(closes) - look, len(closes)):
+            s_now = sum(closes[k - n + 1:k + 1]) / n
+            s_prev = sum(closes[k - n:k]) / n
+            if closes[k - 1] >= s_prev and closes[k] < s_now:
+                out.append({"ma": n, "dir": "下抜け", "date": rows_s[k][0]})
+            elif closes[k - 1] <= s_prev and closes[k] > s_now:
+                out.append({"ma": n, "dir": "上抜け", "date": rows_s[k][0]})
+    return out
+
+
+def structure(rows, feat, sigs):
+    """構造の材料: 先導役の過熱と巻き戻し、相関(一斉売りか入れ替えか)、株と債券の関係、変動率の急上昇、
+    トレンド追随の売買が出やすい水準、逃避先の動き。最後に「動きの型」を点数で判定する"""
+    out = {}
+    lead = []
+    for s in LEADERS_US + LEADERS_JP:
+        r = rows.get(s)
+        if not r or len(r) < 200:
+            continue
+        closes = [v for _, v in r]
+        w = closes[-252:]
+        ih = max(range(len(w)), key=lambda i: w[i])
+        hi, lo_before_hi = w[ih], min(w[:ih + 1])   # 1年の高値と、その高値までの安値
+        name = (feat.get(s) or {}).get("name") or dict(HEAVY_US + HEAVY_JP).get(s, s)
+        lead.append({"sym": s, "name": name, "run_1y": _r((closes[-1] / w[0] - 1) * 100),
+                     "run_to_high": _r((hi / lo_before_hi - 1) * 100), "from_high": _r((closes[-1] / hi - 1) * 100),
+                     "c20": _r((closes[-1] / closes[-21] - 1) * 100)})
+    out["leaders"] = lead
+    us_sec = [s for s, _ in US_SECTORS if s != "SMH"]
+    jp_sec = [s for s, _ in JP_SECTORS]
+    out["corr"] = {"us_20": _avg_corr(rows, us_sec, 20, 0), "us_prev": _avg_corr(rows, us_sec, 140, 20),
+                   "jp_20": _avg_corr(rows, jp_sec, 20, 0), "jp_prev": _avg_corr(rows, jp_sec, 140, 20)}
+    sb = {}
+    if "SPY" in rows and "TLT" in rows:
+        a, b = _rets(rows["SPY"], "SPY"), _rets(rows["TLT"], "TLT")
+        days = sorted(set(a) & set(b))
+        sb = {"corr20": _r(_corr([a[d] for d in days[-20:]], [b[d] for d in days[-20:]]), 2),
+              "corr120": _r(_corr([a[d] for d in days[-120:]], [b[d] for d in days[-120:]]), 2)}
+    out["stock_bond"] = sb
+    out["vol"] = {"spy_rv20": _rv(rows.get("SPY", []), "SPY", 20), "spy_rv120": _rv(rows.get("SPY", []), "SPY", 120),
+                  "n225_rv20": _rv(rows.get("^N225", []), "^N225", 20), "n225_rv120": _rv(rows.get("^N225", []), "^N225", 120),
+                  "vix": (feat.get("^VIX") or {}).get("last")}
+    out["crosses"] = {s: _crosses(rows[s]) for s in ("SPY", "^N225", "SMH") if s in rows}
+    out["havens"] = {s: {"name": feat[s]["name"], "c5": feat[s].get("c5"), "c20": feat[s].get("c20")}
+                     for s in ("TLT", "GC=F", "JPY=X", "XLU", "XLP") if s in feat}
+    out["types"] = move_types(feat, sigs, out)
+    return out
+
+
+def move_types(feat, sigs, st, h=5):
+    """直近 h 日の動きの型を、データの証拠の数と強さで判定する(合計100%)。各型の証拠は文章で残す"""
+    k, zk = f"c{h}", f"z{h}"
+    f = lambda s, key=k: (feat.get(s) or {}).get(key)   # noqa: E731
+    sg = lambda sid, key=k: (_sig(sigs, sid) or {}).get(key)   # noqa: E731
+    spx, tnx, tlt, vix = f("SPY"), f("^TNX"), f("TLT"), f("^VIX")
+    T = {n: {"score": 0.0, "evidence": []} for n in ("金利ショック", "成長不安・リスク回避", "内部の入れ替え", "過熱の巻き戻し(ポジション解消)", "インフレ・資源高")}
+
+    def add(t, w, text):
+        T[t]["score"] += w
+        T[t]["evidence"].append(text)
+    if spx is None:
+        return []
+    down = spx < 0
+    if tnx is not None and tnx >= 10 and down:
+        add("金利ショック", 2, f"10年債利回りが{h}日で{tnx:+.0f}bp上昇する中で株が下落")
+    if tlt is not None and tlt < 0 and down:
+        add("金利ショック", 1, f"株と国債(TLT {tlt:+.2f}%)が同時に下落")
+    if (sg("rate_sens") or 0) < -1:
+        add("金利ショック", 1, f"金利に敏感な不動産・公益がS&P 500より{sg('rate_sens'):+.2f}%弱い")
+    if tnx is not None and tnx <= -10:
+        add("成長不安・リスク回避", 1.5, f"10年債利回りが{h}日で{tnx:+.0f}bp低下(債券に資金が逃げた)")
+    if (sg("credit") or 0) < -1:
+        add("成長不安・リスク回避", 2, f"ハイイールド債が米国債より{sg('credit'):+.2f}%弱い(信用への警戒)")
+    if vix is not None and vix > 10:
+        add("成長不安・リスク回避", 1, f"VIXが{h}日で{vix:+.2f}%上昇")
+    if (sg("cyc_def") or 0) < -1:
+        add("成長不安・リスク回避", 1, f"景気敏感株がディフェンシブ株より{sg('cyc_def'):+.2f}%弱い")
+    if (sg("cu_au") or 0) < -2:
+        add("成長不安・リスク回避", 0.5, f"銅が金より{sg('cu_au'):+.2f}%弱い(景気への警戒)")
+    c = st.get("corr") or {}
+    if (sg("breadth") or 0) > 1:
+        add("内部の入れ替え", 2, f"均等加重が時価総額加重より{sg('breadth'):+.2f}%強い(多くの銘柄は持ちこたえ、巨大株が売られた)")
+    if c.get("us_20") is not None and c.get("us_prev") is not None and c["us_20"] <= c["us_prev"]:
+        add("内部の入れ替え", 1, f"セクターどうしの相関が{c['us_prev']}→{c['us_20']}と低下(一斉売りではない)")
+    if (sg("rate_sens") or 0) > 1 and down:
+        add("内部の入れ替え", 0.5, f"株が下がる中で不動産・公益はS&P 500より{sg('rate_sens'):+.2f}%強い")
+    hot = [x for x in st.get("leaders") or [] if (x.get("run_to_high") or 0) >= 40 and (x.get("from_high") or 0) <= -10]
+    if hot:
+        add("過熱の巻き戻し(ポジション解消)", 1 + min(2, len(hot) * 0.5),
+            "大きく上げていた先導役が高値から急落: " + "、".join(f"{x['name']}(安値から高値まで{x['run_to_high']:+.0f}%、高値から{x['from_high']:+.1f}%)" for x in hot[:4]))
+    if c.get("us_20") is not None and c.get("us_prev") is not None and c["us_20"] - c["us_prev"] >= 0.15:
+        add("過熱の巻き戻し(ポジション解消)", 1, f"セクターどうしの相関が{c['us_prev']}→{c['us_20']}に上昇(まとめて売られた)")
+    v = st.get("vol") or {}
+    if v.get("spy_rv20") and v.get("spy_rv120") and v["spy_rv20"] >= v["spy_rv120"] * 1.4:
+        add("過熱の巻き戻し(ポジション解消)", 1, f"S&P 500の実際の変動率が{v['spy_rv120']}%→{v['spy_rv20']}%に急上昇(変動率で量を決める運用の売りが出やすい)")
+    if (sg("semi") or 0) < -2:
+        add("過熱の巻き戻し(ポジション解消)", 1, f"半導体がS&P 500より{sg('semi'):+.2f}%弱い")
+    gold20 = (feat.get("GC=F") or {}).get("c20")
+    if gold20 is not None and gold20 <= -5 and (f("SPY", "c20") or 0) < 0:
+        add("過熱の巻き戻し(ポジション解消)", 1, f"逃避先の金まで20日で{gold20:+.2f}%下落(損失を埋めるための現金化・利益の出ている資産の売り)")
+    oil = f("CL=F")
+    if oil is not None and oil >= 5 and (tnx or 0) > 0:
+        add("インフレ・資源高", 2, f"原油が{h}日で{oil:+.2f}%上昇し、利回りも上昇")
+    tot = sum(t["score"] for t in T.values())
+    res = [{"type": n, "share": round(t["score"] / tot * 100) if tot else 0, "evidence": t["evidence"]} for n, t in T.items() if t["score"] > 0]
+    return sorted(res, key=lambda x: -x["share"])
+
+
+def chain_material(st):
+    """データで確かめられた因果の段の下書き(下地・増幅)。AIはこの数字を段に使い、きっかけ(ニュース)と根本をつなぐ"""
+    out = []
+    hot = [x for x in st.get("leaders") or [] if (x.get("run_to_high") or 0) >= 40 and (x.get("from_high") or 0) <= -10]
+    if hot:
+        out.append(("下地", "先導役が短期間に大きく上げ、多くの投資家が同じ方向に賭けていた: " + "、".join(
+            f"{x['name']}は1年の安値から高値まで{x['run_to_high']:+.0f}%上げた後、高値から{x['from_high']:+.1f}%" for x in hot[:5]), [x["sym"] for x in hot[:5]]))
+    c = st.get("corr") or {}
+    if c.get("us_20") is not None and c.get("us_prev") is not None and c["us_20"] - c["us_prev"] >= 0.1:
+        out.append(("増幅", f"業種を問わずまとめて売られた: セクターどうしの相関の平均が米国{c['us_prev']}→{c['us_20']}、日本{c.get('jp_prev')}→{c.get('jp_20')}に上昇", ["cyc_def"]))
+    v = st.get("vol") or {}
+    if v.get("spy_rv20") and v.get("spy_rv120") and v["spy_rv20"] >= v["spy_rv120"] * 1.3:
+        out.append(("増幅", f"S&P 500の実際の変動率が{v['spy_rv120']}%→{v['spy_rv20']}%に上昇。変動率に合わせて株の量を決める運用(リスク・パリティなど)は、変動率が上がると機械的に株を減らす", ["^VIX"]))
+    xs = [x for x in (st.get("crosses") or {}).get("SPY", []) if x["dir"] == "下抜け"]
+    if xs:
+        out.append(("増幅", "S&P 500が" + "、".join(f"{x['date'][5:]}に{x['ma']}日線" for x in xs) + "を下抜け。トレンドに従う運用(CTAなど)の売りの目安とされる水準", ["SPY"]))
+    hv = st.get("havens") or {}
+    g = (hv.get("GC=F") or {}).get("c20")
+    if g is not None and g <= -5:
+        out.append(("増幅", f"逃避先の金まで20日で{g:+.2f}%下落。損失を埋めるため、利益の出ている資産まで売って現金を作る動き", ["GC=F"]))
+    t = (hv.get("TLT") or {}).get("c5")
+    if t is not None and t >= 1:
+        out.append(("下地", f"米長期国債が5日で{t:+.2f}%上昇(利回りは低下)。資金が株から安全な国債へ逃げた。金利の上昇による下げではない", ["TLT", "^TNX"]))
+    return out
+
+
+def structure_text(st):
+    """AIに渡す文章"""
+    if not st:
+        return ""
+    L = ["■構造の材料(なぜそうなったかを一段ずつたどるためのデータ)"]
+    cm = chain_material(st)
+    if cm:
+        L.append("データで確かめられた因果の段の下書き(下地・増幅の段では、この具体的な数字を必ず使い、statusは『データで確認』、evidenceは[]内の記号):")
+        L += [f"  [{k}] {t} [{', '.join(e)}]" for k, t, e in cm]
+    ty = st.get("types") or []
+    if ty:
+        L.append("動きの型(直近5日、データの証拠からの判定): " + " / ".join(f"{t['type']} {t['share']}%" for t in ty))
+        for t in ty:
+            L.append(f"  {t['type']}の証拠: " + "、".join(t["evidence"]))
+    ld = st.get("leaders") or []
+    if ld:
+        L.append("先導役の過熱と巻き戻し(1年の上昇率、1年の安値から高値までの上昇、高値からの下落、20日の騰落): " + "、".join(
+            f"{x['name']} {x.get('run_1y')}% / {x.get('run_to_high')}% / {x.get('from_high')}% / {x.get('c20')}%" for x in ld))
+    c = st.get("corr") or {}
+    L.append(f"セクターどうしの相関の平均: 米国 直近20日 {c.get('us_20')}(その前の120日 {c.get('us_prev')})、日本 直近20日 {c.get('jp_20')}(その前 {c.get('jp_prev')})。"
+             "高い・上がる=まとめて売買(マクロやリスク回避、ポジション解消)、低い・下がる=業種の入れ替え")
+    sb = st.get("stock_bond") or {}
+    if sb:
+        L.append(f"株(SPY)と米長期国債(TLT)の日々の騰落の相関: 直近20日 {sb.get('corr20')}、120日 {sb.get('corr120')}。"
+                 "マイナス=債券が株の下げの逃避先として機能(成長不安型)、プラス=株と債券が一緒に売られる(金利・インフレ型)")
+    v = st.get("vol") or {}
+    L.append(f"実際の変動率(年率): S&P 500 直近20日 {v.get('spy_rv20')}%(120日 {v.get('spy_rv120')}%)、日経平均 直近20日 {v.get('n225_rv20')}%(120日 {v.get('n225_rv120')}%)、VIX {v.get('vix')}")
+    cr = st.get("crosses") or {}
+    xs = [f"{s} {x['date']} {x['ma']}日線を{x['dir']}" for s, lst in cr.items() for x in lst]
+    L.append("直近15日に移動平均線を抜けた所(トレンド追随の売買が出やすい): " + ("、".join(xs) if xs else "なし"))
+    hv = st.get("havens") or {}
+    if hv:
+        L.append("逃避先の動き(5日/20日): " + "、".join(f"{v_['name']} {v_.get('c5')}%/{v_.get('c20')}%" for v_ in hv.values()))
+    return "\n".join(L)
+
+
 # ---------- 3. 規則にもとづく主因の候補 ----------
 def _f(feat, sym, key):
     return (feat.get(sym) or {}).get(key)
@@ -759,9 +985,11 @@ def facts(feat):
     return "■事実の確認(方向をこのとおりに書く。これと逆の記述は誤り)\n" + "\n".join(out)
 
 
-def data_block(feat, sigs, macro=None, contrib=None, movers=None, flow=None, strat=None):
+def data_block(feat, sigs, macro=None, contrib=None, movers=None, flow=None, strat=None, st=None):
     """AIに渡すデータの表(記号つき。主張の根拠にはこの記号を使わせる)"""
     parts = [facts(feat)]
+    if st:
+        parts.append(structure_text(st))
     for g, title in (("style", "米国株の全体と信用"), ("us", "米国のセクター(ETF)"), ("jp", "日本の業種(TOPIX-17のETF)"),
                      ("global", "世界の株価指数"), ("cross", "金利・恐怖指数・商品・為替")):
         xs = [f for f in feat.values() if f["group"] == g]
@@ -838,20 +1066,36 @@ COMMON = """あなたは米国株と日本株の両方を扱う、実績のあ�
 - 日本の金利(国債利回り)のデータは無い。日本の銀行株を米国の金利だけで説明しない。データから原因を特定できない時は、そう書く
 - ニュースに無い出来事を事実として書かない。推測は「〜の可能性」と書く
 - 断定的な売買の推奨はしない
+構造分析の原則(すべての原因・論点・業種・需給・作戦・見通しで使う):
+- 「リスク回避」「過熱感」「懸念」「内部要因」「需給の悪化」のような名前で説明を止めない。名前を付けたら、必ず「なぜそれが起きたのか」をさらに問う
+- 因果を次の順に一段ずつたどる(chain): 現象(何が起きたか) → きっかけ(その時に何が引き金になったか) →
+  下地(なぜそのきっかけでこれほど効いたのか: 持ち高の偏り、先導役の過熱、借入・信用買い、集中) →
+  増幅(なぜ広がり・大きくなったか: 変動率で量を決める運用やトレンド追随の機械的な売り、信用の追証・投げ売り、相関の上昇、損失を埋める現金化) →
+  根本の原因(この動きの本当の理由を1文で)
+- 各段に根拠(evidence)と確かさ(status: データで確認 / ニュースで確認 / 推測)を付ける。データの『構造の材料』『動きの型』を使う
+- 「なぜ他の説明ではないのか」も確かめる(例: 金利は低下したので金利ショックではない)。データで確かめられない段は推測と書く
+- 下地・増幅の段には、具体的な数字や事実(どれだけ上げていたか、相関や変動率がいくつからいくつになったか等)を必ず入れる。
+  『構造の材料』の『因果の段の下書き』をそのまま使ってよい
+- 根本の原因は、現象や名前の言い換え(「過熱感の解消による下落」など)にしない。「なぜその下地ができ、なぜ今それが崩れたのか」を1文で書く
 """
+CHAIN = {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
+    "kind": {"type": "STRING", "enum": ["現象", "きっかけ", "下地", "増幅", "根本の原因"]},
+    "text": {"type": "STRING"}, "evidence": {"type": "ARRAY", "items": {"type": "STRING"}},
+    "status": {"type": "STRING", "enum": ["データで確認", "ニュースで確認", "推測"]}},
+    "required": ["kind", "text", "status"]}}
 
 ITEM = {"type": "OBJECT", "properties": {
     "title": {"type": "STRING"}, "explain": {"type": "STRING"},
     "impact": {"type": "STRING", "enum": ["上昇要因", "下落要因", "中立"]},
     "confidence": {"type": "STRING", "enum": ["高", "中", "低"]},
-    "evidence": {"type": "ARRAY", "items": {"type": "STRING"}}},
-    "required": ["title", "explain", "impact", "evidence"]}
+    "evidence": {"type": "ARRAY", "items": {"type": "STRING"}}, "chain": CHAIN},
+    "required": ["title", "explain", "impact", "evidence", "chain"]}
 ANALYST_SCHEMA = {"type": "OBJECT", "properties": {
     "view": {"type": "STRING"}, "items": {"type": "ARRAY", "items": ITEM},
     "watch": {"type": "ARRAY", "items": {"type": "STRING"}}}, "required": ["view", "items"]}
 CAUSE = {"type": "OBJECT", "properties": {
     "title": {"type": "STRING"}, "weight": {"type": "INTEGER"}, "explain": {"type": "STRING"},
-    "evidence": {"type": "ARRAY", "items": {"type": "STRING"}}}, "required": ["title", "weight", "explain", "evidence"]}
+    "evidence": {"type": "ARRAY", "items": {"type": "STRING"}}, "chain": CHAIN}, "required": ["title", "weight", "explain", "evidence", "chain"]}
 MKT = {"type": "OBJECT", "properties": {
     "direction": {"type": "STRING", "enum": ["上昇", "下落", "もみ合い"]},
     "summary": {"type": "STRING"}, "causes": {"type": "ARRAY", "items": CAUSE}},
@@ -859,7 +1103,8 @@ MKT = {"type": "OBJECT", "properties": {
 CHIEF_SCHEMA = {"type": "OBJECT", "properties": {
     "headline": {"type": "STRING"}, "us": MKT, "jp": MKT,
     "sectors": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
-        "name": {"type": "STRING"}, "why": {"type": "STRING"}}, "required": ["name", "why"]}},
+        "name": {"type": "STRING"}, "why": {"type": "STRING"}, "root": {"type": "STRING"}}, "required": ["name", "why", "root"]}},
+    "root_cause": {"type": "OBJECT", "properties": {"summary": {"type": "STRING"}, "chain": CHAIN}, "required": ["summary", "chain"]},
     "debate": {"type": "STRING"},
     "outlook_short": {"type": "STRING"}, "outlook_mid": {"type": "STRING"},
     "watch": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
@@ -872,7 +1117,7 @@ CHIEF_SCHEMA = {"type": "OBJECT", "properties": {
         "stance": {"type": "STRING"}, "do": {"type": "ARRAY", "items": {"type": "STRING"}},
         "avoid": {"type": "ARRAY", "items": {"type": "STRING"}}, "risk": {"type": "STRING"}},
         "required": ["stance", "do", "avoid", "risk"]}},
-    "required": ["headline", "us", "jp", "debate", "outlook_short", "outlook_mid", "change", "confidence", "lesson",
+    "required": ["headline", "us", "jp", "root_cause", "debate", "outlook_short", "outlook_mid", "change", "confidence", "lesson",
                  "supply_demand", "playbook"]}
 REVIEW_SCHEMA = {"type": "OBJECT", "properties": {
     "ok": {"type": "BOOLEAN"},
@@ -917,11 +1162,11 @@ BULL = ("bull", "強気筋(トレンドフォロワーとオプション・需�
         "政策の追い風を探し、弱気筋の主張のどこが弱いかを具体的に書く。items の impact は主に上昇要因。")
 
 
-def _ask(prompt, schema, label, tries=2):
+def _ask(prompt, schema, label, tries=2, models=None):
     """Geminiに聞いてJSONを返す。JSONとして読めない応答(長すぎて途中で切れた等)は1回だけ聞き直す"""
     eb = _eb()
     for i in range(tries):
-        text = eb._call_gemini(prompt, schema, label, models=DEEP_MODELS)
+        text = eb._call_gemini(prompt, schema, label, models=models or DEEP_MODELS)
         data = eb._loads_loose(text) if text else None
         if isinstance(data, dict):
             return data
@@ -932,7 +1177,8 @@ def _ask(prompt, schema, label, tries=2):
 def _analyst_prompt(role, data_txt, news_txt, prior):
     _, name, task = role
     p = COMMON + f"\nあなたの役割: {name}\n課題: {task}\n\n出力(JSON): view=この役割としての結論を2〜4文、" \
-        "items=原因や論点を3〜5個(title 25字以内、explain 120〜220字で仕組みまで、impact、confidence、evidence)、watch=今後の注目点を2〜3個\n"
+        "items=原因や論点を3〜5個(title 25字以内、explain 120〜220字で仕組みまで、impact、confidence、evidence、" \
+        "chain=構造分析の原則に従った因果の段を3〜5段。最後は根本の原因)、watch=今後の注目点を2〜3個\n"
     if prior:
         p += "\n■ほかのアナリストの分析\n" + prior + "\n"
     return p + "\n■データ\n" + data_txt + "\n\n■ニュース\n" + news_txt
@@ -952,16 +1198,20 @@ def _chief_prompt(data_txt, news_txt, passes, rules, issues=None, draft=None):
 データでいちばん裏付けのある説明を選び、チームの最終的な見解をまとめる。意見が割れる点は、どちらがデータで優勢かを判定する。
 出力(JSON):
 - headline: 今日の相場を一言で(40字以内)
-- us / jp: direction(直近5日の方向)、summary(なぜそう動いたかを3〜5文)、causes(主因を3〜4個。weightは説明できる割合の目安で合計100、explainは仕組みまで120〜200字、evidence)
-- sectors: 大きく動いた業種を米日あわせて4〜6個、name と why(なぜその業種が買われた・売られたか、80〜140字)
+- root_cause: 今日の相場の根本の原因。summary(2〜3文。データの『動きの型』を踏まえ、なぜその型の動きが起きたのかまで)と
+  chain(現象→きっかけ→下地→増幅→根本の原因の5段。各段にevidenceとstatus)
+- us / jp: direction(直近5日の方向)、summary(なぜそう動いたかを3〜5文)、causes(主因を3〜4個。weightは説明できる割合の目安で合計100、
+  explainは仕組みまで120〜200字、evidence、chain=因果の段を3〜5段で根本の原因まで)
+- sectors: 大きく動いた業種を米日あわせて4〜6個、name と why(なぜその業種が買われた・売られたか、80〜140字)と root(その根本の原因を1文)
 - debate: 弱気筋と強気筋のどちらがデータで優勢か、その理由(3〜4文)
-- outlook_short: 数日〜2週間の見通し(3〜4文、条件つきで)
-- outlook_mid: 1〜3か月の見通し(3〜4文、条件つきで)
+- outlook_short: 数日〜2週間の見通し(3〜4文、条件つきで)。根本の原因が続くか・解消するかに結び付けて書く
+- outlook_mid: 1〜3か月の見通し(3〜4文、条件つきで)。根本の原因が続くか・解消するかに結び付けて書く
 - watch: これから注目する指標・出来事と、その理由(3〜4個)
 - change: この見解が変わる条件(3〜4個)
 - confidence: 見解の確信度
 - lesson: 今日の相場から学べる一般的な原則(2〜3文)
-- supply_demand: 需給の現状の結論(4〜6文)。だれが売り・だれが買っているか、売りは出尽くしに近いか、持ち高の偏り、今後の需給の出来事
+- supply_demand: 需給の現状の結論(4〜6文)。だれが売り・だれが買っているかに加え、「なぜその主体は売らざるを得ない(買える)のか」
+  (含み損・追証・変動率の上昇による機械的な縮小・リバランスなど)まで書く。売りは出尽くしに近いか、持ち高の偏り、今後の需給の出来事
 - playbook: プロのトレーダーとしての今の戦い方。stance(投資比率の考え方を2〜3文。規則の判定はプログラムが別に表示するので
   言い換えて書かない。判定(投資・待機)と違うことを書かない。判定と注意の度合いを踏まえた行動の考え方を書く)、
   do(今の相場で機能しやすい行動を3〜4個)、avoid(避けるべき行動を2〜3個)、risk(損切りと考えを変える価格の目安を2〜3文)
@@ -982,6 +1232,8 @@ def _review_prompt(data_txt, news_txt, draft):
 「売り越しが増加」と書く等。大口の持ち高はデータの文言と一字一句照らす)、規則の判定(投資・待機)と違う記述、
 表やニュースに無い数字、根拠の無い断定、ニュースに無い出来事、
 米国と日本の取り違え、weightの合計が100でない、見通しが条件なしの断定になっている、
+因果の段(chain)が「リスク回避」「過熱感」「懸念」などの名前で止まり、なぜそれが起きたのかまで届いていない、
+データで確かめられない段の確かさ(status)を「データで確認」にしている、『動きの型』の証拠と食い違う説明、
 データの先頭の『事実の確認』と逆の方向の記述(金利が下がったのに「金利上昇」、円高なのに「円安で」など)、
 規則の判定と違う記述(判定が「投資」なのに「待機が推奨」と書く等)、米国債先物の持ち高を金利の方向への賭けとして書くこと。
 問題がなければ ok=true・issues=[]。問題があれば ok=false で、場所(where)・問題(problem)・直し方(fix)を具体的に。
@@ -993,7 +1245,7 @@ issues は重要なものから最大10件まで(細かい言い回しの好み�
 _NUM = re.compile(r"([+\-−▲]?)(\d+(?:,\d{3})*(?:\.\d+)?)\s*(%|％|bp|ベーシス|ポイント|pt|円|ドル|倍)")
 
 
-def allowed_numbers(feat, sigs, macro, news_texts, contrib=None, movers=None, flow=None, strat=None):
+def allowed_numbers(feat, sigs, macro, news_texts, contrib=None, movers=None, flow=None, strat=None, st=None):
     """単位ごとに、使ってよい数字の集合。{"pct": [...], "bp": [...], "x": [...], "lvl": [...]}
     %はデータの騰落率と利回りの水準、bpは利回りの変化、倍はz値、価格(円・ドル・ポイント)は水準。ニュースの数字はどの単位でも使ってよい"""
     vals = {"pct": set(), "bp": set(), "x": set(), "lvl": set()}
@@ -1023,9 +1275,9 @@ def allowed_numbers(feat, sigs, macro, news_texts, contrib=None, movers=None, fl
         add("pct", m.get("chg"))
         add("lvl", m.get("cap_b"))
         add("lvl", (m.get("cap_b") or 0) * 10)
-    if flow or strat:
+    if flow or strat or st:
         import flows
-        for x in flows.numbers(flow, strat):
+        for x in flows.numbers(flow, strat) + flows.numbers(st, {}):
             for kind in vals:
                 add(kind, x)
     for t in list((macro or {}).values()) + list(news_texts or []):
@@ -1079,8 +1331,21 @@ def strip_codes(text):
     return re.sub(r"[（(]\s*[)）]", "", t)
 
 
+RULE_POS = {}   # 市場の名前 → 規則の判定(100=投資、0=待機)。run_ai がその日のデータで埋める
+_RULE_CLAIM = re.compile(r"(待機|投資)(?:の)?(?:シグナル|サイン|判定)?(?:が|に)?(?:点灯|出(?:た|ている|ています|ました)|切り替わ(?:った|りました)|になった|になっている|が推奨)")
+
+
+def rule_conflict(sentence):
+    """規則の判定(プログラムの判定)と食い違う断定の文か。「可能性」「変わる」と将来の話として書いた文はよい"""
+    m = _RULE_CLAIM.search(sentence)
+    if not m or not RULE_POS or re.search(r"可能性|かもしれ|見込み|恐れ|場合", sentence):
+        return False
+    said = 100 if m.group(1) == "投資" else 0
+    return all(v != said for v in RULE_POS.values())
+
+
 def scrub(text, allowed, dropped):
-    """記号を取り除き、確かめられない数字を含む文を捨てる"""
+    """記号を取り除き、確かめられない数字を含む文と、規則の判定と食い違う文を捨てる"""
     if not isinstance(text, str):
         return ""
     text = strip_codes(text)
@@ -1092,12 +1357,41 @@ def scrub(text, allowed, dropped):
         if bad:
             dropped.append(f"{'・'.join(bad)}: {s.strip()[:40]}")
             continue
+        if rule_conflict(s):
+            dropped.append(f"規則の判定と食い違う: {s.strip()[:40]}")
+            continue
         keep.append(s)
     return "".join(keep).strip()
 
 
 def _evid(ev, known):
     return [e for e in (ev or []) if isinstance(e, str) and (e in known or re.fullmatch(r"N\d{1,2}", e))]
+
+
+CHAIN_KINDS = ["現象", "きっかけ", "下地", "増幅", "根本の原因"]
+CHAIN_STATUS = ("データで確認", "ニュースで確認", "推測")
+
+
+def clean_chain(chain, allowed, known, dropped):
+    """因果の段を確かめる: 数字の照合、根拠の記号、段の種類と確かさ。根拠の無い「データで確認」は「推測」に直す"""
+    out = []
+    for st in (chain or [])[:6]:
+        if not isinstance(st, dict):
+            continue
+        text = scrub(st.get("text"), allowed, dropped)
+        if not text:
+            continue
+        ev = _evid(st.get("evidence"), known)
+        status = st.get("status") if st.get("status") in CHAIN_STATUS else "推測"
+        if status == "データで確認" and not [e for e in ev if not re.fullmatch(r"N\d{1,2}", e)]:
+            status = "推測"     # データの根拠を挙げていない段は、データで確認したとは言えない
+        if status == "ニュースで確認" and not [e for e in ev if re.fullmatch(r"N\d{1,2}", e)]:
+            status = "推測"
+        kind = st.get("kind") if st.get("kind") in CHAIN_KINDS else "下地"
+        if kind in ("下地", "増幅") and status == "データで確認" and not re.search(r"\d", text):
+            status = "推測"     # 数字の無い下地・増幅は、データで確かめた段とは扱わない
+        out.append({"kind": kind, "text": text, "evidence": ev, "status": status})
+    return out
 
 
 def clean_items(items, allowed, known, dropped, limit=6):
@@ -1108,7 +1402,8 @@ def clean_items(items, allowed, known, dropped, limit=6):
         title, explain = scrub(it.get("title"), allowed, dropped), scrub(it.get("explain"), allowed, dropped)
         if not title or not explain:
             continue
-        x = {"title": title, "explain": explain, "evidence": _evid(it.get("evidence"), known)}
+        x = {"title": title, "explain": explain, "evidence": _evid(it.get("evidence"), known),
+             "chain": clean_chain(it.get("chain"), allowed, known, dropped)}
         for k in ("impact", "confidence"):
             if it.get(k):
                 x[k] = it[k]
@@ -1127,7 +1422,7 @@ def clean_chief(c, allowed, known, dropped):
             if t and e:
                 w = x.get("weight")
                 causes.append({"title": t, "explain": e, "weight": int(w) if isinstance(w, (int, float)) and 0 < w <= 100 else 0,
-                               "evidence": _evid(x.get("evidence"), known)})
+                               "evidence": _evid(x.get("evidence"), known), "chain": clean_chain(x.get("chain"), allowed, known, dropped)})
         tot = sum(x["weight"] for x in causes)
         for x in causes:   # 捨てた主因があっても、残りの合計が100になるよう直す
             x["weight"] = round(x["weight"] * 100 / tot) if tot else round(100 / len(causes))
@@ -1137,7 +1432,10 @@ def clean_chief(c, allowed, known, dropped):
     s = lambda k: scrub(c.get(k), allowed, dropped)   # noqa: E731
     return {
         "headline": s("headline"), "us": mkt(c.get("us")), "jp": mkt(c.get("jp")),
-        "sectors": [{"name": str(x.get("name", ""))[:30], "why": scrub(x.get("why"), allowed, dropped)}
+        "root_cause": {"summary": scrub((c.get("root_cause") or {}).get("summary"), allowed, dropped),
+                       "chain": clean_chain((c.get("root_cause") or {}).get("chain"), allowed, known, dropped)},
+        "sectors": [{"name": str(x.get("name", ""))[:30], "why": scrub(x.get("why"), allowed, dropped),
+                     "root": scrub(x.get("root"), allowed, dropped)}
                     for x in (c.get("sectors") or [])[:8] if isinstance(x, dict) and x.get("name")],
         "debate": s("debate"), "outlook_short": s("outlook_short"), "outlook_mid": s("outlook_mid"),
         "watch": [{"what": scrub(x.get("what"), allowed, dropped), "why": scrub(x.get("why"), allowed, dropped)}
@@ -1153,7 +1451,7 @@ def clean_chief(c, allowed, known, dropped):
     }
 
 
-def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=None, flow=None, strat=None):
+def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=None, flow=None, strat=None, st=None):
     """役割の違うアナリストを順に重ね、チーフが統合、査読、必要なら改訂。失敗した段は飛ばして続ける"""
     eb = _eb()
     eb._gemini_reset(DEEP_BUDGET)
@@ -1163,11 +1461,13 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
     labels.update({k: f["name"] for k, f in feat.items()})
     import flows
     RULE_LINES[:] = [flows.rule_sentence(v) for v in (strat or {}).values()]
+    RULE_POS.clear()
+    RULE_POS.update({v["name"]: (v.get("rule") or {}).get("position") for v in (strat or {}).values() if v.get("rule")})
     CODE_NAMES.clear()
     CODE_NAMES.update({k: v for k, v in labels.items() if k not in ("SPY",)})   # SPYはそのままでも通じる
-    data_txt = data_block(feat, sigs, macro, contrib, movers, flow, strat)
+    data_txt = data_block(feat, sigs, macro, contrib, movers, flow, strat, st)
     news_txt, news_texts = news_block(out, saved_news)
-    allowed = allowed_numbers(feat, sigs, macro, news_texts, contrib, movers, flow, strat)
+    allowed = allowed_numbers(feat, sigs, macro, news_texts, contrib, movers, flow, strat, st)
     known = set(feat) | {s["id"] for s in sigs} | {s for s, _ in HEAVY_US + HEAVY_JP} | {m["sym"] for m in movers or []} | set(macro or {})
     dropped, errors, steps = [], [], []
     passes = {}
@@ -1187,22 +1487,31 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
             print(f"  [WARN] 深掘り分析の「{name}」に失敗: {e}")
             if "時間の上限" in str(e):
                 break
+            if "1日の上限" in str(e) and len(passes) >= 3:
+                print("  深掘り分析: Geminiの1日の上限に達したため、残りの役割を飛ばしてチーフの統合へ進む")
+                break
+            if "429" in str(e) and len(passes) >= 3:
+                # 1分あたりの上限: 残りの役割は飛ばし、少し待ってからチーフの統合に回す(統合がいちばん大事)
+                print("  深掘り分析: Geminiの上限に達したため、残りの役割を飛ばし、60秒待ってチーフの統合へ進む")
+                if eb._gemini_left() > CHIEF_RESERVE + 60:
+                    time.sleep(60)
+                break
     if len(passes) < 3:
         return {"ok": False, "passes": passes, "errors": errors, "steps": steps, "dropped": dropped}
     chief = None
     try:
-        draft = _ask(_chief_prompt(data_txt, news_txt, passes, rules), CHIEF_SCHEMA, "深掘り:チーフ")
+        draft = _ask(_chief_prompt(data_txt, news_txt, passes, rules), CHIEF_SCHEMA, "深掘り:チーフ", models=CHIEF_MODELS)
         steps.append("チーフアナリスト")
         chief = draft
         try:
             if eb._gemini_left() < REVIEW_MIN:
                 raise RuntimeError("残り時間が少ないため査読を飛ばした")
-            rv = _ask(_review_prompt(data_txt, news_txt, draft), REVIEW_SCHEMA, "深掘り:査読")
+            rv = _ask(_review_prompt(data_txt, news_txt, draft), REVIEW_SCHEMA, "深掘り:査読", models=CHIEF_MODELS)
             steps.append("査読")
             issues = [i for i in (rv.get("issues") or []) if isinstance(i, dict) and i.get("problem")]
             if issues and not rv.get("ok"):
                 print(f"  査読の指摘 {len(issues)}件 → チーフが改訂")
-                chief = _ask(_chief_prompt(data_txt, news_txt, passes, rules, issues[:8], draft), CHIEF_SCHEMA, "深掘り:改訂")
+                chief = _ask(_chief_prompt(data_txt, news_txt, passes, rules, issues[:8], draft), CHIEF_SCHEMA, "深掘り:改訂", models=CHIEF_MODELS)
                 steps.append(f"改訂(指摘{len(issues)}件)")
         except Exception as e:   # 査読・改訂の失敗は、チーフの案をそのまま使う
             errors.append(f"査読・改訂: {type(e).__name__}: {e}")
@@ -1228,6 +1537,11 @@ def build_analysis(fetched, market=None, out=None, ai=True, now=None, saved_news
     contrib = {"us": contributions(rows, "SPY", "RSP", HEAVY_US, q.get("stale")),
                "jp": contributions(rows, "^N225", "1306.T", HEAVY_JP, q.get("stale"))}
     movers = fetched.get("movers") or []
+    try:
+        st = structure(rows, feat, sigs)
+    except Exception as e:   # 構造の材料が計算できなくても、ほかの分析は出す
+        print(f"  [WARN] 構造の材料の計算に失敗: {type(e).__name__}: {e}")
+        st = {}
     rules = {"d1": rule_drivers(feat, sigs, 1, contrib), "d5": rule_drivers(feat, sigs, 5, contrib),
              "d20": rule_drivers(feat, sigs, 20)}
     macro = macro_lines(market)
@@ -1239,9 +1553,9 @@ def build_analysis(fetched, market=None, out=None, ai=True, now=None, saved_news
         print(f"  [WARN] 需給と戦略の計算に失敗: {type(e).__name__}: {e}")
     res = {"updated": now.isoformat(timespec="minutes"), "source": "Yahoo Finance(各ETF・指数)、FRED、ニュース要約",
            "asof": {"us": _f(feat, "SPY", "date"), "jp": _f(feat, "1306.T", "date")}, "quality": q,
-           "features": feat, "signals": sigs, "contrib": contrib, "movers": movers, "flow": flow, "strategy": strat, "breadth": {"us": breadth(feat, "us"), "jp": breadth(feat, "jp")},
+           "features": feat, "signals": sigs, "contrib": contrib, "movers": movers, "flow": flow, "strategy": strat, "structure": st, "breadth": {"us": breadth(feat, "us"), "jp": breadth(feat, "jp")},
            "rules": rules}
-    res["ai"] = run_ai(feat, sigs, rules["d5"] + rules["d1"][:2], macro, out, contrib, movers, saved_news, flow, strat) if ai else {"ok": False, "errors": ["AIを使わない設定"]}
+    res["ai"] = run_ai(feat, sigs, rules["d5"] + rules["d1"][:2], macro, out, contrib, movers, saved_news, flow, strat, st) if ai else {"ok": False, "errors": ["AIを使わない設定"]}
     return res
 
 

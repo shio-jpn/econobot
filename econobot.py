@@ -356,6 +356,25 @@ def _gemini_left():
     return GEMINI_BUDGET - (time.monotonic() - _GEMINI_CLOCK["start"])
 
 
+_EXHAUSTED = set()   # 1日の上限に達したモデル(この実行の間は使わない)
+
+
+def _retry_delay(e, cap=65):
+    """429の応答に含まれる待ち時間(retryDelay "41s")を秒で返す。読めない時は0。
+    1日の上限(PerDay)や、待ち時間が長すぎる時は -1(待っても無駄なので、このモデルは諦める)"""
+    try:
+        body = e.read().decode("utf-8", "ignore")
+    except Exception:
+        return 0
+    if "PerDay" in body:
+        return -1
+    m = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', body)
+    if not m:
+        return 0
+    d = int(float(m.group(1))) + 2
+    return -1 if d > 120 else min(cap, d)
+
+
 def _gemini_reset(budget=None):
     """Geminiに使う時間の数え直し。投稿の後に動く深掘り分析は、要約とは別の上限で数える(待ち時間を含めないため)"""
     global GEMINI_BUDGET
@@ -374,6 +393,9 @@ def _call_gemini(prompt, schema, label, models=None):
     全モデルで失敗したら RuntimeError(各モデルの最後の失敗の理由つき。失敗通知で原因が分かるように)"""
     fails = []
     for model in (models or GEMINI_MODELS):
+        if model in _EXHAUSTED:
+            fails.append(f"{model}: 1日の上限")
+            continue
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models"
             f"/{model}:generateContent?key={GEMINI_API_KEY}"
@@ -415,8 +437,16 @@ def _call_gemini(prompt, schema, label, models=None):
                     _SCHEMA_REJECTED["value"] = True
                     use_schema = False
                     continue  # attemptは増やさない(400の送り直しは1回だけ)
-                if e.code in (503, 429) and attempt < 2 and _gemini_left() > 15 * (attempt + 1) + 20:
-                    wait = 15 * (attempt + 1)
+                wait = 15 * (attempt + 1)
+                if e.code == 429:
+                    d = _retry_delay(e)
+                    if d < 0:   # 1日の上限: 待っても無駄。このモデルはこの実行の間使わない
+                        print(f"  {model} は1日の上限に達した(HTTP 429)。この実行では使わず、次のモデルへ...")
+                        _EXHAUSTED.add(model)
+                        fails.append(f"{model}: HTTP 429(1日の上限)")
+                        break
+                    wait = max(wait, d)   # Geminiが示す待ち時間(1分あたりの上限に達した時)に従う
+                if e.code in (503, 429) and attempt < 2 and _gemini_left() > wait + 20:
                     print(f"  HTTP {e.code} → {wait}秒後にリトライ ({attempt+1}/3)...")
                     time.sleep(wait)
                     attempt += 1

@@ -432,5 +432,125 @@ class FactsTest(unittest.TestCase):
         self.assertIn("1日 -0.29%(下落)", t)
 
 
+
+class StructureTest(unittest.TestCase):
+    def test_clean_chain_downgrades_unsupported_status(self):
+        dropped = []
+        ch = dd.clean_chain([
+            {"kind": "現象", "text": "半導体株が急落した。", "evidence": ["SMH"], "status": "データで確認"},
+            {"kind": "きっかけ", "text": "AI投資の採算への疑問が報じられた。", "evidence": [], "status": "ニュースで確認"},
+            {"kind": "下地", "text": "先導役は高値まで98%上げていた。", "evidence": ["SMH"], "status": "データで確認"},
+            {"kind": "謎", "text": "持ち高が偏っていた。", "evidence": ["N3"], "status": "データで確認"},
+        ], [98.0], {"SMH"}, dropped)
+        self.assertEqual([c["status"] for c in ch], ["データで確認", "推測", "データで確認", "推測"])
+        self.assertEqual(ch[3]["kind"], "下地")          # 知らない段の種類は「下地」に
+
+    def test_move_types_unwind_and_risk_off(self):
+        rows = base_rows(**{"SPY": series(last=(5, -0.04)), "SMH": series(last=(5, -0.15)), "TLT": series(last=(5, 0.03)),
+                            "^TNX": yields(last_bp=(5, -25)), "HYG": series(last=(5, -0.03))})
+        feat = dd.features(rows)
+        sigs = dd.signals(rows)
+        st = dd.structure(rows, feat, sigs)
+        types = {t["type"]: t for t in st["types"]}
+        self.assertIn("成長不安・リスク回避", types)
+        self.assertIn("過熱の巻き戻し(ポジション解消)", types)
+        self.assertEqual(sum(t["share"] for t in st["types"]), 100)
+        txt = dd.structure_text(st)
+        self.assertIn("動きの型", txt)
+        self.assertIn("セクターどうしの相関", txt)
+
+
+
+class DepthGuardTest(unittest.TestCase):
+    def test_vague_steps_become_guess(self):
+        ch = dd.clean_chain([{"kind": "下地", "text": "AIブームへの過度な期待があった。", "evidence": ["SMH"], "status": "データで確認"},
+                             {"kind": "下地", "text": "半導体は高値まで98%上げていた。", "evidence": ["SMH"], "status": "データで確認"}],
+                            [98.0], {"SMH"}, [])
+        self.assertEqual([c["status"] for c in ch], ["推測", "データで確認"])
+
+    def test_rule_conflict_sentence_dropped(self):
+        with mock.patch.dict(dd.RULE_POS, {"S&P 500": 100, "日経平均": 100}, clear=True):
+            dropped = []
+            t = dd.scrub("S&P 500は200日線を下回り、待機シグナルが点灯しています。月末に待機に変わる可能性があります。", [200.0], dropped)
+            self.assertEqual(t, "月末に待機に変わる可能性があります。")
+            self.assertTrue(dropped[0].startswith("規則の判定と食い違う"))
+
+    def test_chain_material_uses_numbers(self):
+        st = {"leaders": [{"sym": "SMH", "name": "半導体", "run_to_high": 97.8, "from_high": -36.8}],
+              "corr": {"us_20": 0.51, "us_prev": 0.15, "jp_20": 0.54, "jp_prev": 0.29},
+              "vol": {"spy_rv20": 31.6, "spy_rv120": 16.8}, "crosses": {"SPY": [{"ma": 200, "dir": "下抜け", "date": "2026-11-19"}]},
+              "havens": {"GC=F": {"c20": -12.73}, "TLT": {"c5": 2.52}}}
+        cm = dd.chain_material(st)
+        txt = " ".join(t for _, t, _ in cm)
+        for want in ("+98%", "0.15→0.51", "16.8%→31.6%", "200日線", "-12.73%", "+2.52%"):
+            self.assertIn(want, txt)
+
+
+
+class RateLimitTest(unittest.TestCase):
+    def test_retry_delay_parsed(self):
+        import io
+        import urllib.error
+        body = b'{"error": {"code": 429, "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "41s"}]}}'
+        e = urllib.error.HTTPError("u", 429, "Too Many", {}, io.BytesIO(body))
+        self.assertEqual(eb._retry_delay(e), 43)
+        self.assertEqual(eb._retry_delay(urllib.error.HTTPError("u", 429, "x", {}, io.BytesIO(b"{}"))), 0)
+
+    def test_429_skips_rest_and_goes_to_chief(self):
+        rows = base_rows()
+        feat, sigs = dd.features(rows), dd.signals(rows)
+        call, calls = fake_ai(reviews_ok=True, fail=(dd.FLOW[1],))
+        def call429(prompt, schema, label, models=None):
+            if dd.FLOW[1] in label:
+                calls.append(label)
+                raise RuntimeError("全モデルで失敗しました(gemini-2.5-flash: HTTP 429 / gemini-2.5-flash-lite: HTTP 429)")
+            return call(prompt, schema, label, models)
+        with mock.patch.object(eb, "_call_gemini", call429), mock.patch.object(dd.time, "sleep") as sl:
+            r = dd.run_ai(feat, sigs, [], {}, {})
+        self.assertTrue(r["ok"])                          # チーフの統合はできた
+        self.assertNotIn("深掘り:" + dd.BEAR[1], calls)   # 残りの役割は飛ばした
+        self.assertIn("深掘り:チーフ", calls)
+        sl.assert_called_with(60)
+
+
+
+class DailyQuotaTest(unittest.TestCase):
+    def test_per_day_quota_skips_model_without_waiting(self):
+        import io
+        import urllib.error
+        calls, sleeps = [], []
+        body = b'{"error": {"code": 429, "details": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}, {"retryDelay": "3600s"}]}}'
+
+        def fake_urlopen(req, timeout=None):
+            model = req.full_url.split("/models/")[1].split(":")[0]
+            calls.append(model)
+            if model == "gemini-2.5-flash":
+                raise urllib.error.HTTPError(req.full_url, 429, "Too Many", {}, io.BytesIO(body))
+            return io.BytesIO(json.dumps({"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}).encode())
+        eb._EXHAUSTED.clear()
+        eb._gemini_reset(600)
+        try:
+            with mock.patch.object(eb.urllib.request, "urlopen", side_effect=lambda r, timeout=None: _Ctx(fake_urlopen(r))), \
+                 mock.patch.object(eb.time, "sleep", side_effect=sleeps.append):
+                eb._call_gemini("p", None, "t", models=["gemini-2.5-flash", "gemini-2.5-flash-lite"])
+                eb._call_gemini("p", None, "t", models=["gemini-2.5-flash", "gemini-2.5-flash-lite"])
+        finally:
+            eb._EXHAUSTED.clear()
+        self.assertEqual(sleeps, [])                                   # 1日の上限では待たない
+        self.assertEqual(calls.count("gemini-2.5-flash"), 1)          # 2回目は上限のモデルを使わない
+        self.assertEqual(calls.count("gemini-2.5-flash-lite"), 2)
+
+
+class _Ctx:
+    def __init__(self, f):
+        self.f = f
+
+    def __enter__(self):
+        return self.f
+
+    def __exit__(self, *a):
+        return False
+
+
 if __name__ == "__main__":
     unittest.main()
