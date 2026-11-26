@@ -1,0 +1,199 @@
+/* データの整合性と検索の動作確認。実行: node learn/tests/check.js */
+'use strict';
+var fs = require('fs'), path = require('path'), vm = require('vm'), assert = require('assert');
+var root = path.join(__dirname, '..');
+var store = {};
+var noop = function () {};
+var el = function () { return { addEventListener: noop, dataset: {}, style: {}, classList: { add: noop, toggle: noop, remove: noop }, querySelectorAll: function () { return []; }, querySelector: function () { return null; }, scrollIntoView: noop, focus: noop, set innerHTML(v) {}, value: '' }; };
+var win = { addEventListener: noop, scrollTo: noop, localStorage: { getItem: function (k) { return store[k] || null; }, setItem: function (k, v) { store[k] = v; } } };
+var ctx = { window: win, document: { querySelector: el, querySelectorAll: function () { return []; }, addEventListener: noop, documentElement: { dataset: {} }, activeElement: { tagName: 'BODY' } }, location: { hash: '' }, localStorage: win.localStorage, setTimeout: setTimeout, clearTimeout: clearTimeout, console: console };
+vm.createContext(ctx);
+var html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+html.match(/<script src="([^"]+)"/g).map(function (s) { return s.slice(13, -1); }).forEach(function (f) {
+  vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), ctx, { filename: f });
+});
+var K = win.KABU, n = 0;
+function ok(name, fn) { fn(); n++; console.log('ok - ' + name); }
+
+var lessons = [].concat.apply([], K.stages.map(function (s) { return s.lessons; }));
+var ids = {}; lessons.forEach(function (l) { ids[l.id] = 1; });
+var charts = {}; K.charts.forEach(function (c) { charts[c.id] = c; });
+var terms = {}; K.glossary.forEach(function (g) { terms[g.name] = 1; });
+
+ok('アプリ本体が読み込める(章ごとの画面を組み立てられる)', function () { assert.strictEqual(typeof K.search, 'function'); assert.strictEqual(typeof K.renderSpark, 'function'); assert(K.renderSpark(K.labSeries, 300, 150, true).indexOf('NaN') < 0); });
+ok('レッスンのIDは重複せず、URLに使える文字だけ', function () {
+  assert.strictEqual(Object.keys(ids).length, lessons.length);
+  lessons.concat(K.charts, K.macro, K.traders, K.stages).forEach(function (x) { assert(/^[a-z0-9-]+$/.test(x.id), x.id); });
+});
+ok('全レッスンに本文と2問以上の確認問題(4択・解説つき)がある', function () {
+  lessons.forEach(function (l) {
+    assert(l.body.length > 300, l.id);
+    assert(l.quiz.length >= 2, l.id);
+    l.quiz.forEach(function (q) { assert.strictEqual(q.a.length, 4, l.id); assert(q.e, l.id); assert.strictEqual(new Set(q.a).size, 4, l.id + ' 選択肢の重複'); });
+  });
+});
+ok('応用・実戦レッスンが5つの章に入り、ケース演習は章にひもづく', function () {
+  ['macro', 'fundamentals', 'technical', 'risk', 'strategy'].forEach(function (id) {
+    var st = K.stages.filter(function (x) { return x.id === id; })[0];
+    assert(st.lessons.filter(function (l) { return l.lv; }).length >= 4, id);
+    assert(K.cases.filter(function (c) { return c.ch === id; }).length >= 4, id);
+  });
+  var seen = {};
+  K.cases.forEach(function (c) { assert(!seen[c.id] && /^c-[a-z-]+$/.test(c.id), c.id); seen[c.id] = 1; assert.strictEqual(new Set(c.a).size, 4, c.id); assert(c.e && c.q, c.id); });
+  lessons.forEach(function (l) { assert(!l.lv || ['応用', '実戦', 'プロ'].indexOf(l.lv) >= 0, l.id); });
+});
+ok('5つの章の基礎レッスン全てに「プロはここまで見る」の深掘りと追加問題がある', function () {
+  ['macro', 'fundamentals', 'technical', 'risk', 'strategy'].forEach(function (id) {
+    K.stages.filter(function (x) { return x.id === id; })[0].lessons.filter(function (l) { return !l.lv; }).forEach(function (l) {
+      assert(l.deep && l.body.indexOf('## プロはここまで見る') > 0, l.id);
+      assert(l.body.split('## プロはここまで見る')[1].length > 500, l.id + ' 深掘りが短い');
+    });
+  });
+  K.deepIds.forEach(function (id) { assert(ids[id], '存在しないレッスン: ' + id); });
+});
+ok('5つの章の基礎レッスン全てに「具体例で理解する」があり、追加レッスンが入っている', function () {
+  ['macro', 'fundamentals', 'technical', 'risk', 'strategy'].forEach(function (id) {
+    K.stages.filter(function (x) { return x.id === id; })[0].lessons.filter(function (l) { return !l.lv; }).forEach(function (l) {
+      assert(l.example && l.body.split('## 具体例で理解する')[1].length > 900, l.id + ' 具体例が無い/短い');
+    });
+  });
+  K.exampleIds.forEach(function (id) { assert(ids[id], '存在しないレッスン: ' + id); });
+  ['orders-advanced', 'derivatives', 'tax-practice', 'indicator-guide', 'sector-guide', 'disclosure-guide', 'bearish-patterns', 'shorting', 'screening-recipes'].forEach(function (id) {
+    var l = lessons.filter(function (x) { return x.id === id; })[0];
+    assert(l && l.body.length > 1800 && l.quiz.length >= 3, id);
+  });
+});
+ok('全レッスンがいずれかのトピックに入り、トピックの参照は全て存在する', function () {
+  var inTopic = {};
+  K.topics.forEach(function (t) {
+    assert(K.areas.some(function (a) { return a.id === t.area; }), t.id);
+    t.lessons.forEach(function (id) { assert(ids[id], t.id + ' -> ' + id); inTopic[id] = 1; });
+  });
+  lessons.forEach(function (l) { assert(inTopic[l.id], 'トピック未所属: ' + l.id); });
+  Object.keys(K.stageArea).forEach(function (st) { assert(K.stages.some(function (x) { return x.id === st; }), st); });
+});
+ok('プロのレッスンは十分な分量と3問以上の確認問題がある', function () {
+  var pro = lessons.filter(function (l) { return l.lv === 'プロ'; });
+  assert(pro.length >= 8);
+  pro.forEach(function (l) { assert(l.body.length > 2500 && l.quiz.length >= 3, l.id + " " + l.body.length); });
+});
+ok('チャート演習の隠す位置は、各チャートの長さの内側で、答えは上下のどちらか', function () {
+  Object.keys(K.drillCuts).forEach(function (id) {
+    var c = charts[id]; assert(c, id);
+    var d = K.buildSeries(c), cut = K.drillCuts[id][0];
+    assert(cut > 20 && cut < d.length - 5, id + ' cut');
+    assert(['up', 'down'].indexOf(K.drillCuts[id][1]) >= 0, id);
+    var after = d[d.length - 1].c - d[cut].c;
+    assert(K.drillCuts[id][1] === 'up' ? after > 0 : after < 0, id + ' 答えと値動きが逆');
+    assert(K.renderChart(c, { w: 400, data: d.slice(0, cut + 1), plain: true }).indexOf('NaN') < 0, id);
+  });
+});
+function series(n, f) { var r = []; for (var i = 0; i < n; i++) { var d = new Date(Date.UTC(2020, 0, 1) + i * 86400000); r.push([d.toISOString().slice(0, 10), f(i)]); } return r; }
+ok('市場データの分析: 上昇トレンドと下降トレンドを判定できる', function () {
+  var up = K.mkt.stats(series(400, function (i) { return 100 + i * 0.5 + Math.sin(i / 3); }), 'index');
+  assert.strictEqual(up.stage.id, 2); assert(up.sma50 > up.sma200 && up.rsi > 50 && up.fromHigh <= 0);
+  var dn = K.mkt.stats(series(400, function (i) { return 400 - i * 0.5 + Math.sin(i / 3); }), 'index');
+  assert.strictEqual(dn.stage.id, 4);
+  var y = K.mkt.stats(series(60, function (i) { return 4 + i * 0.01; }), 'yield');
+  assert(y.rate && Math.abs(y.d1 - 0.01) < 1e-9 && y.stage === null);
+  assert(K.mkt.describe(up).length >= 4);
+});
+ok('市場データの分析: 株・金利・VIXの組み合わせから値動きの型を当てはめる', function () {
+  function mk(eq, y10, vix) {
+    var s = function (base, last) { var r = series(260, function () { return base; }); r[r.length - 1] = [r[r.length - 1][0], last]; return r; };
+    return { updated: 'x', series: { SP500: { kind: 'index', rows: s(5000, 5000 * (1 + eq / 100)) }, DGS10: { kind: 'yield', rows: s(4, 4 + y10 / 100) }, VIXCLS: { kind: 'vol', rows: s(15, 15 + vix) } } };
+  }
+  assert.strictEqual(K.mkt.regime(mk(-1.5, 12, 2)).id, 'rate-up-down');
+  assert.strictEqual(K.mkt.regime(mk(-1.5, -10, 4)).id, 'risk-off');
+  assert.strictEqual(K.mkt.regime(mk(-1.0, 0, 1)).id, 'equity-specific');
+  assert.strictEqual(K.mkt.regime(mk(1.2, -8, -1)).id, 'easing-rally');
+  assert.strictEqual(K.mkt.regime(mk(1.2, 8, -1)).id, 'growth-rally');
+  assert.strictEqual(K.mkt.regime(mk(0.1, 0, 0)).id, 'quiet');
+  assert(K.mkt.context(mk(-1.5, 12, 2)).indexOf('S') >= 0);
+});
+ok('市場データの分析: 実データの演習は20営業日後の結果を正しく判定する', function () {
+  var rows = series(900, function (i) { return 100 * Math.pow(1.001, i); }), c = K.mkt.drillCase(rows, function () { return 0.5; });
+  assert(c && c.win.length === 241 && c.split === 220 && c.pre === 60 && c.ans === 'up' && c.ret > 2);
+  var b = K.mkt.baseRates(rows); assert(Math.abs(b.up - 100) < 1e-9);
+});
+ok('相場の見立て: 7つの視点を採点し、弱気の条件がそろえば下落寄り、強気がそろえば上昇寄りと判定する', function () {
+  function mk(trendUp, hyMove, y10Move, vixLast) {
+    var n = 400, px = series(n, function (i) { return trendUp ? 100 + i * 0.4 + Math.sin(i / 4) : 260 - i * 0.4 + Math.sin(i / 4); });
+    var flat = function (base, move, len) { var r = series(len || 300, function (i) { return base; }); for (var k = 1; k <= 21; k++) r[r.length - k][1] = base + move; return r; };
+    return { updated: 'x', series: { SP500: { name: 'S&P 500', kind: 'index', rows: px }, BAMLH0A0HYM2: { name: 'HY', kind: 'spread', rows: flat(4, hyMove) }, DGS10: { name: '10Y', kind: 'yield', rows: flat(4, y10Move) }, VIXCLS: { name: 'VIX', kind: 'vol', rows: flat(18, vixLast - 18) }, VXVCLS: { name: 'VIX3M', kind: 'vol', rows: flat(20, 0) }, NFCI: { name: 'NFCI', kind: 'gauge', rows: flat(-0.4, 0) }, WALCL: { name: 'FED', kind: 'liquidity', rows: flat(7000000, 0) }, DTWEXBGS: { name: 'USD', kind: 'fx', rows: flat(120, 0) } } };
+  }
+  var bad = K.mkt.outlook(mk(false, 0.6, 0.5, 18));
+  assert(bad.mid.score <= -2 && bad.mid.cls === 'down', JSON.stringify(bad.mid));
+  assert(bad.bear.length >= 3 && bad.scenarios.length === 3);
+  assert.strictEqual(bad.scenarios.reduce(function (a, x) { return a + x.p; }, 0), 100);
+  var good = K.mkt.outlook(mk(true, -0.3, 0, 18));
+  assert(good.mid.score >= 0.75 && good.mid.cls === 'up', JSON.stringify(good.mid));
+  var panic = K.mkt.outlook(mk(false, 0, 0, 30));
+  assert(panic.lenses.filter(function (l) { return l.id === 'options'; })[0].short >= 1.5, 'VIXの逆転は短期の反発材料');
+  assert(K.mkt.outlookContext(mk(true, 0, 0, 18), good).indexOf('採点結果') >= 0);
+  assert.strictEqual(K.mkt.outlook({ series: { SP500: { kind: 'index', rows: series(50, function (i) { return i; }) } } }), null);
+});
+ok('質問文から検索語を取り出す', function () {
+  var k = K.keywords('逆イールドが解消に向かう時、なぜ警戒が必要なの?');
+  assert(k.indexOf('逆イールド') >= 0, k.join(','));
+  assert(K.search(K.keywords('CPIが予想より高いと、どの業種が売られやすい?').join(' ')).hits.length > 0);
+});
+ok('本文が参照するチャートと図は存在する', function () {
+  lessons.forEach(function (l) {
+    (l.body.match(/\{chart:([\w-]+)\}/g) || []).forEach(function (m) { assert(charts[m.slice(7, -1)], l.id + ' ' + m); });
+    (l.body.match(/\{candles:([\w-]+)\}/g) || []).forEach(function (m) { assert(K.candleFigs[m.slice(9, -1)], l.id + ' ' + m); });
+  });
+});
+ok('因果マップとトレーダー研究の関連レッスンは存在する', function () {
+  K.macro.concat(K.traders).forEach(function (x) { x.lessons.forEach(function (id) { assert(ids[id], x.id + ' -> ' + id); }); });
+  K.macro.forEach(function (m) { m.effects.forEach(function (e) { assert(['up', 'down', 'mixed'].indexOf(e[1]) >= 0, m.id); }); });
+});
+ok('用語は重複せず、関連語はすべて用語集にある', function () {
+  assert.strictEqual(Object.keys(terms).length, K.glossary.length);
+  K.glossary.forEach(function (g) { g.rel.forEach(function (r) { assert(terms[r], g.name + ' -> ' + r); }); });
+});
+ok('チャートは描画でき、価格は常に正で高値>=安値', function () {
+  K.charts.concat([K.labSeries]).forEach(function (c) {
+    var d = K.buildSeries(c);
+    d.forEach(function (k) { assert(k.l > 0 && k.h >= Math.max(k.o, k.c) && k.l <= Math.min(k.o, k.c) && k.v > 0, c.id); });
+    (c.marks || []).concat(c.lines || []).forEach(function (m) { assert(m[0] < d.length, c.id + ' 注釈が範囲外'); });
+    var svg = K.renderChart(c, { w: 360 });
+    assert(svg.indexOf('NaN') < 0 && svg.indexOf('undefined') < 0, c.id);
+  });
+});
+function top(q, type) { var h = K.search(q).hits; if (type) h = h.filter(function (x) { return x.d.type === type; }); return h.length ? h[0].d.title : null; }
+ok('検索: 用語そのもの', function () { assert.strictEqual(top('CPI'), 'CPI'); assert.strictEqual(top('損切り'), '損切り'); });
+ok('検索: 別名・表記ゆれ(正式名称、全角、ひらがな、小文字)', function () {
+  assert.strictEqual(top('消費者物価指数'), 'CPI');
+  assert.strictEqual(top('ＣＰＩ'), 'CPI');
+  assert.strictEqual(top('cpi'), 'CPI');
+  assert.strictEqual(top('ろーそく足'), 'ローソク足');
+  assert.strictEqual(top('ロスカット'), '損切り');
+});
+ok('検索: 関連する内容(レッスン・因果マップ・チャート・人物)も出る', function () {
+  var h = K.search('金利').hits, types = {};
+  h.forEach(function (x) { types[x.d.type] = 1; });
+  assert(types.term && types.lesson && types.macro && types.trader);
+  assert.strictEqual(top('金利', 'lesson'), '金利と株価');
+  assert(/金利が下がる|金利が上がる/.test(top('金利', 'macro')));
+  assert.strictEqual(top('VCP', 'chart'), 'VCP(ボラティリティ収縮パターン)');
+  assert.strictEqual(top('片山', 'trader'), '片山 晃');
+  assert.strictEqual(top('テスタ', 'trader'), 'テスタ');
+  assert(K.search('消費者物価指数').hits.some(function (x) { return x.d.type === 'macro' && /CPI/.test(x.d.title); }));
+});
+ok('検索: 複数語は両方を含むものに絞り、該当なしは空', function () {
+  assert(/円安/.test(top('円安 輸出', 'macro')));
+  assert.strictEqual(K.search('zzzqqq').hits.length, 0);
+  assert.strictEqual(K.search('   ').hits.length, 0);
+});
+ok('ポジションサイズ: 日本株は100株単位に切り捨て、米国株は為替換算', function () {
+  var jp = K.calcSize({ mkt: 'jp', cap: 3000000, risk: 1, entry: 2000, stop: 1880 });
+  assert.strictEqual(jp.shares, 200); assert.strictEqual(jp.loss, 24000); assert.strictEqual(jp.cost, 400000);
+  var us = K.calcSize({ mkt: 'us', cap: 3000000, risk: 1, entry: 100, stop: 94, fx: 150 });
+  assert.strictEqual(us.shares, 33); assert.strictEqual(us.loss, 33 * 6 * 150);
+});
+ok('期待値の計算', function () {
+  var r = K.simulate({ win: 35, rr: 4, risk: 1, n: 50, paths: 20 }, Math.random);
+  assert(Math.abs(r.exp - 0.75) < 1e-9); assert.strictEqual(r.med.length, 51);
+});
+console.log('\n' + n + '件のチェックに合格。レッスン ' + lessons.length + ' / 問題 ' + lessons.reduce(function (a, l) { return a + l.quiz.length; }, 0) + ' / 用語 ' + K.glossary.length + ' / 因果マップ ' + K.macro.length + ' / チャート ' + K.charts.length + ' / 人物 ' + K.traders.length + ' / ケース ' + K.cases.length);

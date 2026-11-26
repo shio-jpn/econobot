@@ -2878,6 +2878,69 @@ def record_posted(day, when, trigger, note=""):
 
 
 # ========================================
+# 5c. 学習アプリ(learn/)向けの市場データ(2026-11追加)
+#     アプリの「今日の相場」「チャート演習」が読む。失敗してもニュースの配信は止めない
+# ========================================
+LEARN_MARKET_PATH = "learn/data/market.json"
+LEARN_SERIES = [
+    # (FRED系列, 表示名, 種類, 取得する日数)  指数と為替は演習用に約10年分
+    ("SP500", "S&P 500", "index", 3700),
+    ("NASDAQCOM", "ナスダック総合", "index", 3700),
+    ("DJIA", "ダウ平均", "index", 3700),
+    ("NIKKEI225", "日経平均", "index", 3700),
+    ("DGS10", "米10年債利回り", "yield", 800),
+    ("DGS2", "米2年債利回り", "yield", 800),
+    ("T10Y2Y", "米10年−2年金利差", "spread", 800),
+    ("DEXJPUS", "ドル円", "fx", 3700),
+    ("VIXCLS", "VIX(恐怖指数)", "vol", 800),
+    ("DCOILWTICO", "WTI原油", "commodity", 800),
+    ("BAMLH0A0HYM2", "米ハイイールド債スプレッド", "spread", 800),
+    # 相場の見立て用(2026-11追加): 流動性とドル。3か月VIX(VXVCLS)はFREDに無く404のため使わない(2026-11-26確認)
+    ("NFCI", "シカゴ連銀 金融環境指数", "gauge", 800),
+    ("WALCL", "FRBの総資産(百万ドル)", "liquidity", 800),
+    ("DTWEXBGS", "ドル指数(広義)", "fx", 800),
+]
+
+
+def build_market_json(econ, fetch=None, now=None):
+    """FREDの系列とその日のニュース要約から、学習アプリ用のデータを作る。取れた系列だけを入れる"""
+    fetch = fetch or _fred_rows
+    now = now or datetime.now(JST)
+    series = {}
+    for sid, name, kind, days in LEARN_SERIES:
+        try:
+            rows = fetch(sid, days)
+        except Exception as e:  # 1系列の失敗で全体を止めない
+            print(f"    [FRED {sid} 学習用] 取得失敗: {e}")
+            continue
+        if len(rows) < 30:
+            continue
+        series[sid] = {"name": name, "kind": kind, "rows": [[d, round(v, 4)] for d, v in rows]}
+    ok = bool(econ and econ.get("ok"))
+    points = [{"text": p.get("text", ""), "category": p.get("category", "")}
+              for p in (econ.get("key_points") or [])] if ok else []
+    return {
+        "updated": now.isoformat(timespec="minutes"),
+        "source": "FRED(セントルイス連邦準備銀行)",
+        "headline": econ.get("headline", "") if ok else "",
+        "points": [p for p in points if p["text"]],
+        "series": series,
+    }
+
+
+def publish_market_json(econ):
+    data = build_market_json(econ)
+    if not data["series"]:
+        print("  学習アプリ用データ: 取得できた系列がないため更新しません")
+        return False
+    text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
+    _gh_put_file(LEARN_MARKET_PATH, text.encode("utf-8"), f"📈 学習アプリの市場データ更新: {now_str}")
+    print(f"  学習アプリ用データ: {len(data['series'])}系列を更新")
+    return True
+
+
+# ========================================
 # 6. Slackに投稿(Block Kit)
 # ========================================
 def _slack_esc(s):
@@ -3141,6 +3204,12 @@ def main():
         except Exception as e:
             print(f"  [WARN] 投稿済みの記録を書けない({type(e).__name__}: {e})")
             warnings.append(f"投稿は済みましたが、投稿済みの記録を書けませんでした({type(e).__name__})。予備の起動で二重に投稿される場合があります")
+
+        print("📈 学習アプリ用の市場データを更新中...")
+        try:
+            publish_market_json(out["econ"])
+        except Exception as e:  # ニュースの配信は済んでいるので、ここでの失敗は記録だけにする
+            print(f"  [WARN] 学習アプリ用データの更新に失敗: {e}")
 
         if out["ai_errors"]:
             # 公開・投稿は済ませたうえで、AIの失敗は別のメッセージで知らせる
