@@ -392,6 +392,11 @@ class StripCodesTest(unittest.TestCase):
         t = dd.strip_codes("懸念（N10, N24）でエヌビディア（NVDA）と半導体(SMH)が下落。スプレッド（BAMLH0A0HYM2）。銀行（1631.T）。外需株（jp_ext）。")
         self.assertEqual(t, "懸念でエヌビディアと半導体が下落。スプレッド。銀行。外需株。")
 
+    def test_bare_codes_become_names(self):
+        with mock.patch.dict(dd.CODE_NAMES, {"XLK": "テクノロジー", "SMH": "半導体", "NVDA": "エヌビディア"}, clear=True):
+            t = dd.strip_codes("集中（XLK, SMHの下落、NVDAなどの寄与）と摩擦（N4, N18, 外需の劣後）")
+        self.assertEqual(t, "集中（テクノロジー, 半導体の下落、エヌビディアなどの寄与）と摩擦（外需の劣後）")
+
     def test_signal_ids_become_names_and_words_kept(self):
         self.assertIn("「均等加重 − 時価総額加重」", dd.strip_codes("breadth が改善"))
         self.assertEqual(dd.strip_codes("PER（株価収益率）は高い。"), "PER（株価収益率）は高い。")

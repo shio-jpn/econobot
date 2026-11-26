@@ -994,14 +994,18 @@ def bad_numbers(text, allowed):
 _CODE = r"(?:N\d{1,2}|\^?[A-Z][A-Z0-9]{0,11}(?:[.=\-][A-Z0-9]{1,4})?|\d{4}\.T|[a-z]+_[a-z0-9_]+|breadth|credit|semi|small|cyc_def|rate_sens|cu_au)"
 _CODE_PAREN = re.compile(r"\s*[（(]\s*" + _CODE + r"(?:\s*[,、・/]\s*" + _CODE + r")*\s*[)）]")
 SIGNAL_NAMES = {sid: name for sid, name, _, _, _ in SIGNALS}
+CODE_NAMES = {}   # 記号 → 日本語の名前(run_ai がその日のデータで埋める)
 
 
 def strip_codes(text):
-    """AIが文章に書いた記号を取り除く: 「(N10, N24)」「（XLK）」は消し、資金の流れの記号は名前に置き換える"""
+    """AIが文章に書いた記号を取り除く: 「(N10, N24)」「（XLK）」は消し、文中の記号は名前に置き換え、ニュースの番号は消す"""
     t = _CODE_PAREN.sub("", text)
     for sid, name in sorted(SIGNAL_NAMES.items(), key=lambda x: -len(x[0])):
         t = re.sub(r"(?<![A-Za-z_])" + re.escape(sid) + r"(?![A-Za-z_])", f"「{name}」", t)
-    return t
+    for code, name in sorted(CODE_NAMES.items(), key=lambda x: -len(x[0])):
+        t = re.sub(r"(?<![A-Za-z0-9_^.])" + re.escape(code) + r"(?![A-Za-z0-9_])", name, t)
+    t = re.sub(r"(?:N\d{1,2}\s*[,、]\s*)*N\d{1,2}(?![0-9])\s*[,、]?\s*", "", t)   # 文中に残ったニュースの番号
+    return re.sub(r"[（(]\s*[)）]", "", t)
 
 
 def scrub(text, allowed, dropped):
@@ -1077,6 +1081,12 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
     """役割の違うアナリストを順に重ね、チーフが統合、査読、必要なら改訂。失敗した段は飛ばして続ける"""
     eb = _eb()
     eb._gemini_reset(DEEP_BUDGET)
+    labels = {k: v.split(":")[0] for k, v in (macro or {}).items()}
+    labels.update({s: n for s, n in HEAVY_US + HEAVY_JP})
+    labels.update({m["sym"]: m["name"] for m in movers or []})
+    labels.update({k: f["name"] for k, f in feat.items()})
+    CODE_NAMES.clear()
+    CODE_NAMES.update({k: v for k, v in labels.items() if k not in ("SPY",)})   # SPYはそのままでも通じる
     data_txt = data_block(feat, sigs, macro, contrib, movers)
     news_txt, news_texts = news_block(out, saved_news)
     allowed = allowed_numbers(feat, sigs, macro, news_texts, contrib, movers)
@@ -1120,9 +1130,6 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
             errors.append(f"査読・改訂: {type(e).__name__}: {e}")
     except Exception as e:
         errors.append(f"チーフ: {type(e).__name__}: {e}")
-    labels = {k: v.split(":")[0] for k, v in (macro or {}).items()}
-    labels.update({s: n for s, n in HEAVY_US + HEAVY_JP})
-    labels.update({m["sym"]: m["name"] for m in movers or []})
     result = {"ok": chief is not None, "passes": passes, "errors": errors, "steps": steps, "labels": labels,
               "news": news_txt.split("\n")[:60]}
     if chief is not None:
