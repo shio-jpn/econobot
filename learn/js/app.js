@@ -869,7 +869,7 @@
     if (c && c.supply_demand) h += '<section class="ai-card"><h2>' + ico('target') + '需給の結論<span class="h-r">チーフアナリスト</span></h2><p>' + esc(c.supply_demand) + '</p></section>';
     if (c && c.playbook && c.playbook.stance) {
       var pb = c.playbook;
-      h += '<section><h2>' + ico('shield') + 'プロのトレーダーとしての今の戦い方</h2><p>' + esc(pb.stance) + '</p><div class="dash"><div class="span-6"><h3 class="mini-h up">機能しやすい行動</h3><ul>' + (pb.do || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div><div class="span-6"><h3 class="mini-h down">避けるべき行動</h3><ul>' + (pb.avoid || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>' + (pb.risk ? '<p><strong>損切りと考えを変える価格:</strong> ' + esc(pb.risk) + '</p>' : '') + '</section>';
+      h += '<section><h2>' + ico('shield') + 'プロのトレーダーとしての今の戦い方</h2>' + (pb.rule && pb.rule.length ? '<ul class="rule-lines">' + pb.rule.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') + '<p>' + esc(pb.stance) + '</p><div class="dash"><div class="span-6"><h3 class="mini-h up">機能しやすい行動</h3><ul>' + (pb.do || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div><div class="span-6"><h3 class="mini-h down">避けるべき行動</h3><ul>' + (pb.avoid || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>' + (pb.risk ? '<p><strong>損切りと考えを変える価格:</strong> ' + esc(pb.risk) + '</p>' : '') + '</section>';
     }
     if (stg && (stg.us || stg.jp)) {
       h += '<div class="dash">' + stratCard(stg.us) + stratCard(stg.jp) + '</div>';

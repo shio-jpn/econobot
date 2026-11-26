@@ -167,6 +167,16 @@ class OptionsAndCOTTest(unittest.TestCase):
 
 
 class DescribeTest(unittest.TestCase):
+    def test_rule_sentence_and_ust_excluded(self):
+        v = {"name": "S&P 500", "rule": {"position": 100, "decided": "2026-10-30"}, "flip_watch": True, "now_vs_200": -2.31,
+             "caution": {"level": "非常に高い"}}
+        t = F.rule_sentence(v)
+        self.assertIn("規則の判定は「投資」(10/30の月末に判定)", t)
+        self.assertIn("このまま月末を迎えると「待機」に変わる", t)
+        cot = {"ust10": {"name": "米10年国債の先物", "date": "2026-11-17", "lev_net": -2482443, "lev_chg": -181116, "lev_idx": 4,
+                         "am_net": 3270834, "am_chg": 117073, "am_idx": 100}}
+        self.assertNotIn("米10年国債", F.describe({"cot": cot}, {}))   # 裁定取引が大半で読み違えるためAIに渡さない
+
     def test_position_words_are_unambiguous(self):
         t = F.position_words(-234978, 68082, 86)       # 2026-11-17のS&P 500先物のヘッジファンド
         self.assertIn("売り越し 234,978枚", t)

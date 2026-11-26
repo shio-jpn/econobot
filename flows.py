@@ -629,6 +629,19 @@ def position_words(net, chg, idx):
     return f"{side} {abs(net):,}枚、前週比で{move}、偏り{idx}({where})"
 
 
+def rule_sentence(v):
+    """規則の判定を、プログラムが決めた文章で(AIに言い換えさせない)"""
+    r = v.get("rule") or {}
+    inv = r.get("position") == 100
+    d = (r.get("decided") or "")[5:].replace("-", "/")
+    t = f"{v['name']}: 規則の判定は「{'投資' if inv else '待機'}」({d}の月末に判定)。"
+    if v.get("flip_watch"):
+        t += f"今は200日平均を{abs(v.get('now_vs_200') or 0):.2f}%{'下回って' if inv else '上回って'}いて、このまま月末を迎えると「{'待機' if inv else '投資'}」に変わる。"
+    else:
+        t += f"今も200日平均の{'上' if inv else '下'}にあり、判定は変わらない見込み。"
+    return t + f"注意の度合いは「{(v.get('caution') or {}).get('level')}」。"
+
+
 def describe(flow, strat):
     """需給と戦略のデータを、AIに渡す表の文章にする"""
     L = []
@@ -658,7 +671,9 @@ def describe(flow, strat):
         L.append("■大口の持ち高(CFTC、毎週火曜時点)。偏り=過去3年の最小0〜最大100のどこにいるか。"
                  "注意: 米国債先物のヘッジファンドの売り越しの大半は、現物の国債を買って先物を売る裁定取引(ベーシス取引)で、金利の方向への賭けではない。"
                  "株価指数の先物のヘッジファンドの売り越しも、資産運用会社の買いの相手側やヘッジの売りを含む。方向の判断には前週比と偏りの変化を重視する")
-        for v in cot.values():
+        for k, v in cot.items():
+            if k == "ust10":
+                continue   # 米国債先物の持ち高は裁定取引が大半で、AIが方向の賭けと読み違えるため渡さない(画面には注記つきで出す)
             L.append(f"{v['name']}({v['date']}): ヘッジファンド等は{position_words(v['lev_net'], v['lev_chg'], v['lev_idx'])}。"
                      f"資産運用会社は{position_words(v['am_net'], v['am_chg'], v['am_idx'])}")
     inv = (flow or {}).get("investor")

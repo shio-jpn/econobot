@@ -730,9 +730,38 @@ def _line(f):
             f"60日{_fmt(f.get('c60'))} (z1 {f.get('z1')}, z5 {f.get('z5')}){rs} 50日線の{pos[f.get('above50')]}・200日線の{pos[f.get('above200')]}")
 
 
+FACT_SYMS = [("SPY", "S&P 500"), ("^N225", "日経平均"), ("1306.T", "TOPIX(ETF)"), ("^TNX", "米10年債利回り"),
+             ("^IRX", "米3か月債利回り"), ("^VIX", "VIX"), ("JPY=X", "ドル円"), ("DX-Y.NYB", "ドル指数"), ("CL=F", "WTI原油")]
+
+
+def facts(feat):
+    """方向を取り違えやすい主な市場の動きを、言葉で(上昇・低下、円安・円高)"""
+    out = []
+    for sym, name in FACT_SYMS:
+        f = feat.get(sym)
+        if not f:
+            continue
+        words = []
+        for h in (1, 5):
+            c = f.get(f"c{h}")
+            if c is None:
+                continue
+            if sym in YIELD_SYMS:
+                w = "上昇" if c > 0.5 else "低下" if c < -0.5 else "ほぼ横ばい"
+                words.append(f"{h}日 {c:+.0f}bp({w})")
+            elif sym == "JPY=X":
+                w = "円安" if c > 0.1 else "円高" if c < -0.1 else "ほぼ横ばい"
+                words.append(f"{h}日 {c:+.2f}%({w})")
+            else:
+                w = "上昇" if c > 0.1 else "下落" if c < -0.1 else "ほぼ横ばい"
+                words.append(f"{h}日 {c:+.2f}%({w})")
+        out.append(f"{name}({f['date']}): " + "、".join(words))
+    return "■事実の確認(方向をこのとおりに書く。これと逆の記述は誤り)\n" + "\n".join(out)
+
+
 def data_block(feat, sigs, macro=None, contrib=None, movers=None, flow=None, strat=None):
     """AIに渡すデータの表(記号つき。主張の根拠にはこの記号を使わせる)"""
-    parts = []
+    parts = [facts(feat)]
     for g, title in (("style", "米国株の全体と信用"), ("us", "米国のセクター(ETF)"), ("jp", "日本の業種(TOPIX-17のETF)"),
                      ("global", "世界の株価指数"), ("cross", "金利・恐怖指数・商品・為替")):
         xs = [f for f in feat.values() if f["group"] == g]
@@ -933,11 +962,12 @@ def _chief_prompt(data_txt, news_txt, passes, rules, issues=None, draft=None):
 - confidence: 見解の確信度
 - lesson: 今日の相場から学べる一般的な原則(2〜3文)
 - supply_demand: 需給の現状の結論(4〜6文)。だれが売り・だれが買っているか、売りは出尽くしに近いか、持ち高の偏り、今後の需給の出来事
-- playbook: プロのトレーダーとしての今の戦い方。stance(投資比率の考え方を2〜3文。最初に、データの『戦略』にある規則の判定
-  (投資か待機か、月末に変わる可能性があるか)と注意の度合いを米国・日本それぞれ明記し、それと違う行動を勧める場合はその理由を書く)、
+- playbook: プロのトレーダーとしての今の戦い方。stance(投資比率の考え方を2〜3文。規則の判定はプログラムが別に表示するので
+  言い換えて書かない。判定(投資・待機)と違うことを書かない。判定と注意の度合いを踏まえた行動の考え方を書く)、
   do(今の相場で機能しやすい行動を3〜4個)、avoid(避けるべき行動を2〜3個)、risk(損切りと考えを変える価格の目安を2〜3文)
 """
     p += "\n■規則にもとづく主因の候補(データから自動計算)\n" + "\n".join(f"- {r['title']}({r['side']}): {r['text']}" for r in rules)
+    p += "\n\n■規則の判定(プログラムの判定。このとおりに扱う)\n" + "\n".join(RULE_LINES)
     p += "\n\n■7人の分析\n" + _prior_txt(passes)
     if issues and draft:
         p += "\n\n■あなたの前回の案\n" + json.dumps(draft, ensure_ascii=False) + \
@@ -951,7 +981,9 @@ def _review_prompt(data_txt, news_txt, draft):
 探すもの: データと逆の記述(上がった業種を下がったと書く等)、持ち高の向きや変化の読み違え(「売り越しが縮小(買い戻し)」を
 「売り越しが増加」と書く等。大口の持ち高はデータの文言と一字一句照らす)、規則の判定(投資・待機)と違う記述、
 表やニュースに無い数字、根拠の無い断定、ニュースに無い出来事、
-米国と日本の取り違え、weightの合計が100でない、見通しが条件なしの断定になっている。
+米国と日本の取り違え、weightの合計が100でない、見通しが条件なしの断定になっている、
+データの先頭の『事実の確認』と逆の方向の記述(金利が下がったのに「金利上昇」、円高なのに「円安で」など)、
+規則の判定と違う記述(判定が「投資」なのに「待機が推奨」と書く等)、米国債先物の持ち高を金利の方向への賭けとして書くこと。
 問題がなければ ok=true・issues=[]。問題があれば ok=false で、場所(where)・問題(problem)・直し方(fix)を具体的に。
 issues は重要なものから最大10件まで(細かい言い回しの好みは含めない)。各項目は短く書く。
 """ + "\n■チーフの案\n" + json.dumps(draft, ensure_ascii=False) + "\n\n■データ\n" + data_txt + "\n\n■ニュース\n" + news_txt
@@ -1033,6 +1065,7 @@ _CODE = r"(?:N\d{1,2}|\^?[A-Z][A-Z0-9]{0,11}(?:[.=\-][A-Z0-9]{1,4})?|\d{4}\.T|[a
 _CODE_PAREN = re.compile(r"\s*[（(]\s*" + _CODE + r"(?:\s*[,、・/]\s*" + _CODE + r")*\s*[)）]")
 SIGNAL_NAMES = {sid: name for sid, name, _, _, _ in SIGNALS}
 CODE_NAMES = {}   # 記号 → 日本語の名前(run_ai がその日のデータで埋める)
+RULE_LINES = []   # 規則の判定の文(run_ai がその日のデータで埋める)
 
 
 def strip_codes(text):
@@ -1128,6 +1161,8 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
     labels.update({s: n for s, n in HEAVY_US + HEAVY_JP})
     labels.update({m["sym"]: m["name"] for m in movers or []})
     labels.update({k: f["name"] for k, f in feat.items()})
+    import flows
+    RULE_LINES[:] = [flows.rule_sentence(v) for v in (strat or {}).values()]
     CODE_NAMES.clear()
     CODE_NAMES.update({k: v for k, v in labels.items() if k not in ("SPY",)})   # SPYはそのままでも通じる
     data_txt = data_block(feat, sigs, macro, contrib, movers, flow, strat)
@@ -1177,6 +1212,7 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
               "news": news_txt.split("\n")[:60]}
     if chief is not None:
         result["chief"] = clean_chief(chief, allowed, known, dropped)
+        result["chief"]["playbook"]["rule"] = list(RULE_LINES)   # 規則の判定はプログラムの文をそのまま出す
     result["dropped"] = dropped
     return result
 
