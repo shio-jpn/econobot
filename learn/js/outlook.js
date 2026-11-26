@@ -62,6 +62,7 @@
         else oText.push('VIXの期間構造は平常(' + ratio.toFixed(2) + ')。オプション市場に強い恐怖も油断も見られない。');
       } else {
         if (vix >= 30) { oS += 1; oM -= 1; oText.push('VIXが' + vix.toFixed(1) + 'と恐怖が強い状態。短期的には売られすぎからの反発が起きやすい一方、相場の土台は不安定。'); bull.push('VIXが30超。恐怖が強い時は、売りが出尽くしやすい。'); }
+        else if (vix >= 20) { oM -= 0.5; oText.push('VIXが' + vix.toFixed(1) + 'とやや高い。オプション市場が下落への備えを増やしている警戒の状態で、値動きが荒くなりやすい。'); bear.push('VIXが' + vix.toFixed(1) + 'と高め。保険の需要が増え、相場は不安定になりやすい。'); }
         else if (vix < 13) { oM -= 0.5; oText.push('VIXが' + vix.toFixed(1) + 'と低い。保険が安く、油断が広がっている。'); bear.push('VIXが低く、市場が油断している。'); }
         else oText.push('VIXは' + vix.toFixed(1) + 'で平常の範囲。');
       }
@@ -134,7 +135,9 @@
     var pBull = clamp(vM.up - 15, 10, 60), pBear = clamp(vM.down - 15, 10, 60), pBase = 100 - pBull - pBear;
     var scen = [
       { name: '強気シナリオ', p: pBull, cls: 'up', text: '52週高値(' + fmt(hi) + ')を終値で上抜け、新高値を更新。信用と金利が落ち着いたまま、主導株が上昇を続ける。', trigger: '終値で ' + fmt(hi) + ' を上抜け' },
-      { name: '基本シナリオ', p: pBase, cls: 'flat', text: sp.last > sp.sma50 ? '50日平均(' + fmt(sp.sma50) + ')を支えに、高値と支持線の間で上下しながら方向を探る。' : '50日平均(' + fmt(sp.sma50) + ')が上値を抑え、200日平均(' + fmt(sp.sma200) + ')との間で揉み合う。', trigger: fmt(Math.min(sp.sma50, sp.sma200)) + '〜' + fmt(hi) + ' の範囲' },
+      sp.last > sp.sma50 ? { name: '基本シナリオ', p: pBase, cls: 'flat', text: '50日平均(' + fmt(sp.sma50) + ')を支えに、高値と支持線の間で上下しながら方向を探る。', trigger: fmt(sp.sma50) + '〜' + fmt(hi) + ' の範囲' }
+        : sp.last > sp.sma200 ? { name: '基本シナリオ', p: pBase, cls: 'flat', text: '50日平均(' + fmt(sp.sma50) + ')が上値を抑え、200日平均(' + fmt(sp.sma200) + ')を支えに揉み合う。', trigger: fmt(sp.sma200) + '〜' + fmt(sp.sma50) + ' の範囲' }
+        : { name: '基本シナリオ', p: pBase, cls: 'flat', text: '直近20日の安値(' + fmt(lo20) + ')と200日平均(' + fmt(sp.sma200) + ')の間で揉み合い、200日平均を回復できるかを試す。回復できなければ戻り売りに押されやすい。', trigger: fmt(lo20) + '〜' + fmt(sp.sma200) + ' の範囲' },
       { name: '弱気シナリオ', p: pBear, cls: 'down', text: (sp.last > sp.sma200 ? '直近20日の安値(' + fmt(lo20) + ')と50日平均を割り込み、200日平均(' + fmt(sp.sma200) + ')まで下げる。' : '直近20日の安値(' + fmt(lo20) + ')を割り込み、下落が加速する。') + '信用スプレッドの拡大が伴えば、下げは深くなる。', trigger: '終値で ' + fmt(Math.min(lo20, sp.sma50)) + ' を割り込む' }
     ];
     changes.unshift(spName + 'が終値で200日平均(' + fmt(sp.sma200) + ')を' + (sp.last > sp.sma200 ? '割り込めば、中期の見立てを弱気に切り替える。' : '回復すれば、中期の見立てを中立以上に引き上げる。'));
