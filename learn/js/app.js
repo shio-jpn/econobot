@@ -690,10 +690,17 @@
   var WHY_ROLES = [['macro', 'マクロ・金利', 'pulse'], ['sector', 'セクター・資金の流れ', 'grid'], ['world', '世界情勢・ニュース', 'flow'], ['bear', '弱気筋(バーリ・空売り筋)', 'shield'], ['bull', '強気筋(トレンド・需給)', 'target']];
   function anName(id) {
     if (/^N\d+$/.test(id)) return 'ニュース' + id.slice(1);
+    var lb = AN.ai && AN.ai.labels; if (lb && lb[id]) return lb[id];
     var f = AN.features && AN.features[id]; if (f) return f.name;
     var s = (AN.signals || []).filter(function (x) { return x.id === id; })[0]; return s ? s.name : id;
   }
-  function evChips(ev) { return ev && ev.length ? '<div class="ev">' + ev.slice(0, 5).map(function (e) { return '<span class="ev-c">' + esc(anName(e)) + '</span>'; }).join('') + '</div>' : ''; }
+  function evChips(ev) { return ev && ev.length ? '<div class="ev">' + ev.slice(0, 6).map(function (e) { return /^N\d+$/.test(e) ? '<a class="ev-c" href="#why-news" data-news="' + e + '">' + esc(anName(e)) + '</a>' : '<span class="ev-c">' + esc(anName(e)) + '</span>'; }).join('') + '</div>' : ''; }
+  function newsList() {
+    var ls = ((AN.ai && AN.ai.news) || []).filter(function (l) { return /^N\d+ /.test(l); });
+    if (!ls.length) return '';
+    return '<section id="why-news-sec"><details class="panel"><summary>' + ico('book') + '<span><strong>分析に使ったニュース(' + ls.length + '件)</strong><span class="sub">根拠の「ニュース○」は、この番号の記事です。英語の記事は見出しと概要のまま載せています。</span></span></summary><ol class="news-list">' +
+      ls.map(function (l) { var m = l.match(/^(N\d+) \(([^,]*), ([^)]*)\) (.*)$/); return m ? '<li id="news-' + m[1] + '"><span class="ev-c">ニュース' + m[1].slice(1) + '</span> <span class="sub">' + esc(m[2]) + ' ・ ' + esc(m[3]) + '</span><p>' + esc(m[4]) + '</p></li>' : '<li>' + esc(l) + '</li>'; }).join('') + '</ol></details></section>';
+  }
   function dirPill(d) { return '<span class="pill ' + (d === '上昇' ? 'up' : d === '下落' ? 'down' : 'flat') + '">' + esc(d || 'もみ合い') + '</span>'; }
   function wpct(x, unit) { if (x == null) return '—'; return unit === 'bp' ? (x > 0 ? '+' : '') + Math.round(x) + 'bp' : (x > 0 ? '+' : '') + x.toFixed(2) + '%'; }
   function heatBg(z) { if (z == null) return 'var(--tile)'; var a = Math.min(Math.abs(z) / 2.5, 1) * 0.5 + 0.06; return z >= 0 ? 'rgba(95, 211, 160, ' + a.toFixed(2) + ')' : 'rgba(255, 127, 115, ' + a.toFixed(2) + ')'; }
@@ -811,6 +818,7 @@
         sh.slice(0, 15).map(function (x) { return '<tr><td>' + esc(x.date.slice(5).replace('-', '/')) + '</td><td>' + dirPill(x.us) + '</td><td class="' + (x.chg > 0 ? 'up' : x.chg < 0 ? 'down' : '') + '">' + (x.chg == null ? '—' : wpct(x.chg)) + '</td><td>' + (x.hit == null ? '判定待ち' : x.hit ? '的中' : '外れ') + '</td><td class="l">' + esc(x.headline) + '</td></tr>'; }).join('') +
         '</tbody></table></div><p class="sub">「方向」は直近5日の動きの判定です。その後の5営業日のS&P 500(ETF)で、上昇=+0.5%超、下落=−0.5%未満、もみ合い=±1.5%以内を的中としています。外れた日に何を見落としたかを考えるのが、いちばんの練習になります。</p></section>';
     }
+    h += newsList();
     h += '<p class="disclaimer">AIの文章は、数字をデータとニュースに照らして確かめ、確かめられない数字を含む文は捨てています(今日は ' + ((ai.dropped || []).length) + ' 文)。それでも分析は推測を含み、将来の値動きを保証するものではありません。売買の判断はご自身で行ってください。更新 ' + esc((AN.updated || '').replace('T', ' ').slice(0, 16)) + '</p>';
     return h;
   }
@@ -1228,7 +1236,7 @@
     if (viaAsk || looksLikeQuestion(v)) { $('#q').value = ''; sendAsk(v); } else goSearch(v);
   });
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('#ol-run,#menu-btn,#search-open,#search-close,[data-term],[data-q],[data-ask],[data-goto],.opt,[data-review],#next-q,button[data-candle],[data-dmode],[data-whyh],#dr-next,#dr-skip,#sim-run,#sheet-close,#bk-out,#bk-in,[data-reload],#ask-clear,#ask-stop');
+    var t = e.target.closest('#ol-run,#menu-btn,#search-open,#search-close,[data-term],[data-q],[data-ask],[data-goto],.opt,[data-review],#next-q,button[data-candle],[data-dmode],[data-whyh],[data-news],#dr-next,#dr-skip,#sim-run,#sheet-close,#bk-out,#bk-in,[data-reload],#ask-clear,#ask-stop');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
     if (t.id === 'ol-run') { runOutlookAI(); return; }
     if (t.id === 'menu-btn') { openMenu(); return; }
@@ -1246,6 +1254,7 @@
     if (t.dataset.review) { startSession(t.dataset.review); return; }
     if (t.id === 'next-q') { session.i++; showSession(); return; }
     if (t.dataset.candle) { state.candle = t.dataset.candle; save(); route(); return; }
+    if (t.dataset.news) { e.preventDefault(); var sec = document.querySelector('#why-news-sec details'); if (sec) { sec.open = true; var li = document.getElementById('news-' + t.dataset.news); (li || sec).scrollIntoView({ behavior: 'smooth', block: 'center' }); if (li) { li.classList.add('flash'); setTimeout(function () { li.classList.remove('flash'); }, 1600); } } return; }
     if (t.dataset.whyh) { whyH = t.dataset.whyh; var y = window.scrollY; route(); window.scrollTo(0, y); return; }
     if (t.dataset.dmode) { drillMode = t.dataset.dmode; drill = null; route(); return; }
     if (t.id === 'dr-next' || t.id === 'dr-skip') { drill = null; route(); return; }

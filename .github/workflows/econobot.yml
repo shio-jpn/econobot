@@ -23,6 +23,10 @@ on:
         description: '今日の分が投稿済みでも、もう一度公開・投稿する(やり直し用)'
         type: boolean
         default: false
+      learn_only:
+        description: '学習アプリのデータ(市場データと深掘り分析)だけを作り直す。ページの公開とSlackへの投稿はしない'
+        type: boolean
+        default: false
 
 # 同時に動かさない。GitHubは順番待ちを1つしか持たず、新しく来た起動が前の順番待ちを取り消す(実行中のものは取り消さない)。
 # 最初の起動が途中で失敗した日は、残っている順番待ちの起動が動いて、その日の分を投稿する
@@ -60,4 +64,5 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           SCHEDULE_CRON: ${{ github.event.schedule }}
           FORCE: ${{ inputs.force }}
-        run: python econobot.py
+          LEARN_ONLY: ${{ inputs.learn_only }}
+        run: python -u econobot.py   # -u: ログを途中から見られるよう、出力をためずに出す

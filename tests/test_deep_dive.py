@@ -366,5 +366,41 @@ class HeavyAndMoversTest(unittest.TestCase):
         self.assertEqual(err, [])
 
 
+
+class LearnOnlyTest(unittest.TestCase):
+    def test_learn_only_does_not_post(self):
+        env = {k: "x" for k in eb._REQUIRED_ENV}
+        env["LEARN_ONLY"] = "true"
+        calls = []
+        with mock.patch.dict(os.environ, env), \
+             mock.patch.object(eb, "fetch_rss", lambda: []), \
+             mock.patch.object(eb, "fetch_news", lambda rss=(): []), \
+             mock.patch.object(eb, "fetch_major_news", lambda rss=(): []), \
+             mock.patch.object(eb, "publish_market_json", side_effect=lambda e: calls.append("market") or {"series": {}}), \
+             mock.patch.object(dd, "publish_analysis", side_effect=lambda o, m: calls.append(("deep", sorted(o))) or True), \
+             mock.patch.object(eb, "publish_to_github_pages", side_effect=AssertionError("公開しない")), \
+             mock.patch.object(eb, "post_to_slack", side_effect=AssertionError("投稿しない")), \
+             mock.patch.object(eb, "record_posted", side_effect=AssertionError("記録しない")):
+            eb.main()
+        self.assertEqual(calls[0], "market")
+        self.assertEqual(calls[1][0], "deep")
+
+
+
+class StripCodesTest(unittest.TestCase):
+    def test_codes_removed_from_prose(self):
+        t = dd.strip_codes("懸念（N10, N24）でエヌビディア（NVDA）と半導体(SMH)が下落。スプレッド（BAMLH0A0HYM2）。銀行（1631.T）。外需株（jp_ext）。")
+        self.assertEqual(t, "懸念でエヌビディアと半導体が下落。スプレッド。銀行。外需株。")
+
+    def test_bare_codes_become_names(self):
+        with mock.patch.dict(dd.CODE_NAMES, {"XLK": "テクノロジー", "SMH": "半導体", "NVDA": "エヌビディア"}, clear=True):
+            t = dd.strip_codes("集中（XLK, SMHの下落、NVDAなどの寄与）と摩擦（N4, N18, 外需の劣後）")
+        self.assertEqual(t, "集中（テクノロジー, 半導体の下落、エヌビディアなどの寄与）と摩擦（外需の劣後）")
+
+    def test_signal_ids_become_names_and_words_kept(self):
+        self.assertIn("「均等加重 − 時価総額加重」", dd.strip_codes("breadth が改善"))
+        self.assertEqual(dd.strip_codes("PER（株価収益率）は高い。"), "PER（株価収益率）は高い。")
+
+
 if __name__ == "__main__":
     unittest.main()
