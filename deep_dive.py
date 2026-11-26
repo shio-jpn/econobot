@@ -47,6 +47,7 @@ STYLE = [("SPY", "S&P 500"), ("RSP", "S&P 500 均等加重"), ("IWM", "米小型
 CROSS = [("^TNX", "米10年債利回り", "yield"), ("^IRX", "米3か月債利回り", "yield"), ("^VIX", "VIX(恐怖指数)", "level"),
          ("CL=F", "WTI原油", "px"), ("GC=F", "金", "px"), ("HG=F", "銅", "px"), ("DX-Y.NYB", "ドル指数", "px"),
          ("JPY=X", "ドル円", "px"), ("BTC-USD", "ビットコイン", "px")]
+CHECK = [("^GSPC", "S&P 500指数")]   # 照合用(SPYの騰落が正しいかを確かめる)
 GLOBAL = [("^N225", "日経平均"), ("1306.T", "TOPIX(ETF)"), ("^STOXX50E", "ユーロ・ストックス50"),
           ("^GDAXI", "ドイツDAX"), ("^HSI", "香港ハンセン"), ("000001.SS", "上海総合"), ("^KS11", "韓国KOSPI")]
 
@@ -77,26 +78,298 @@ def _eb():
     return m
 
 
-# ---------- 1. 取得 ----------
+# ---------- 1. 取得(正確さの確認つき) ----------
+# 正確さのための決まり(2026-11-26 実データで確認した問題への対策)
+#  - ETFは配当落ちの日に価格が下がる → 騰落は配当を調整した値(adjclose)で計算し、表示する水準は実際の終値
+#  - Yahooの株式分割の調整が一部の日だけ二重にかかる(1306.T・1629.Tの2026-03-30〜31) → 前後の日の中央値から
+#    半分未満・2倍超に外れた値は誤りとして捨てる
+#  - 原油・金・銅・ドル指数は夕方18時(米東部)から翌日の取引が始まり、取引中の値が前日の終値の欄を上書きする
+#    → 取引時間の始まりで日付を付け(6時間ずらす)、米国株の最新の取引日より後の取引(途中の値)は使わない
+#  - ドル円は米東部17時の値(本体の _yahoo_fx_rows)、ビットコインはUTCの日足
+#  - 米国はNYSEの休日を入れた「その日あるべき最新の取引日」と照らし、遅れた銘柄は時間をおいて取り直す
+RT_SYMS = {"CL=F", "GC=F", "HG=F", "DX-Y.NYB"}   # ほぼ24時間取引(取引の日付は前日の夕方から始まる)
+FX_SYMS = {"JPY=X"}
+CRYPTO_SYMS = {"BTC-USD"}
+RETRY_WAITS = (60, 120, 240)   # 遅れ・失敗の銘柄を取り直すまでの待ち(秒)。合計約7分
+BACKUP_WAITS = (60, 120)       # 予備の起動(8:10)での取り直しの待ち
+SPIKE_LO, SPIKE_HI = 0.5, 2.0  # 前後の中央値に対してこの範囲の外の値はデータの誤り
+
+
 def all_symbols():
     out = [(s, n, "us") for s, n in US_SECTORS] + [(s, n, "jp") for s, n in JP_SECTORS]
     out += [(s, n, "style") for s, n in STYLE] + [(s, n, "cross") for s, n, _ in CROSS] + [(s, n, "global") for s, n in GLOBAL]
+    out += [(s, n, "check") for s, n in CHECK]
+    out += [(s, n, "heavy_us") for s, n in HEAVY_US] + [(s, n, "heavy_jp") for s, n in HEAVY_JP]
     return out
 
 
-def fetch_all(fetch=None):
-    """{記号: [(日付, 値), ...]}。取れなかった記号は入れない"""
-    fetch = fetch or (lambda s: _eb()._yahoo_rows(s, "1y"))
-    rows = {}
-    for sym, name, _ in all_symbols():
-        try:
-            r = fetch(sym)
-        except Exception as e:  # 1銘柄の失敗で全体を止めない
-            print(f"    [Yahoo {sym} 深掘り用] 取得失敗 {type(e).__name__}")
+def region(sym):
+    """どの市場の取引日に合わせるか"""
+    if sym.endswith(".T") or sym == "^N225":
+        return "jp"
+    if sym in ("^HSI", "000001.SS", "^KS11"):
+        return "asia"
+    if sym in ("^STOXX50E", "^GDAXI"):
+        return "eu"
+    return "us"
+
+
+# --- NYSEの休日(取引所の規則。早帰りの日は終値があるので休日に入れない) ---
+def _nth_weekday(y, m, wd, n):
+    from datetime import date, timedelta
+    d = date(y, m, 1)
+    d += timedelta(days=(wd - d.weekday()) % 7)
+    return d + timedelta(weeks=n - 1)
+
+
+def _last_weekday(y, m, wd):
+    from datetime import date, timedelta
+    d = date(y, m + 1, 1) - timedelta(days=1) if m < 12 else date(y, 12, 31)
+    return d - timedelta(days=(d.weekday() - wd) % 7)
+
+
+def _easter(y):
+    a, b, c = y % 19, y // 100, y % 100
+    d, e = b // 4, b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    l_ = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l_) // 451
+    from datetime import date
+    return date(y, (h + l_ - 7 * m + 114) // 31, ((h + l_ - 7 * m + 114) % 31) + 1)
+
+
+def nyse_holidays(y):
+    from datetime import date, timedelta
+
+    def obs(d):   # 土曜は前の金曜、日曜は次の月曜に休む(元日が土曜の時は前年12/31を休まない)
+        return d - timedelta(days=1) if d.weekday() == 5 else d + timedelta(days=1) if d.weekday() == 6 else d
+    hs = {obs(date(y, 1, 1)), _nth_weekday(y, 1, 0, 3), _nth_weekday(y, 2, 0, 3), _easter(y) - timedelta(days=2),
+          _last_weekday(y, 5, 0), obs(date(y, 7, 4)), _nth_weekday(y, 9, 0, 1), _nth_weekday(y, 11, 3, 4), obs(date(y, 12, 25))}
+    if y >= 2022:
+        hs.add(obs(date(y, 6, 19)))
+    return {d for d in hs if d.year == y}
+
+
+def us_trading_day(d):
+    return d.weekday() < 5 and d not in nyse_holidays(d.year)
+
+
+def expected_us_date(now_utc):
+    """今の時刻で、終値が出ているはずの米国の最新の取引日(引けの30分後から当日を数える)"""
+    from datetime import timedelta
+    et = _eb()._to_et(now_utc)
+    d = et.date()
+    if not (us_trading_day(d) and (et.hour, et.minute) >= (16, 30)):
+        d -= timedelta(days=1)
+        while not us_trading_day(d):
+            d -= timedelta(days=1)
+    return d.isoformat()
+
+
+def _drop_spikes(rows):
+    """前後3日ずつの中央値から大きく外れた値(分割の調整の誤りなど)を捨てる"""
+    out = []
+    for i, (d, v) in enumerate(rows):
+        nb = [x for _, x in rows[max(0, i - 3):i] + rows[i + 1:i + 4] if x > 0]
+        if nb and v > 0:
+            med = sorted(nb)[len(nb) // 2]
+            if not (SPIKE_LO <= v / med <= SPIKE_HI):
+                continue
+        out.append((d, v))
+    return out
+
+
+def parse_chart(res, sym, now=None):
+    """Yahoo chart API の結果から、(騰落の計算に使う値, 表示する実際の終値) をそれぞれ [(日付, 値)] で返す"""
+    from datetime import datetime, timezone, timedelta
+    now = now or datetime.now(timezone.utc)
+    meta = res.get("meta") or {}
+    off = meta.get("gmtoffset") or 0
+    ts = res.get("timestamp") or []
+    ind = res.get("indicators") or {}
+    close = ((ind.get("quote") or [{}])[0]).get("close") or []
+    adj = ((ind.get("adjclose") or [{}])[0]).get("adjclose") or close
+    shift = 6 * 3600 if sym in RT_SYMS else 0
+    by_c, by_a = {}, {}
+    for t, c, a in zip(ts, close, adj):
+        if not isinstance(c, (int, float)) or isinstance(c, bool):
             continue
-        if len(r) >= 70:
-            rows[sym] = r
-    return rows
+        if sym in CRYPTO_SYMS:
+            day = datetime.fromtimestamp(t, timezone.utc).date()
+        else:
+            day = datetime.fromtimestamp(t + off + shift, timezone.utc).date()
+        by_c[day.isoformat()] = float(c)
+        by_a[day.isoformat()] = float(a) if isinstance(a, (int, float)) and not isinstance(a, bool) else float(c)
+    days = sorted(by_c)
+    # 取引中の足(指数・株・ETF)は終値ではないので使わない
+    reg = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
+    if days and sym not in RT_SYMS | CRYPTO_SYMS | FX_SYMS and reg.get("start") and reg.get("end"):
+        n = now.timestamp()
+        if reg["start"] <= n < reg["end"] + 1200 and datetime.fromtimestamp(reg["start"] + off, timezone.utc).date().isoformat() == days[-1]:
+            days = days[:-1]
+    if sym in CRYPTO_SYMS and days and days[-1] >= now.date().isoformat():
+        days = days[:-1]   # UTCの今日の足は途中
+    ret = _drop_spikes([(d, by_a[d]) for d in days])
+    ok = {d for d, _ in ret}
+    return ret, [(d, by_c[d]) for d in days if d in ok]
+
+
+def _get_chart(sym, host):
+    import urllib.parse
+    import urllib.request
+    url = (f"https://{host}.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(sym)}"
+           "?range=1y&interval=1d&events=div%7Csplit")
+    req = urllib.request.Request(url, headers={"User-Agent": _eb()._UA})
+    with urllib.request.urlopen(req, timeout=20) as res:
+        return json.loads(res.read().decode())["chart"]["result"][0]
+
+
+def us_close_rows(res, hour=16):
+    """1時間足から、米国の取引日ごとに米東部 hour 時直前の値を [(日付, 値)] で返す(ビットコイン用)"""
+    from datetime import datetime, timezone
+    ts = res.get("timestamp") or []
+    closes = (((res.get("indicators") or {}).get("quote") or [{}])[0]).get("close") or []
+    out = {}
+    for t, c in zip(ts, closes):
+        if not isinstance(c, (int, float)) or isinstance(c, bool):
+            continue
+        et = _eb()._to_et(datetime.fromtimestamp(t, timezone.utc))
+        if us_trading_day(et.date()) and 9 <= et.hour < hour:
+            out[et.date().isoformat()] = float(c)   # 時刻の順に上書きされ、引け直前の足が残る
+    return sorted(out.items())
+
+
+def _get_hourly(sym, host):
+    import urllib.parse
+    import urllib.request
+    url = f"https://{host}.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(sym)}?range=1mo&interval=60m"
+    req = urllib.request.Request(url, headers={"User-Agent": _eb()._UA})
+    with urllib.request.urlopen(req, timeout=20) as res:
+        return json.loads(res.read().decode())["chart"]["result"][0]
+
+
+def fetch_one(sym, now=None):
+    """1銘柄を取得。query1 → query2 の順に試す。戻り値 (騰落用の行, 終値の行)"""
+    if sym in FX_SYMS:
+        rows, _ok = _eb()._yahoo_fx_rows(sym, now=now)   # 米東部17時の値(本体と同じ)
+        return rows, rows
+    if sym in CRYPTO_SYMS:
+        # 日足は日が抜けることがある(2026-11-25が無かった)。直近1か月は米国株の引け(米東部16時)の値で置き換える
+        daily, _ = parse_chart(_get_chart(sym, "query1"), sym, now)
+        recent = []
+        for host in ("query1", "query2"):
+            try:
+                recent = us_close_rows(_get_hourly(sym, host))
+                break
+            except Exception as e:
+                print(f"    [Yahoo {sym} 1時間足 {host}] 取得失敗 {type(e).__name__}")
+        if recent:
+            rows = [r for r in daily if r[0] < recent[0][0]] + recent
+            return rows, rows
+        return daily, daily
+    err = None
+    for host in ("query1", "query2"):
+        try:
+            return parse_chart(_get_chart(sym, host), sym, now)
+        except Exception as e:  # 次の取得元へ
+            err = e
+    raise err
+
+
+def fetch_all(fetch=None, now=None, sleep=time.sleep, waits=None, fetch_movers_fn=None):
+    """全銘柄を取得し、各市場の最新の取引日と照らす。遅れ・失敗の銘柄は時間をおいて取り直す。
+    戻り値 {"rows": {記号: 騰落用の行}, "close": {記号: 終値の行}, "quality": {...}}"""
+    from datetime import datetime, timezone
+    now = now or datetime.now(timezone.utc)
+    waits = RETRY_WAITS if waits is None else waits
+    if fetch is None:
+        fetch = lambda s: fetch_one(s, now)   # noqa: E731
+        fetch_movers_fn = fetch_movers_fn or fetch_movers
+    syms = [s for s, _, _ in all_symbols()]
+    rows, close, fails = {}, {}, {}
+    exp_us = expected_us_date(now)
+
+    def expected(sym):
+        reg = region(sym)
+        if reg == "us":
+            return exp_us
+        mates = [rows[s][-1][0] for s in rows if region(s) == reg]
+        return max(mates) if mates else None   # 同じ市場の銘柄でいちばん新しい日(祝日でもそろう)
+
+    def get(todo):
+        for s in todo:
+            try:
+                r, c = fetch(s)
+            except Exception as e:  # 1銘柄の失敗で止めない
+                fails[s] = f"{type(e).__name__}"
+                continue
+            if len(r) >= 70:
+                rows[s], close[s] = r, c
+                fails.pop(s, None)
+            else:
+                fails[s] = f"データが少ない({len(r)}日)"
+
+    def late():
+        return [s for s in syms if s not in rows or (expected(s) and rows[s][-1][0] < expected(s))]
+    get(syms)
+    for w in waits:
+        todo = late()
+        if not todo:
+            break
+        print(f"  深掘り用: 遅れ・失敗 {len(todo)}銘柄({', '.join(todo[:8])}…)→ {w}秒後に取り直す")
+        sleep(w)
+        get(todo)
+    # 米国株の最新の取引日より後の値(原油などの翌日の取引の途中の値、為替の当日分)は使わない
+    for s in list(rows):
+        if region(s) == "us":
+            rows[s] = [x for x in rows[s] if x[0] <= exp_us]
+            close[s] = [x for x in close[s] if x[0] <= exp_us]
+    stale = {s: rows[s][-1][0] for s in rows if expected(s) and rows[s][-1][0] < expected(s)}
+    movers, merr = [], []
+    if fetch_movers_fn:
+        try:
+            movers, merr = fetch_movers_fn(exp_us)
+        except Exception as e:  # 動的な銘柄が取れなくても、固定の銘柄で分析する
+            merr = [f"{type(e).__name__}"]
+    q = {"expected_us": exp_us, "expected_jp": expected("1306.T"), "movers": len(movers), "movers_errors": merr, "missing": sorted(set(syms) - set(rows)),
+         "stale": stale, "fails": fails, "checks": cross_checks(rows, close)}
+    q["complete"] = not q["missing"] and not stale and all(c["ok"] for c in q["checks"])
+    print(f"  深掘り用: {len(rows)}/{len(syms)}銘柄 米国の取引日 {exp_us} 遅れ {len(stale)} 欠け {len(q['missing'])}"
+          f" 照合 {'OK' if all(c['ok'] for c in q['checks']) else 'ずれあり'}")
+    return {"rows": rows, "close": close, "quality": q, "movers": movers}
+
+
+def cross_checks(rows, close):
+    """別の値と照らして、取得した値が正しいかを確かめる(同じ日の騰落の差が小さいこと)"""
+    out = []
+
+    def day_chg(r, d):
+        dd = dict(r)
+        ks = [k for k, _ in r]
+        if d not in dd or ks.index(d) == 0:
+            return None
+        p = dd[ks[ks.index(d) - 1]]
+        return (dd[d] / p - 1) * 100 if p else None
+    if "SPY" in rows and "^GSPC" in close:
+        d = rows["SPY"][-1][0]
+        a, b = day_chg(rows["SPY"], d), day_chg(close["^GSPC"], d)
+        if a is not None and b is not None:
+            out.append({"name": "S&P 500 ETF(SPY)とS&P 500指数", "date": d, "a": round(a, 2), "b": round(b, 2),
+                        "ok": abs(a - b) <= 0.3})
+    if "^TNX" in close:
+        try:
+            tr = dict(_eb().treasury_rows("10 Yr"))
+            d = close["^TNX"][-1][0]
+            if d in tr:
+                a, b = close["^TNX"][-1][1], tr[d]
+                out.append({"name": "米10年債利回り(Yahoo)と米国財務省", "date": d, "a": round(a, 3), "b": round(b, 3),
+                            "ok": abs(a - b) <= 0.05})
+        except Exception as e:  # 財務省が取れない日は照合を飛ばす
+            print(f"    [照合 10年債] 財務省のCSVが取れない({type(e).__name__})")
+    return out
 
 
 # ---------- 2. 特徴量 ----------
@@ -141,15 +414,20 @@ def _r(x, nd=2):
     return None if x is None else round(x, nd)
 
 
-def features(rows):
-    """記号ごとの特徴量。z = 変化 ÷ (ふだんの1日の値動き × √日数)。|z|が2を超えると、めったにない大きさ"""
+def features(rows, close=None, stale=None):
+    """記号ごとの特徴量。z = 変化 ÷ (ふだんの1日の値動き × √日数)。|z|が2を超えると、めったにない大きさ。
+    騰落は配当を調整した値、水準(last)は実際の終値。遅れている銘柄は1日の値を出さない(古い日の動きを今日の動きと見せない)"""
     names = {s: (n, g) for s, n, g in all_symbols()}
+    close, stale = close or {}, stale or {}
     out = {}
     for sym, r in rows.items():
         name, group = names.get(sym, (sym, ""))
+        if group in ("check", "heavy_us", "heavy_jp"):
+            continue
         daily = _daily(r, sym)
         sd = _std([x for _, x in daily[-61:-1]])   # 当日を除いた直近60日
-        f = {"sym": sym, "name": name, "group": group, "date": r[-1][0], "last": _r(r[-1][1], 4),
+        lastv = (close.get(sym) or r)[-1][1]
+        f = {"sym": sym, "name": name, "group": group, "date": r[-1][0], "last": _r(lastv, 4),
              "unit": "bp" if sym in YIELD_SYMS else "%", "sd": _r(sd, 3)}
         for h in (1, 5, 20, 60):
             c = _chg(r, sym, h)
@@ -159,6 +437,10 @@ def features(rows):
         f["above50"] = None if s50 is None else r[-1][1] > s50
         f["above200"] = None if s200 is None else r[-1][1] > s200
         f["dist50"] = _r((r[-1][1] / s50 - 1) * 100) if s50 and sym not in YIELD_SYMS else None
+        if sym in stale:
+            f["stale"] = True
+            for k in ("c1", "z1"):
+                f[k] = None
         out[sym] = f
     # 対ベンチマーク(米国はS&P 500、日本はTOPIX)
     for sym, f in out.items():
@@ -209,6 +491,120 @@ def breadth(feat, group):
     return {"n": len(xs), "up1": up, "above50": a50}
 
 
+# ---------- 2b. 指数を動かした銘柄(固定の主力銘柄)と、その日に大きく動いた大型株(動的) ----------
+# 2026-11-26の検証(過去250日、前150日で推定し残り約100日で確かめた):
+#   日経平均−TOPIXの差は、17業種だけで77%、主力10銘柄を加えると92%まで説明できる(値がさ株の影響が大きい)
+#   米国の時価総額加重−均等加重の差は、セクターで96%、主力を加えて97%。説明力の上乗せは小さいが、
+#   ±1%以上動いた日の約3割で、1銘柄が巨大株の影響の半分以上を占める(どの会社かを名指しできる)
+#   その日の値動き上位75件のうち、時価総額1000億ドル以上は13件で、半導体などその日の主役が入っていた
+HEAVY_US = [("NVDA", "エヌビディア"), ("MSFT", "マイクロソフト"), ("AAPL", "アップル"), ("AMZN", "アマゾン"),
+            ("GOOGL", "アルファベット"), ("META", "メタ"), ("AVGO", "ブロードコム"), ("TSLA", "テスラ"),
+            ("BRK-B", "バークシャー・ハサウェイ"), ("JPM", "JPモルガン")]
+HEAVY_JP = [("9983.T", "ファーストリテイリング"), ("8035.T", "東京エレクトロン"), ("6857.T", "アドバンテスト"),
+            ("9984.T", "ソフトバンクグループ"), ("4063.T", "信越化学"), ("6954.T", "ファナック"), ("6758.T", "ソニーグループ"),
+            ("7203.T", "トヨタ自動車"), ("8306.T", "三菱UFJ"), ("6501.T", "日立製作所")]
+MOVER_MIN_CAP = 5e10      # 動的に拾う大型株の下限(500億ドル)。小型株の急騰・急落は指数の説明に使えない
+MOVER_MIN_MOVE = 2.0      # 値動き上位から拾う下限(%)
+SCREENS = ("day_gainers", "day_losers", "most_actives")
+
+
+def _ridge(y, X, lam=0.5):
+    """切片つきの最小二乗(小さな正則化)。重みを返す"""
+    k = len(X[0]) + 1
+    A = [[0.0] * k for _ in range(k)]
+    b = [0.0] * k
+    for yi, xi in zip(y, X):
+        v = [1.0] + list(xi)
+        for i in range(k):
+            b[i] += v[i] * yi
+            for j in range(k):
+                A[i][j] += v[i] * v[j]
+    for i in range(1, k):
+        A[i][i] += lam
+    for i in range(k):
+        p = max(range(i, k), key=lambda r: abs(A[r][i]))
+        A[i], A[p], b[i], b[p] = A[p], A[i], b[p], b[i]
+        for r in range(k):
+            if r != i and A[i][i]:
+                f = A[r][i] / A[i][i]
+                A[r] = [x - f * y_ for x, y_ in zip(A[r], A[i])]
+                b[r] -= f * b[i]
+    return [b[i] / A[i][i] if A[i][i] else 0.0 for i in range(k)]
+
+
+def contributions(rows, index, bench, heavy, stale=None):
+    """指数(index)と幅広い指標(bench)の差を、主力銘柄の「benchとの差」に分ける。
+    重みは前日までの約1年で推定し(当日を推定に使わない)、当日と5日の寄与を出す"""
+    stale = stale or {}
+    syms = [s for s, _ in heavy if s in rows and s not in stale]
+    if index not in rows or bench not in rows or len(syms) < 5:
+        return None
+    rr = {s: dict((b[0], (b[1] / a[1] - 1) * 100) for a, b in zip(rows[s], rows[s][1:])) for s in syms + [index, bench]}
+    days = sorted(set.intersection(*[set(v) for v in rr.values()]))
+    if len(days) < 120:
+        return None
+    last = days[-1]
+    if last != rows[index][-1][0]:
+        return None   # 主力銘柄の当日分が欠けている
+    hist = days[:-1]
+    y = [rr[index][d] - rr[bench][d] for d in hist]
+    use = list(syms)
+    for _ in range(len(syms)):   # 重みがマイナスの銘柄を外して推定し直す(指数に入っている銘柄の重みは0以上)
+        X = [[rr[s][d] - rr[bench][d] for s in use] for d in hist]
+        coef = _ridge(y, X)
+        neg = [s for s, c in zip(use, coef[1:]) if c < 0]
+        if not neg:
+            break
+        use = [s for s in use if s not in neg]
+    wmap = dict(zip(use, coef[1:]))
+    w = [0.0] + [wmap.get(s, 0.0) for s in syms]
+    names = dict(heavy)
+    out = {"index": index, "bench": bench, "date": last}
+    for h in (1, 5):
+        ds = days[-h:]
+        gap = sum(rr[index][d] - rr[bench][d] for d in ds)
+        items = []
+        for j, s in enumerate(syms):
+            ex = sum(rr[s][d] - rr[bench][d] for d in ds)
+            ret = sum(rr[s][d] for d in ds)
+            items.append({"sym": s, "name": names[s], "ret": _r(ret), "contrib": _r(w[j + 1] * ex), "weight": _r(w[j + 1], 3)})
+        items.sort(key=lambda x: -abs(x["contrib"] or 0))
+        out[f"d{h}"] = {"gap": _r(gap), "items": items}
+    return out
+
+
+def fetch_movers(expected_us, get=None):
+    """Yahooのスクリーナーから、その日に大きく動いた大型の米国株。当日(米国の最新の取引日)の値でなければ使わない"""
+    from datetime import datetime, timezone
+    import urllib.request
+    get = get or (lambda u: json.loads(urllib.request.urlopen(
+        urllib.request.Request(u, headers={"User-Agent": _eb()._UA}), timeout=20).read().decode()))
+    seen, out, errors = set(), [], []
+    for sc in SCREENS:
+        quotes = None
+        for host in ("query1", "query2"):
+            try:
+                d = get(f"https://{host}.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds={sc}&count=50")
+                quotes = d["finance"]["result"][0]["quotes"]
+                break
+            except Exception as e:
+                errors.append(f"{sc} {host}: {type(e).__name__}")
+        for q in quotes or []:
+            sym, cap, chg, t = q.get("symbol"), q.get("marketCap") or 0, q.get("regularMarketChangePercent"), q.get("regularMarketTime")
+            if not sym or sym in seen or cap < MOVER_MIN_CAP or not isinstance(chg, (int, float)) or not t:
+                continue
+            day = _eb()._to_et(datetime.fromtimestamp(t, timezone.utc)).date().isoformat()
+            if day != expected_us or (sc != "most_actives" and abs(chg) < MOVER_MIN_MOVE):
+                continue
+            seen.add(sym)
+            et = q.get("earningsTimestamp") or q.get("earningsTimestampStart")
+            earn = bool(et and abs(et - t) <= 2 * 86400)   # 決算の発表が前後2日以内
+            out.append({"sym": sym, "name": q.get("shortName") or q.get("longName") or sym, "chg": _r(chg),
+                        "cap_b": round(cap / 1e9), "earnings": earn, "list": sc})
+    out.sort(key=lambda x: -abs(x["chg"]))
+    return out[:15], errors
+
+
 # ---------- 3. 規則にもとづく主因の候補 ----------
 def _f(feat, sym, key):
     return (feat.get(sym) or {}).get(key)
@@ -224,7 +620,7 @@ def _fmt(x, unit="%"):
     return f"{x:+.2f}{unit}" if unit == "%" else f"{x:+.0f}{unit}"
 
 
-def rule_drivers(feat, sigs, h=5):
+def rule_drivers(feat, sigs, h=5, contrib=None):
     """h日の値動きの主因の候補を、強さ(z値)の順に。各候補は材料の数字つき"""
     k, zk = f"c{h}", f"z{h}"
     spx = _f(feat, "SPY", k)
@@ -296,6 +692,21 @@ def rule_drivers(feat, sigs, h=5):
         add("日本: 円安で輸出株が買われる" if jy > 0 else "日本: 円高で輸出株が売られる", (abs(jy_z) + abs(ext.get(zk) or 0)) / 2,
             "上昇要因" if jy > 0 else "下落要因",
             f"ドル円が{h}日で{_fmt(jy)}、外需株は内需株より{_fmt(ext[k])}", ["JPY=X", "jp_ext"])
+    # 指数が一部の主力銘柄に引っ張られた(日経平均−TOPIX、時価総額加重−均等加重)
+    for key, sid, label in (("jp", "jp_n225", "日経平均"), ("us", "breadth", "S&P 500")):
+        c = (contrib or {}).get(key) or {}
+        d = c.get(f"d{h}")
+        sg = _sig(sigs, sid)
+        if not d or not d["items"] or not sg or sg.get(zk) is None or abs(sg[zk]) < 1:
+            continue
+        top = [x for x in d["items"] if x["contrib"] is not None and abs(x["contrib"]) >= 0.15 * abs(d["gap"]) and x["contrib"] * d["gap"] > 0][:3]
+        share = sum(x["contrib"] for x in top) / d["gap"] if d["gap"] else 0
+        if not top or share < 0.4:
+            continue
+        idx_gap = "日経平均とTOPIXの差" if key == "jp" else "時価総額加重と均等加重の差"
+        add(f"{label}は一部の主力銘柄に{'押し下げ' if d['gap'] < 0 else '押し上げ'}られた", abs(sg[zk]), "中立",
+            f"{idx_gap}は{h}日で{_fmt(d['gap'])}。うち" + "、".join(f"{x['name']}({_fmt(x['ret'])})が{_fmt(x['contrib'])}" for x in top)
+            + "(推定)。指数の動きほど、多くの銘柄は動いていない", [sid] + [x["sym"] for x in top])
     # ここまでの型に当てはまらないが、ふだんより大きく動いた資金の流れ
     used = {e for x in out for e in x["evidence"]}
     for s in sigs:
@@ -319,7 +730,7 @@ def _line(f):
             f"60日{_fmt(f.get('c60'))} (z1 {f.get('z1')}, z5 {f.get('z5')}){rs} 50日線の{pos[f.get('above50')]}・200日線の{pos[f.get('above200')]}")
 
 
-def data_block(feat, sigs, macro=None):
+def data_block(feat, sigs, macro=None, contrib=None, movers=None):
     """AIに渡すデータの表(記号つき。主張の根拠にはこの記号を使わせる)"""
     parts = []
     for g, title in (("style", "米国株の全体と信用"), ("us", "米国のセクター(ETF)"), ("jp", "日本の業種(TOPIX-17のETF)"),
@@ -331,6 +742,17 @@ def data_block(feat, sigs, macro=None):
         parts.append("■資金の流れ(買い側 − 売り側の騰落の差)\n" + "\n".join(
             f"{s['id']} {s['name']} 1日{_fmt(s['c1'])} 5日{_fmt(s['c5'])} 20日{_fmt(s['c20'])} (z5 {s['z5']}): {s['meaning']}"
             for s in sigs))
+    for key, title in (("us", "米国: 時価総額加重(SPY)と均等加重(RSP)の差を動かした主力銘柄(推定の寄与)"),
+                       ("jp", "日本: 日経平均とTOPIXの差を動かした値がさ株(推定の寄与)")):
+        c = (contrib or {}).get(key)
+        if c:
+            parts.append(f"■{title}(日付 {c['date']})\n" + "\n".join(
+                f"{h[1:]}日: 差{_fmt(c[h]['gap'])} / " + "、".join(f"{x['sym']} {x['name']} 騰落{_fmt(x['ret'])} 寄与{_fmt(x['contrib'])}" for x in c[h]["items"][:6])
+                for h in ("d1", "d5")))
+    if movers:
+        parts.append("■当日に大きく動いた大型の米国株(時価総額500億ドル以上)\n" + "\n".join(
+            f"{m['sym']} {m['name']} {_fmt(m['chg'])} 時価総額{m['cap_b'] * 10:,}億ドル{' 決算発表の前後' if m['earnings'] else ''}"
+            for m in movers))
     if macro:
         parts.append("■マクロ(FRED)\n" + "\n".join(f"{k} {v}" for k, v in macro.items()))
     return "\n\n".join(parts)
@@ -350,9 +772,11 @@ def macro_lines(market):
     return out
 
 
-def news_block(out):
-    """その日のニュース要約(検証済み)と見出し。番号はN1〜"""
+def news_block(out, saved=None):
+    """その日のニュース要約(検証済み)と見出し。番号はN1〜。outが無い時(取り直し)は保存した行を使う"""
     if not out:
+        if saved:
+            return "\n".join(saved), list(saved)
         return "(ニュースは取得できませんでした)", []
     econ, major = out.get("econ") or {}, out.get("major") or {}
     lines, texts = [], []
@@ -423,10 +847,13 @@ ROLES = [
     ("sector", "セクター・資金の流れのアナリスト",
      "米国12セクターと日本17業種の騰落、資金の流れの表(景気敏感とディフェンシブ、半導体、相場の幅、小型株、外需と内需)から、"
      "お金がどこから出てどこへ向かったかを特定し、それが何を織り込んでいるか(景気、金利、AI投資、円相場)を分析する。"
-     "z値が大きい(ふだんより大きく動いた)業種を優先する。"),
+     "z値が大きい(ふだんより大きく動いた)業種を優先する。さらに、指数を動かした主力銘柄の推定の寄与(日経平均−TOPIX、"
+     "時価総額加重−均等加重)と、当日に大きく動いた大型株の表から、指数の動きが一部の銘柄によるものか、幅広い銘柄によるものかを判定し、"
+     "同じ業種の大型株がそろって動いていれば業種全体の材料、1社だけなら(決算など)個別の材料として区別する。"),
     ("world", "世界情勢・ニュースのアナリスト",
      "ニュース(政策、地政学、貿易、AI・半導体、決算)と世界の株価指数(欧州・中国・香港・韓国・日本)から、"
-     "市場を動かした出来事を特定し、それが米国株と日本株にどう波及したかを分析する。ニュースと値動きが一致しない場合はそう書く。"),
+     "市場を動かした出来事を特定し、それが米国株と日本株にどう波及したかを分析する。当日に大きく動いた大型株(決算の前後の印つき)と"
+     "ニュースを結び付ける。ニュースと値動きが一致しない場合はそう書く。"),
 ]
 BEAR = ("bear", "弱気筋(マイケル・バーリや空売り筋の思考)",
         "ここまでの3人の分析を読み、懐疑的な空売り筋として反論する。過熱、一部銘柄への集中、信用の悪化、"
@@ -499,7 +926,7 @@ def _review_prompt(data_txt, news_txt, draft):
 _NUM = re.compile(r"([+\-−▲]?)(\d+(?:,\d{3})*(?:\.\d+)?)\s*(%|％|bp|ベーシス|ポイント|pt|円|ドル|倍)")
 
 
-def allowed_numbers(feat, sigs, macro, news_texts):
+def allowed_numbers(feat, sigs, macro, news_texts, contrib=None, movers=None):
     """単位ごとに、使ってよい数字の集合。{"pct": [...], "bp": [...], "x": [...], "lvl": [...]}
     %はデータの騰落率と利回りの水準、bpは利回りの変化、倍はz値、価格(円・ドル・ポイント)は水準。ニュースの数字はどの単位でも使ってよい"""
     vals = {"pct": set(), "bp": set(), "x": set(), "lvl": set()}
@@ -519,6 +946,16 @@ def allowed_numbers(feat, sigs, macro, news_texts):
         for h in (1, 5, 20):
             add("pct", s.get(f"c{h}"))
             add("x", s.get(f"z{h}"))
+    for c in (contrib or {}).values():
+        for h in ("d1", "d5"):
+            for x in ((c or {}).get(h) or {}).get("items") or []:
+                add("pct", x.get("ret"))
+                add("pct", x.get("contrib"))
+            add("pct", ((c or {}).get(h) or {}).get("gap"))
+    for m in movers or []:
+        add("pct", m.get("chg"))
+        add("lvl", m.get("cap_b"))
+        add("lvl", (m.get("cap_b") or 0) * 10)
     for t in list((macro or {}).values()) + list(news_texts or []):
         t = re.sub(r"\d{4}-\d{2}-\d{2}", " ", str(t))   # 日付の数字は使ってよい数字に入れない
         for m in re.finditer(r"\d+(?:,\d{3})*(?:\.\d+)?", t):
@@ -620,14 +1057,14 @@ def clean_chief(c, allowed, known, dropped):
     }
 
 
-def run_ai(feat, sigs, rules, macro, out):
+def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=None):
     """役割の違うアナリストを順に重ね、チーフが統合、査読、必要なら改訂。失敗した段は飛ばして続ける"""
     eb = _eb()
     eb._gemini_reset(DEEP_BUDGET)
-    data_txt = data_block(feat, sigs, macro)
-    news_txt, news_texts = news_block(out)
-    allowed = allowed_numbers(feat, sigs, macro, news_texts)
-    known = set(feat) | {s["id"] for s in sigs}
+    data_txt = data_block(feat, sigs, macro, contrib, movers)
+    news_txt, news_texts = news_block(out, saved_news)
+    allowed = allowed_numbers(feat, sigs, macro, news_texts, contrib, movers)
+    known = set(feat) | {s["id"] for s in sigs} | {s for s, _ in HEAVY_US + HEAVY_JP} | {m["sym"] for m in movers or []}
     dropped, errors, steps = [], [], []
     passes = {}
     for role in ROLES + [BEAR, BULL]:
@@ -667,7 +1104,8 @@ def run_ai(feat, sigs, rules, macro, out):
             errors.append(f"査読・改訂: {type(e).__name__}: {e}")
     except Exception as e:
         errors.append(f"チーフ: {type(e).__name__}: {e}")
-    result = {"ok": chief is not None, "passes": passes, "errors": errors, "steps": steps}
+    result = {"ok": chief is not None, "passes": passes, "errors": errors, "steps": steps,
+              "news": news_txt.split("\n")[:60]}
     if chief is not None:
         result["chief"] = clean_chief(chief, allowed, known, dropped)
     result["dropped"] = dropped
@@ -675,19 +1113,24 @@ def run_ai(feat, sigs, rules, macro, out):
 
 
 # ---------- 6. まとめと履歴 ----------
-def build_analysis(rows, market=None, out=None, ai=True, now=None):
+def build_analysis(fetched, market=None, out=None, ai=True, now=None, saved_news=None):
     now = now or datetime.now(_eb().JST)
-    feat = features(rows)
+    rows, q = fetched["rows"], fetched["quality"]
+    feat = features(rows, fetched.get("close"), q.get("stale"))
     if sum(1 for f in feat.values() if f["group"] == "us") < MIN_US:
         return None
     sigs = signals(rows)
-    rules = {"d1": rule_drivers(feat, sigs, 1), "d5": rule_drivers(feat, sigs, 5), "d20": rule_drivers(feat, sigs, 20)}
+    contrib = {"us": contributions(rows, "SPY", "RSP", HEAVY_US, q.get("stale")),
+               "jp": contributions(rows, "^N225", "1306.T", HEAVY_JP, q.get("stale"))}
+    movers = fetched.get("movers") or []
+    rules = {"d1": rule_drivers(feat, sigs, 1, contrib), "d5": rule_drivers(feat, sigs, 5, contrib),
+             "d20": rule_drivers(feat, sigs, 20)}
     macro = macro_lines(market)
     res = {"updated": now.isoformat(timespec="minutes"), "source": "Yahoo Finance(各ETF・指数)、FRED、ニュース要約",
-           "asof": {"us": _f(feat, "SPY", "date"), "jp": _f(feat, "1306.T", "date")},
-           "features": feat, "signals": sigs, "breadth": {"us": breadth(feat, "us"), "jp": breadth(feat, "jp")},
+           "asof": {"us": _f(feat, "SPY", "date"), "jp": _f(feat, "1306.T", "date")}, "quality": q,
+           "features": feat, "signals": sigs, "contrib": contrib, "movers": movers, "breadth": {"us": breadth(feat, "us"), "jp": breadth(feat, "jp")},
            "rules": rules}
-    res["ai"] = run_ai(feat, sigs, rules["d5"] + rules["d1"][:2], macro, out) if ai else {"ok": False, "errors": ["AIを使わない設定"]}
+    res["ai"] = run_ai(feat, sigs, rules["d5"] + rules["d1"][:2], macro, out, contrib, movers, saved_news) if ai else {"ok": False, "errors": ["AIを使わない設定"]}
     return res
 
 
@@ -704,19 +1147,24 @@ def add_history(res, prev):
     return res
 
 
-def publish_analysis(out=None, market=None, fetch=None):
+def _read_prev():
+    try:
+        _, b = _eb()._gh_get_file(ANALYSIS_PATH)
+        return json.loads(b.decode("utf-8")) if b else None
+    except Exception as e:
+        print(f"  [WARN] 前回の深掘り分析を読めない(履歴なしで続ける): {e}")
+        return None
+
+
+def publish_analysis(out=None, market=None, fetch=None, prev=None, saved_news=None, waits=None):
     eb = _eb()
-    rows = fetch_all(fetch)
-    res = build_analysis(rows, market, out)
+    fetched = fetch_all(fetch, waits=waits)
+    res = build_analysis(fetched, market, out, saved_news=saved_news)
     if res is None:
         print("  深掘り分析: 米国セクターのデータが足りないため更新しません")
         return False
-    try:
-        _, prev_bytes = eb._gh_get_file(ANALYSIS_PATH)
-        prev = json.loads(prev_bytes.decode("utf-8")) if prev_bytes else None
-    except Exception as e:
-        print(f"  [WARN] 前回の深掘り分析を読めない(履歴なしで続ける): {e}")
-        prev = None
+    if prev is None:
+        prev = _read_prev()
     add_history(res, prev)
     text = json.dumps(res, ensure_ascii=False, separators=(",", ":"))
     eb._gh_put_file(ANALYSIS_PATH, text.encode("utf-8"), f"🔎 学習アプリの深掘り分析: {res['updated'][:16]}")
@@ -726,9 +1174,26 @@ def publish_analysis(out=None, market=None, fetch=None):
     return True
 
 
+def ensure_fresh(now=None):
+    """投稿の後の予備の起動で呼ぶ。今朝の深掘り分析が無い・古い・データが欠けていたら作り直す
+    (ニュースは前回保存した行を使う)。作り直したら True"""
+    from datetime import datetime, timezone
+    prev = _read_prev()
+    exp = expected_us_date(now or datetime.now(timezone.utc))
+    q = (prev or {}).get("quality") or {}
+    fresh = prev and (prev.get("asof") or {}).get("us") == exp and q.get("complete") and (prev.get("ai") or {}).get("ok")
+    if fresh:
+        print(f"  深掘り分析は今朝の分({exp})がそろっているため、作り直さない")
+        return False
+    print(f"  深掘り分析を作り直す(前回: 日付 {(prev or {}).get('asof')}, データ{'そろい' if q.get('complete') else '欠けあり'})")
+    return publish_analysis(None, None, prev=prev, saved_news=((prev or {}).get("ai") or {}).get("news"), waits=BACKUP_WAITS)
+
+
 if __name__ == "__main__":   # ローカル確認: AIなしで計算だけして標準出力へ
     t = time.time()
-    r = build_analysis(fetch_all(), ai=False, now=datetime.now())
+    fe = fetch_all(waits=())
+    r = build_analysis(fe, ai=False, now=datetime.now())
+    print("quality:", json.dumps(r["quality"], ensure_ascii=False))
     print(json.dumps({k: r[k] for k in ("asof", "breadth", "rules")}, ensure_ascii=False, indent=1))
     print("signals:", json.dumps(r["signals"], ensure_ascii=False))
     print(f"{time.time() - t:.1f}秒")

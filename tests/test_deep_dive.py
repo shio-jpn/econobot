@@ -11,6 +11,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import econobot as eb  # noqa: E402
 import deep_dive as dd  # noqa: E402
 
+dd.RETRY_WAITS = dd.BACKUP_WAITS = ()   # 試験では取り直しを待たない
+LAST_DAY = None   # 作った値動きの最後の日(series() の結果から決まる)
+
 NOW = datetime(2026, 11, 27, 8, 5, tzinfo=eb.JST)
 
 
@@ -43,12 +46,36 @@ def yields(n=260, level=4.5, last_bp=None):
     return rows
 
 
+def fetcher(rows):
+    """fetch_all に渡す取得の関数: (騰落用, 終値) を返す"""
+    return lambda s: (rows[s], rows[s])
+
+
+def fetched(rows, now=None):
+    """作った値動きの最後の日を「米国の最新の取引日」として取得したことにする"""
+    last = rows["SPY"][-1][0]
+    with mock.patch.object(dd, "expected_us_date", return_value=last):
+        return dd.fetch_all(fetch=fetcher(rows), waits=())
+
+
 def base_rows(**over):
     rows = {}
     for i, (sym, _, _) in enumerate(dd.all_symbols()):
         rows[sym] = yields() if sym in dd.YIELD_SYMS else series(phase=i)
+    rows["^GSPC"] = rows["SPY"]   # 照合用の指数はSPYと同じ動き
     rows.update(over)
     return rows
+
+
+_TR = mock.patch.object(eb, "treasury_rows", side_effect=OSError("試験では財務省のCSVを取りに行かない"))
+
+
+def setUpModule():
+    _TR.start()
+
+
+def tearDownModule():
+    _TR.stop()
 
 
 class FeatureTest(unittest.TestCase):
@@ -73,7 +100,10 @@ class FeatureTest(unittest.TestCase):
 
     def test_skips_short_series(self):
         rows = base_rows(XLK=series(n=40))
-        self.assertNotIn("XLK", dd.fetch_all(fetch=lambda s: rows[s]))
+        f = fetched(rows)
+        self.assertNotIn("XLK", f["rows"])
+        self.assertIn("XLK", f["quality"]["missing"])
+        self.assertFalse(f["quality"]["complete"])
 
 
 class RuleTest(unittest.TestCase):
@@ -197,11 +227,12 @@ class PublishTest(unittest.TestCase):
         prev = {"history": [{"date": "2026-10-01", "spy": 100, "us": "上昇"}, {"date": rows["SPY"][-1][0], "spy": 1, "us": "下落"}]}
         call, _ = fake_ai(reviews_ok=True)
         with mock.patch.object(eb, "_call_gemini", call), \
+             mock.patch.object(dd, "expected_us_date", return_value=rows["SPY"][-1][0]), \
              mock.patch.object(eb, "_gh_get_file", return_value=("sha", json.dumps(prev).encode())), \
              mock.patch.object(eb, "_gh_put_file") as put, \
              mock.patch.object(eb, "datetime") as dt:
             dt.now.return_value = NOW
-            self.assertTrue(dd.publish_analysis({}, None, fetch=lambda s: rows[s]))
+            self.assertTrue(dd.publish_analysis({}, None, fetch=fetcher(rows)))
         path, body, msg = put.call_args[0]
         self.assertEqual(path, "learn/data/analysis.json")
         d = json.loads(body.decode())
@@ -210,6 +241,9 @@ class PublishTest(unittest.TestCase):
         self.assertEqual(d["history"][-1]["headline"], "初版")
         self.assertTrue(d["ai"]["ok"])
         self.assertIn("SPY", d["features"])
+        self.assertTrue(d["quality"]["complete"])
+        self.assertIsNotNone(d["contrib"]["us"])        # 主力銘柄の寄与
+        self.assertEqual(d["contrib"]["jp"]["index"], "^N225")
 
     def test_not_enough_data(self):
         with mock.patch.object(eb, "_gh_put_file") as put:
@@ -225,6 +259,111 @@ class PublishTest(unittest.TestCase):
             self.assertIsNone(eb._GEMINI_CLOCK["start"])
         finally:
             eb.GEMINI_BUDGET = old
+
+
+
+class AccuracyTest(unittest.TestCase):
+    """2026-11-26 に実データで見つかった問題が直っていること"""
+
+    def chart(self, sym, bars, itype="ETF", off=-18000, reg=None):
+        return {"meta": {"symbol": sym, "gmtoffset": off, "instrumentType": itype, "currentTradingPeriod": {"regular": reg or {}}},
+                "timestamp": [t for t, _, _ in bars],
+                "indicators": {"quote": [{"close": [c for _, c, _ in bars]}], "adjclose": [{"adjclose": [a for _, _, a in bars]}]}}
+
+    def test_split_glitch_is_dropped(self):
+        # 1306.T: 分割の調整が2日だけ二重にかかり、値が1/10になっていた
+        base = int(datetime(2026, 3, 20, tzinfo=eb.JST).timestamp())
+        vals = [383.6, 382.6, 382.7, 37.64, 37.14, 389.2, 383.0, 386.6]
+        bars = [(base + i * 86400, v, v) for i, v in enumerate(vals)]
+        ret, close = dd.parse_chart(self.chart("1306.T", bars, off=32400), "1306.T", now=datetime(2026, 4, 5, tzinfo=eb.JST))
+        self.assertEqual([v for _, v in ret], [383.6, 382.6, 382.7, 389.2, 383.0, 386.6])
+        self.assertEqual(len(close), 6)
+
+    def test_dividend_adjusted_returns_but_real_close(self):
+        base = int(datetime(2026, 11, 2, 14, 30, tzinfo=eb.timezone.utc).timestamp())
+        bars = [(base, 77.0, 76.6), (base + 86400, 76.6, 76.6)]   # 配当落ちで0.4下がった日
+        ret, close = dd.parse_chart(self.chart("HYG", bars), "HYG", now=datetime(2026, 11, 5, tzinfo=eb.timezone.utc))
+        self.assertAlmostEqual(ret[-1][1] / ret[0][1] - 1, 0.0)    # 騰落は配当込みで0
+        self.assertEqual(close[-1][1], 76.6)                         # 表示は実際の終値
+
+    def test_futures_session_dates(self):
+        # 原油: 11/25の取引の終値(米東部00:00の足)と、11/25夕方から始まった11/26の取引の途中の値
+        t25 = int(datetime(2026, 11, 25, 5, 0, tzinfo=eb.timezone.utc).timestamp())
+        t_live = int(datetime(2026, 11, 26, 4, 50, tzinfo=eb.timezone.utc).timestamp())
+        ret, _ = dd.parse_chart(self.chart("CL=F", [(t25 - 86400, 82.05, 82.05), (t25, 83.68, 83.68), (t_live, 84.44, 84.44)], "FUTURE"),
+                                "CL=F", now=datetime(2026, 11, 26, 5, 0, tzinfo=eb.timezone.utc))
+        self.assertEqual(dict(ret)["2026-11-25"], 83.68)     # 途中の値で上書きされない
+        self.assertEqual(ret[-1][0], "2026-11-26")           # 途中の値は翌日の取引として分ける(fetch_allで捨てる)
+
+    def test_nyse_calendar(self):
+        self.assertIn(date(2026, 11, 26), dd.nyse_holidays(2026))   # 感謝祭
+        self.assertIn(date(2026, 4, 3), dd.nyse_holidays(2026))     # 聖金曜日
+        self.assertIn(date(2026, 7, 3), dd.nyse_holidays(2026))     # 独立記念日(土曜)の振替
+        utc = eb.timezone.utc
+        # 感謝祭の翌朝(日本時間11/27 8時)に終値があるべき日は11/25
+        self.assertEqual(dd.expected_us_date(datetime(2026, 11, 26, 23, 0, tzinfo=utc)), "2026-11-25")
+        # 普通の平日の朝(日本時間火曜8時 = 米東部月曜18時/19時)は月曜
+        self.assertEqual(dd.expected_us_date(datetime(2026, 11, 23, 23, 0, tzinfo=utc)), "2026-11-23")
+        # 引けの前(米東部15時)は前の取引日
+        self.assertEqual(dd.expected_us_date(datetime(2026, 11, 23, 20, 0, tzinfo=utc)), "2026-11-20")
+
+    def test_late_symbol_is_retried_then_flagged(self):
+        rows = base_rows()
+        last = rows["SPY"][-1][0]
+        late = {"XLK": rows["XLK"][:-1]}
+        calls = []
+
+        def fetch(s):
+            calls.append(s)
+            r = late.get(s, rows[s])
+            return r, r
+        sleeps = []
+        with mock.patch.object(dd, "expected_us_date", return_value=last):
+            f = dd.fetch_all(fetch=fetch, waits=(1, 2), sleep=sleeps.append)
+        self.assertEqual(sleeps, [1, 2])                      # 遅れた銘柄を時間をおいて2回取り直した
+        self.assertEqual(calls.count("XLK"), 3)
+        self.assertIn("XLK", f["quality"]["stale"])
+        feat = dd.features(f["rows"], f["close"], f["quality"]["stale"])
+        self.assertTrue(feat["XLK"]["stale"])
+        self.assertIsNone(feat["XLK"]["c1"])                  # 古い日の動きを今日の動きとして出さない
+
+    def test_us_series_cut_at_us_trading_day(self):
+        rows = base_rows()
+        last = rows["SPY"][-1][0]
+        rows["CL=F"] = rows["CL=F"] + [("2099-01-01", 1.0)]  # 翌日の取引の途中の値
+        with mock.patch.object(dd, "expected_us_date", return_value=last):
+            f = dd.fetch_all(fetch=fetcher(rows), waits=())
+        self.assertEqual(f["rows"]["CL=F"][-1][0], last)
+
+    def test_cross_check_flags_mismatch(self):
+        rows = base_rows()
+        close = dict(rows)
+        close["^GSPC"] = rows["SPY"][:-1] + [(rows["SPY"][-1][0], rows["SPY"][-2][1] * 1.05)]
+        c = dd.cross_checks(rows, close)
+        self.assertFalse(c[0]["ok"])
+
+
+class HeavyAndMoversTest(unittest.TestCase):
+    def test_contribution_names_the_driver(self):
+        rows = base_rows(**{"8035.T": series(last=(1, -0.12), phase=40), "^N225": series(last=(1, -0.03), phase=41)})
+        c = dd.contributions(rows, "^N225", "1306.T", dd.HEAVY_JP)
+        self.assertEqual(c["d1"]["items"][0]["sym"], "8035.T")
+        self.assertTrue(all(x["weight"] >= 0 for x in c["d1"]["items"]))   # マイナスの重みは使わない
+
+    def test_movers_filter_large_today(self):
+        t = int(datetime(2026, 11, 25, 21, 0, tzinfo=eb.timezone.utc).timestamp())
+        old = t - 3 * 86400
+        quotes = [
+            {"symbol": "MU", "marketCap": 6.8e11, "regularMarketChangePercent": -4.6, "regularMarketTime": t, "shortName": "Micron"},
+            {"symbol": "TINY", "marketCap": 2e9, "regularMarketChangePercent": 30.0, "regularMarketTime": t},       # 小型株は外す
+            {"symbol": "OLD", "marketCap": 9e11, "regularMarketChangePercent": -9.0, "regularMarketTime": old},     # 古い日は外す
+            {"symbol": "ADI", "marketCap": 1.6e11, "regularMarketChangePercent": 6.4, "regularMarketTime": t, "earningsTimestamp": t - 3600},
+            {"symbol": "FLAT", "marketCap": 9e11, "regularMarketChangePercent": 0.5, "regularMarketTime": t},      # 動きが小さい
+        ]
+        mv, err = dd.fetch_movers("2026-11-25", get=lambda u: {"finance": {"result": [{"quotes": quotes if "gainers" in u else []}]}})
+        self.assertEqual([m["sym"] for m in mv], ["ADI", "MU"])
+        self.assertTrue(mv[0]["earnings"])
+        self.assertEqual(err, [])
 
 
 if __name__ == "__main__":

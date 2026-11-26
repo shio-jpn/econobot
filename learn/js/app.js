@@ -702,7 +702,7 @@
     var xs = Object.keys(AN.features).map(function (k) { return AN.features[k]; }).filter(function (f) { return f.group === group; })
       .sort(function (a, b) { return (b[whyH] == null ? -99 : b[whyH]) - (a[whyH] == null ? -99 : a[whyH]); });
     return '<div class="heat">' + xs.map(function (f) {
-      return '<div class="heat-t" style="background:' + heatBg(f[z]) + '" title="ふだんの値動きの ' + (f[z] == null ? '—' : Math.abs(f[z]).toFixed(1)) + ' 倍"><span class="heat-n">' + esc(f.name) + '</span><span class="heat-v">' + wpct(f[whyH]) + '</span>' + (f[rs] != null ? '<span class="heat-r">対指数 ' + wpct(f[rs]) + '</span>' : '') + '</div>';
+      return '<div class="heat-t" style="background:' + heatBg(f[z]) + '" title="ふだんの値動きの ' + (f[z] == null ? '—' : Math.abs(f[z]).toFixed(1)) + ' 倍"><span class="heat-n">' + esc(f.name) + '</span><span class="heat-v">' + wpct(f[whyH]) + '</span>' + (f[rs] != null ? '<span class="heat-r">対指数 ' + wpct(f[rs]) + '</span>' : '') + (f.stale && whyH === 'c1' ? '<span class="heat-r">データ遅れ</span>' : '') + '</div>';
     }).join('') + '</div>';
   }
   function sigRow(s) {
@@ -716,6 +716,31 @@
       var lv = f.unit === 'bp' ? f.last.toFixed(2) + '%' : f.last >= 1000 ? Math.round(f.last).toLocaleString('ja-JP') : f.last.toFixed(2);
       return '<tr><td>' + esc(f.name) + '</td><td>' + lv + '</td>' + ['c1', 'c5', 'c20'].map(function (k) { var v = f[k], col = f.group !== 'cross' && f.sym !== 'TLT'; return '<td class="' + (!col ? '' : v > 0 ? 'up' : v < 0 ? 'down' : '') + '">' + wpct(v, f.unit) + '</td>'; }).join('') + '</tr>';
     }).join('') + '</tbody></table></div>';
+  }
+  function contribCard(c, title, gapName) {
+    if (!c) return '';
+    var h = whyH === 'c1' ? 'd1' : 'd5', d = c[h]; if (!d) return '';
+    var items = d.items.filter(function (x) { return x.contrib != null && Math.abs(x.contrib) >= 0.01; }).slice(0, 6);
+    var mx = Math.max.apply(null, items.map(function (x) { return Math.abs(x.contrib); }).concat([Math.abs(d.gap), 0.01]));
+    return '<section class="span-6"><h2>' + esc(title) + '<span class="h-r">' + (h === 'd1' ? '1日' : '5日') + '</span></h2><p class="sub">' + esc(gapName) + ' <strong class="' + (d.gap > 0 ? 'up' : d.gap < 0 ? 'down' : '') + '">' + (d.gap > 0 ? '+' : '') + d.gap.toFixed(2) + 'pt</strong> のうち、各銘柄の寄与(推定)</p><ul class="sigs">' +
+      items.map(function (x) {
+        var w = Math.abs(x.contrib) / mx * 50;
+        return '<li><div class="sig-h"><strong>' + esc(x.name) + ' <span class="sub">' + wpct(x.ret) + '</span></strong><span class="' + (x.contrib > 0 ? 'up' : 'down') + '">' + (x.contrib > 0 ? '+' : '') + x.contrib.toFixed(2) + 'pt</span></div><div class="sig-bar"><i class="' + (x.contrib >= 0 ? 'pos' : 'neg') + '" style="width:' + w + '%"></i></div></li>';
+      }).join('') + '</ul></section>';
+  }
+  function moversCard() {
+    var mv = AN.movers || []; if (!mv.length) return '';
+    return '<section><h2>' + ico('pulse') + 'その日に大きく動いた大型株(米国)<span class="h-r">時価総額500億ドル以上</span></h2><div class="table-wrap"><table class="num"><thead><tr><th class="l">銘柄</th><th>騰落</th><th>時価総額</th><th></th></tr></thead><tbody>' +
+      mv.map(function (m) { return '<tr><td class="l"><strong>' + esc(m.sym) + '</strong> <span class="sub">' + esc(m.name) + '</span></td><td class="' + (m.chg > 0 ? 'up' : 'down') + '">' + wpct(m.chg) + '</td><td>' + (m.cap_b >= 1000 ? (m.cap_b / 1000).toFixed(1) + '兆' : m.cap_b * 10 + '億') + 'ドル</td><td>' + (m.earnings ? '<span class="pill warn">決算</span>' : '') + '</td></tr>'; }).join('') +
+      '</tbody></table></div><p class="sub">毎日の値動き上位から、指数に影響する大型株だけを拾っています(小型株の急騰・急落は指数の説明に使えないため外しています)。同じ業種の銘柄がそろって動いた日は、その業種全体に材料が出ています。</p></section>';
+  }
+  function qualityLine() {
+    var q = AN.quality; if (!q) return '';
+    var nTot = Object.keys(AN.features || {}).length, st = Object.keys(q.stale || {}), ck = q.checks || [];
+    return '<p class="sub dq">データの確認: 米国 ' + esc((q.expected_us || '').slice(5).replace('-', '/')) + ' ・ 日本 ' + esc((q.expected_jp || '').slice(5).replace('-', '/')) + ' の終値 ・ ' +
+      (q.missing && q.missing.length ? '取れなかった銘柄 ' + esc(q.missing.join(', ')) + ' ・ ' : '全銘柄取得 ・ ') +
+      (st.length ? '遅れ ' + esc(st.join(', ')) + '(1日の値は出していません) ・ ' : '遅れなし ・ ') +
+      ck.map(function (c) { return esc(c.name) + 'の照合 ' + (c.ok ? 'OK' : 'ずれあり(' + c.a + ' / ' + c.b + ')'); }).join(' ・ ') + '</p>';
   }
   function mktCard(m, title) {
     if (!m) return '';
@@ -745,9 +770,11 @@
       h += '<section class="ai-card"><h2>' + ico('target') + 'チーフアナリストの結論</h2><p class="sub">' + esc(asof) + ' ・ 確信度 ' + esc(c.confidence) + '</p><p class="why-head">' + esc(c.headline) + '</p>' +
         (c.debate ? '<p><strong>強気と弱気、どちらが優勢か:</strong> ' + esc(c.debate) + '</p>' : '') + '</section>';
       h += '<div class="dash">' + mktCard(c.us, '米国株: なぜこう動いたか') + mktCard(c.jp, '日本株: なぜこう動いたか') + '</div>';
+      h += qualityLine();
     } else {
       h += '<section><h2>' + ico('target') + 'データから見える主因</h2><p class="sub">' + esc(asof) + '。今日はAIの分析ができなかったため、データの自動判定だけを表示しています。</p><h3 class="mini-h">直近5日</h3>' + ruleList(AN.rules && AN.rules.d5) + '<h3 class="mini-h">今日(1日)</h3>' + ruleList(AN.rules && AN.rules.d1) + '</section>';
     }
+    if (!c) h += qualityLine();
     var seg = '<div class="seg small" role="group" aria-label="期間">' + [['c1', '1日'], ['c5', '5日'], ['c20', '20日']].map(function (x) { return '<button type="button" data-whyh="' + x[0] + '" class="' + (whyH === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') + '</div>';
     var bu = AN.breadth && AN.breadth.us, bj = AN.breadth && AN.breadth.jp;
     h += '<section><h2>' + ico('grid') + 'セクターの動き<span class="h-r">' + hs + '</span></h2>' + seg +
@@ -755,6 +782,9 @@
       '<h3 class="mini-h">日本(TOPIX-17業種のETF)' + (bj ? '<span class="sub mini-s">今日の上昇 ' + bj.up1 + ' / ' + bj.n + ' ・ 50日線の上 ' + bj.above50 + ' / ' + bj.n + '</span>' : '') + '</h3>' + heatGrid('jp') +
       '<p class="sub">色の濃さは「ふだんの値動きの何倍か」。濃いほど、めったにない大きさの動きです。対指数は S&P 500 / TOPIX との差。日本の業種ETFは売買が少ない日に指数とずれることがあります。</p>' +
       (c && c.sectors && c.sectors.length ? '<h3 class="mini-h">大きく動いた業種と、その理由</h3><ul class="sec-why">' + c.sectors.map(function (x) { return '<li><strong>' + esc(x.name) + '</strong><p>' + esc(x.why) + '</p></li>'; }).join('') + '</ul>' : '') + '</section>';
+    var cu = AN.contrib && AN.contrib.us, cj = AN.contrib && AN.contrib.jp;
+    if (cu || cj) h += '<div class="dash">' + contribCard(cj, '日経平均を動かした値がさ株', '日経平均とTOPIXの差') + contribCard(cu, 'S&P 500を動かした巨大株', '時価総額加重と均等加重の差') + '</div>';
+    h += moversCard();
     h += '<section><h2>' + ico('flow') + 'お金の流れ<span class="h-r">' + hs + '</span></h2>' + seg + '<ul class="sigs">' + (AN.signals || []).map(sigRow).join('') + '</ul><p class="sub">「買われた側 − 売られた側」の騰落の差。プロは指数そのものより、この差で市場が何を織り込んでいるかを読みます。<a href="#lesson-money-flow">考え方</a></p></section>';
     h += '<div class="dash"><section class="span-6"><h2>' + ico('pulse') + '金利・恐怖指数・商品・為替</h2>' + crossTable(['cross', 'style']) + '</section><section class="span-6"><h2>' + aico('market') + '世界の株価指数</h2>' + crossTable(['global']) + '</section></div>';
     var passes = ai.passes || {};
