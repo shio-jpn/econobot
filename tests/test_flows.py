@@ -185,6 +185,10 @@ class DescribeTest(unittest.TestCase):
         nums = F.numbers(flow, {})
         self.assertIn(5.633, nums)    # 56330億円 → 5.633兆円
         self.assertIn(28.29, nums)
+        st = {"us": {"levels": {"close": 7182.78, "atr": 168.94, "atr_pct": 2.35}}}
+        n2 = F.numbers(flow, st)
+        self.assertTrue(any(abs(x - 337.88) < 0.01 for x in n2))    # ATRの2倍(本番で「約338ポイント」が捨てられた)
+        self.assertTrue(any(abs(x - 6844.9) < 0.01 for x in n2))    # 終値 − ATRの2倍
 
 
 if __name__ == "__main__":
