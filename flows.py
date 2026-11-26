@@ -617,6 +617,18 @@ def _f(x, unit="%", sign=True):
     return (f"{x:+,.2f}" if sign else f"{x:,.2f}") + unit
 
 
+def position_words(net, chg, idx):
+    """持ち高の向きと変化を、読み違えようのない言葉にする(数字の符号だけだとAIが逆に読むことがある)"""
+    side = "買い越し" if net > 0 else "売り越し" if net < 0 else "ほぼゼロ"
+    if net < 0:
+        move = f"売り越しが{abs(chg):,}枚{'拡大(新たな売り)' if chg < 0 else '縮小(買い戻し)'}" if chg else "前週と同じ"
+    else:
+        move = f"買い越しが{abs(chg):,}枚{'拡大(新たな買い)' if chg > 0 else '縮小(売り)'}" if chg else "前週と同じ"
+    where = ("過去3年で最も買い寄りの水準" if idx >= 90 else "過去3年では買い寄り" if idx >= 70 else
+             "過去3年で最も売り寄りの水準" if idx <= 10 else "過去3年では売り寄り" if idx <= 30 else "過去3年の中ほど")
+    return f"{side} {abs(net):,}枚、前週比で{move}、偏り{idx}({where})"
+
+
 def describe(flow, strat):
     """需給と戦略のデータを、AIに渡す表の文章にする"""
     L = []
@@ -647,8 +659,8 @@ def describe(flow, strat):
                  "注意: 米国債先物のヘッジファンドの売り越しの大半は、現物の国債を買って先物を売る裁定取引(ベーシス取引)で、金利の方向への賭けではない。"
                  "株価指数の先物のヘッジファンドの売り越しも、資産運用会社の買いの相手側やヘッジの売りを含む。方向の判断には前週比と偏りの変化を重視する")
         for v in cot.values():
-            L.append(f"{v['name']}({v['date']}): ヘッジファンド等 {v['lev_net']:+,}枚(前週比{v['lev_chg']:+,}、偏り{v['lev_idx']})、"
-                     f"資産運用会社 {v['am_net']:+,}枚(前週比{v['am_chg']:+,}、偏り{v['am_idx']})")
+            L.append(f"{v['name']}({v['date']}): ヘッジファンド等は{position_words(v['lev_net'], v['lev_chg'], v['lev_idx'])}。"
+                     f"資産運用会社は{position_words(v['am_net'], v['am_chg'], v['am_idx'])}")
     inv = (flow or {}).get("investor")
     if inv:
         L.append(f"■日本の投資部門別売買(東証プライム、{inv.get('from')}〜{inv.get('to')}、差引、億円): "
@@ -664,8 +676,8 @@ def describe(flow, strat):
     for key, v in (strat or {}).items():
         r, c, lv, bt = v.get("rule") or {}, v.get("caution") or {}, v.get("levels") or {}, (v.get("backtest") or {}).get("all") or {}
         L.append(f"■戦略({v['name']}): 規則=月末の終値が200日平均の上なら投資、下なら待機。直近の判定({r.get('decided')}) "
-                 f"{'投資' if r.get('position') == 100 else '待機'}。今の200日平均からの位置 {_f(v.get('now_vs_200'))}"
-                 + ("(今月末に判定が変わる可能性)" if v.get("flip_watch") else ""))
+                 f"{'投資(100%)' if r.get('position') == 100 else '待機(0%)'}。今の200日平均からの位置 {_f(v.get('now_vs_200'))}"
+                 + (f"(このまま月末を迎えると「{'待機' if r.get('position') == 100 else '投資'}」に変わる)" if v.get("flip_watch") else ""))
         L.append(f"  注意の度合い {c.get('level')}(1回の売買の大きさの目安: {c.get('size')})、内訳 {c.get('parts')}")
         L.append(f"  価格帯: 終値 {lv.get('close')}、ATR(14) {lv.get('atr')}({lv.get('atr_pct')}%)、20日線 {lv.get('sma20')}、50日線 {lv.get('sma50')}、"
                  f"200日線 {lv.get('sma200')}、20日の高値 {lv.get('hi20')}・安値 {lv.get('lo20')}、60日の高値 {lv.get('hi60')}・安値 {lv.get('lo60')}")

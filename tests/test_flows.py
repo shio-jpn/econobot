@@ -167,6 +167,14 @@ class OptionsAndCOTTest(unittest.TestCase):
 
 
 class DescribeTest(unittest.TestCase):
+    def test_position_words_are_unambiguous(self):
+        t = F.position_words(-234978, 68082, 86)       # 2026-11-17のS&P 500先物のヘッジファンド
+        self.assertIn("売り越し 234,978枚", t)
+        self.assertIn("売り越しが68,082枚縮小(買い戻し)", t)
+        self.assertIn("買い寄り", t)
+        self.assertIn("売り越しが6,935枚拡大(新たな売り)", F.position_words(-23790, -6935, 60))
+        self.assertIn("買い越しが5,663枚縮小(売り)", F.position_words(84681, -5663, 81))
+
     def test_describe_and_numbers(self):
         flow = {"investor": {"from": "20261109", "to": "20261113", "海外投資家": -3064}, "investor_4w": {"海外投資家": -1515},
                 "margin_hist": [{"date": "20261120", "buy": 56330, "sell": 6438, "ratio": 8.75}],
