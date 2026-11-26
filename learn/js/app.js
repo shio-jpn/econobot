@@ -318,7 +318,7 @@
   var MK = null, mkReady = false;
   K.mkt.load().then(function (d) { MK = d; mkReady = true; renderTicker(); if (curName === 'home' || curName === 'market' || curName === 'drill' || curName === 'outlook') route(); });
   var AN = null, anReady = false;
-  K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; if (curName === 'why' || curName === 'outlook' || curName === 'home') route(); });
+  K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; if (curName === 'why' || curName === 'flow' || curName === 'outlook' || curName === 'home') route(); });
   function mkStats(id) { var s = MK && MK.series[id]; return s ? K.mkt.stats(s.rows, s.kind) : null; }
   function fmtLevel(st, kind) { if (!st) return '—'; if (st.kind === 'gauge') return st.last.toFixed(2); if (st.rate) return st.last.toFixed(2) + '%'; return st.last >= 1000 ? st.last.toLocaleString('en-US', { maximumFractionDigits: 0 }) : st.last.toFixed(2); }
   function fmtChg(st, k) { if (!st || st[k] == null) return '—'; if (st.kind === 'gauge') return sgn(st[k], 2); return st.rate ? sgn(st[k] * 100, 0, 'bp') : sgn(st[k], 2, '%'); }
@@ -687,7 +687,7 @@
 
   /* ================= 画面: なぜ動いたか(深掘り分析) ================= */
   var whyH = 'c1';
-  var WHY_ROLES = [['macro', 'マクロ・金利', 'pulse'], ['sector', 'セクター・資金の流れ', 'grid'], ['world', '世界情勢・ニュース', 'flow'], ['bear', '弱気筋(バーリ・空売り筋)', 'shield'], ['bull', '強気筋(トレンド・需給)', 'target']];
+  var WHY_ROLES = [['macro', 'マクロ・金利', 'pulse'], ['sector', 'セクター・資金の流れ', 'grid'], ['world', '世界情勢・ニュース', 'flow'], ['bear', '弱気筋(バーリ・空売り筋)', 'shield'], ['bull', '強気筋(トレンド・需給)', 'target'], ['flow', '需給・ポジション', 'person'], ['strategy', '売買戦略とリスク管理', 'shield']];
   function anName(id) {
     if (/^N\d+$/.test(id)) return 'ニュース' + id.slice(1);
     var lb = AN.ai && AN.ai.labels; if (lb && lb[id]) return lb[id];
@@ -768,7 +768,7 @@
     }).reverse();
   }
   function viewWhy() {
-    var h = '<div class="page-head"><h1>なぜ動いたか</h1><p class="lead">米国12セクター・日本17業種・金利・商品・世界の市場・ニュースを材料に、役割の違う5人のアナリストが順に分析を重ね、チーフアナリストが統合し、査読で矛盾を直した見解です。毎朝更新されます。</p></div>';
+    var h = '<div class="page-head"><h1>なぜ動いたか</h1><p class="lead">米国12セクター・日本17業種・金利・商品・世界の市場・ニュースを材料に、役割の違う7人のアナリストが順に分析を重ね、チーフアナリストが統合し、査読で矛盾を直した見解です。毎朝更新されます。</p></div>';
     if (!anReady) return h + '<section><p class="sub">読み込み中…</p></section>';
     if (!AN) return h + '<section><h2>' + ico('pulse') + 'データを待っています</h2><p>この画面のデータは、毎朝のニュースBotが投稿の後に <code>learn/data/analysis.json</code> として書き出します。公開版でBotが一度動いた後から表示されます。</p><div class="actions"><a class="btn" href="#outlook">相場の見立て</a><a class="btn ghost" href="#lesson-money-flow">セクターの読み方</a></div></section>';
     var ai = AN.ai || {}, c = ai.chief, hs = whyH === 'c1' ? '1日' : whyH === 'c5' ? '5日' : '20日';
@@ -796,7 +796,7 @@
     h += '<div class="dash"><section class="span-6"><h2>' + ico('pulse') + '金利・恐怖指数・商品・為替</h2>' + crossTable(['cross', 'style']) + '</section><section class="span-6"><h2>' + aico('market') + '世界の株価指数</h2>' + crossTable(['global']) + '</section></div>';
     var passes = ai.passes || {};
     if (Object.keys(passes).length) {
-      h += '<section><h2>' + ico('chat') + 'アナリスト会議</h2><p class="steps">' + (ai.steps || []).map(esc).join(' → ') + '</p><p class="sub">同じデータとニュースを、5つの役割で順に分析しました。後の人は前の人の分析を読んだうえで、補ったり反論したりしています。</p><div class="panels">' +
+      h += '<section><h2>' + ico('chat') + 'アナリスト会議</h2><p class="steps">' + (ai.steps || []).map(esc).join(' → ') + '</p><p class="sub">同じデータとニュースを、7つの役割で順に分析しました。後の人は前の人の分析を読んだうえで、補ったり反論したりしています。</p><div class="panels">' +
         WHY_ROLES.filter(function (r) { return passes[r[0]]; }).map(function (r, i) {
           var p = passes[r[0]];
           return '<details class="panel ' + r[0] + '"' + (i === 0 ? ' open' : '') + '><summary>' + ico(r[2]) + '<span><strong>' + esc(r[1]) + '</strong><span class="sub">' + esc(p.view) + '</span></span></summary><ul class="items">' + (p.items || []).map(function (it) {
@@ -818,8 +818,112 @@
         sh.slice(0, 15).map(function (x) { return '<tr><td>' + esc(x.date.slice(5).replace('-', '/')) + '</td><td>' + dirPill(x.us) + '</td><td class="' + (x.chg > 0 ? 'up' : x.chg < 0 ? 'down' : '') + '">' + (x.chg == null ? '—' : wpct(x.chg)) + '</td><td>' + (x.hit == null ? '判定待ち' : x.hit ? '的中' : '外れ') + '</td><td class="l">' + esc(x.headline) + '</td></tr>'; }).join('') +
         '</tbody></table></div><p class="sub">「方向」は直近5日の動きの判定です。その後の5営業日のS&P 500(ETF)で、上昇=+0.5%超、下落=−0.5%未満、もみ合い=±1.5%以内を的中としています。外れた日に何を見落としたかを考えるのが、いちばんの練習になります。</p></section>';
     }
+    if (AN.flow && Object.keys(AN.flow).length) h += '<section><h2>' + ico('person') + '需給と戦略<a class="h-r" href="#flow">開く ›</a></h2><p>' + esc((c && c.supply_demand) ? c.supply_demand.split('。')[0] + '。' : 'だれが売り、だれが買っているか(出来高・オプション・大口の持ち高・日本の主体別)と、プロの戦い方をまとめています。') + '</p><div class="actions"><a class="btn" href="#flow">需給と戦略を見る</a></div></section>';
     h += newsList();
     h += '<p class="disclaimer">AIの文章は、数字をデータとニュースに照らして確かめ、確かめられない数字を含む文は捨てています(今日は ' + ((ai.dropped || []).length) + ' 文)。それでも分析は推測を含み、将来の値動きを保証するものではありません。売買の判断はご自身で行ってください。更新 ' + esc((AN.updated || '').replace('T', ' ').slice(0, 16)) + '</p>';
+    return h;
+  }
+
+  /* ================= 画面: 需給と戦略 ================= */
+  var fsMkt = 'us';
+  function num(x, d) { return x == null ? '—' : Number(x).toLocaleString('ja-JP', { maximumFractionDigits: d == null ? 2 : d }); }
+  function sgn(x, d, u) { return x == null ? '—' : (x > 0 ? '+' : '') + num(x, d) + (u || ''); }
+  function oku(x) { if (x == null) return '—'; var a = Math.abs(x); return (x > 0 ? '+' : x < 0 ? '−' : '') + (a >= 10000 ? (a / 10000).toFixed(2) + '兆円' : num(a, 0) + '億円'); }
+  function idxBar(v, label) {
+    return '<div class="ib"><div class="ib-bar"><i style="left:' + v + '%"></i></div><span class="sub">' + label + ' ' + v + '</span></div>';
+  }
+  function btTable(b) {
+    if (!b || !b.all) return '';
+    var row = function (name, x) { return x ? '<tr><td class="l">' + name + '<span class="sub"> ' + esc((x.from || '').slice(0, 4)) + '〜' + esc((x.to || '').slice(0, 4)) + '</span></td><td>' + x.rule.cagr + '%</td><td>' + x.hold.cagr + '%</td><td class="up">' + x.rule.mdd + '%</td><td class="down">' + x.hold.mdd + '%</td><td>' + x.rule.sharpe + '</td><td>' + x.hold.sharpe + '</td></tr>' : ''; };
+    return '<div class="table-wrap"><table class="num"><thead><tr><th class="l">期間</th><th>年率<br>規則</th><th>年率<br>持ち続け</th><th>最大下落<br>規則</th><th>最大下落<br>持ち続け</th><th>シャープ<br>規則</th><th>シャープ<br>持ち続け</th></tr></thead><tbody>' +
+      row('全体', b.all) + row('前半', b.first) + row('後半', b.second) + '</tbody></table></div>';
+  }
+  function stratCard(v) {
+    if (!v) return '';
+    var r = v.rule || {}, c = v.caution || {}, lv = v.levels || {}, inv = r.position === 100;
+    var parts = Object.keys(c.parts || {}).map(function (k) { var x = c.parts[k]; return '<span class="pill ' + (x > 0 ? 'up' : x < 0 ? 'down' : 'flat') + '">' + esc(k) + (x > 0 ? ' 良好' : x < 0 ? ' 警戒' : ' 中立') + '</span>'; }).join(' ');
+    return '<section class="span-6"><h2>' + esc(v.name) + '<span class="h-r">' + esc((v.date || '').slice(5).replace('-', '/')) + '</span></h2>' +
+      '<div class="rule-box ' + (inv ? 'up' : 'down') + '"><p class="sub">基本の投資比率(月末の判定 ' + esc((r.decided || '').slice(5).replace('-', '/')) + ')</p><p class="rule-v">' + (inv ? '投資(100%)' : '待機(0%)') + '</p>' +
+      '<p class="sub">今の位置: 200日平均から ' + sgn(v.now_vs_200, 2, '%') + (v.flip_watch ? ' <strong class="hot">今月末に判定が「' + (inv ? '待機' : '投資') + '」に変わる可能性</strong>' : '') + '</p></div>' +
+      '<h3 class="mini-h">注意の度合い: <span class="' + (/高/.test(c.level) ? 'down' : 'up') + '">' + esc(c.level || '—') + '</span></h3><p>1回の売買の大きさ: <strong>' + esc(c.size || '—') + '</strong></p><p>' + parts + (c.dist_days != null ? ' <span class="sub">売り抜けの日 ' + c.dist_days + '日(25日間)</span>' : '') + '</p>' +
+      '<h3 class="mini-h">重要な価格帯</h3><div class="table-wrap"><table class="num"><tbody>' +
+      [['終値', lv.close], ['20日線', lv.sma20], ['50日線', lv.sma50], ['200日線', lv.sma200], ['20日の高値 / 安値', num(lv.hi20) + ' / ' + num(lv.lo20)], ['60日の高値 / 安値', num(lv.hi60) + ' / ' + num(lv.lo60)], ['ATR(14日の平均の値幅)', num(lv.atr) + '(' + lv.atr_pct + '%)']]
+        .map(function (x) { return '<tr><td class="l">' + x[0] + '</td><td>' + (typeof x[1] === 'string' ? x[1] : num(x[1])) + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+      '<h3 class="mini-h">この規則の過去の成績</h3>' + btTable(v.backtest) + '</section>';
+  }
+  function fsUpdate() {
+    var st = AN && AN.strategy && AN.strategy[fsMkt]; var out = $('#fs-out'); if (!st || !out) return;
+    var cap = parseFloat(($('#fs-cap') || {}).value) || 0, risk = parseFloat(($('#fs-risk') || {}).value) || 0, k = parseFloat(($('#fs-k') || {}).value) || 2;
+    var stop = st.levels.atr_pct * k, size = stop > 0 ? Math.min(cap, cap * risk / 100 / (stop / 100)) : 0, lev = st.caution && /高/.test(st.caution.level) ? 0.5 : 1;
+    out.innerHTML = '<p>損切りの幅: ATRの' + k + '倍 = <strong>' + stop.toFixed(2) + '%</strong>(' + esc(st.name) + 'なら約' + num(st.levels.atr * k, 0) + ')</p>' +
+      '<p>1回で失ってよい額: <strong>' + num(cap * risk / 100, 0) + '円</strong></p>' +
+      '<p>持てる金額の上限: <strong class="big">' + num(size, 0) + '円</strong>(資金の' + (cap ? Math.round(size / cap * 100) : 0) + '%)</p>' +
+      (lev < 1 ? '<p class="warn"><span class="warn-label">注意</span>今は注意の度合いが「' + esc(st.caution.level) + '」のため、プロはこの半分(約' + num(size / 2, 0) + '円)以下に抑えるのが一般的です。</p>' : '');
+  }
+  function viewFlow() {
+    var h = '<div class="page-head"><h1>需給と戦略</h1><p class="lead">だれが売り、だれが買っているのか(需給)と、プロのトレーダーが成績を残すための戦い方(投資比率・売買の大きさ・損切り)をまとめます。公開されている統計(Yahoo・CBOE・CFTC・JPX)から毎朝計算します。</p></div>';
+    if (!anReady) return h + '<section><p class="sub">読み込み中…</p></section>';
+    var fl = AN && AN.flow, stg = AN && AN.strategy;
+    if (!fl || !Object.keys(fl).length) return h + '<section><h2>' + ico('pulse') + 'データを待っています</h2><p>この画面のデータは、毎朝のBotが深掘り分析と一緒に書き出します。</p><div class="actions"><a class="btn" href="#lesson-pro-flows">需給の読み方を学ぶ</a></div></section>';
+    var c = AN.ai && AN.ai.chief;
+    if (c && c.supply_demand) h += '<section class="ai-card"><h2>' + ico('target') + '需給の結論<span class="h-r">チーフアナリスト</span></h2><p>' + esc(c.supply_demand) + '</p></section>';
+    if (c && c.playbook && c.playbook.stance) {
+      var pb = c.playbook;
+      h += '<section><h2>' + ico('shield') + 'プロのトレーダーとしての今の戦い方</h2><p>' + esc(pb.stance) + '</p><div class="dash"><div class="span-6"><h3 class="mini-h up">機能しやすい行動</h3><ul>' + (pb.do || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div><div class="span-6"><h3 class="mini-h down">避けるべき行動</h3><ul>' + (pb.avoid || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>' + (pb.risk ? '<p><strong>損切りと考えを変える価格:</strong> ' + esc(pb.risk) + '</p>' : '') + '</section>';
+    }
+    if (stg && (stg.us || stg.jp)) {
+      h += '<div class="dash">' + stratCard(stg.us) + stratCard(stg.jp) + '</div>';
+      h += '<section class="say"><h2>' + ico('book') + 'この規則を選んだ理由</h2><p>トレンド・売り抜けの日・VIXなどを組み合わせて毎日投資比率を変える規則を過去20年で検証したところ、判定の変更が年18〜46回と多く、米国では前半・後半とも持ち続けに負けました。最も安定していたのは「月末の終値が200日平均の上なら投資、下なら待機」という単純な規則(M.フェイバーが2007年に公表)で、日米・前半後半のすべてで最大の下落を大きく減らしました。数値は過去に合わせて調整していません。売り抜けの日やVIXは、投資比率の切り替えではなく「1回の売買の大きさ」の目安(注意の度合い)として使います。</p><p class="sub">規則に従うと、強い上昇相場では持ち続けより年率が下がることがあります(2017年以降の米国など)。この規則の価値は、大きな下落を避けて退場しないことにあります。<a href="#lesson-pro-flows">考え方</a></p></section>';
+      var stA = stg[fsMkt] || stg.us || stg.jp;
+      h += '<section><h2>' + ico('tool') + '売買の大きさの計算</h2><p class="sub">1回の売買で失ってよい額(資金の1%が目安)と、損切りの幅(ATRの2倍が目安)から、持てる金額の上限を出します。指数連動のETFなどで使う考え方です。</p>' +
+        '<div class="seg" role="group"><button type="button" data-fsm="us" class="' + (fsMkt === 'us' ? 'on' : '') + '">S&amp;P 500</button><button type="button" data-fsm="jp" class="' + (fsMkt === 'jp' ? 'on' : '') + '">日経平均</button></div>' +
+        '<div class="fs-in"><label>資金(円)<input id="fs-cap" type="number" inputmode="numeric" value="1000000" step="100000"></label><label>1回のリスク(%)<input id="fs-risk" type="number" inputmode="decimal" value="1" step="0.25"></label><label>損切りの幅(ATRの何倍)<input id="fs-k" type="number" inputmode="decimal" value="2" step="0.5"></label></div><div id="fs-out" class="fs-out"></div></section>';
+    }
+    var op = fl.options || {}, pc = fl.putcall || {};
+    if (op.items) {
+      var it = op.items;
+      h += '<section><h2>' + ico('pulse') + 'オプション市場の需給</h2><div class="dash"><div class="span-6"><h3 class="mini-h">恐怖の期間構造</h3>' +
+        '<div class="term">' + ['^VIX9D', '^VIX', '^VIX3M'].filter(function (k) { return it[k]; }).map(function (k) { var x = it[k]; return '<div class="term-c"><span class="sub">' + esc(x.name) + '</span><strong>' + x.last + '</strong><span class="sub">1年で' + x.pct1y + '%の位置</span></div>'; }).join('<span class="term-a">→</span>') + '</div>' +
+        '<p>' + (op.term > 1 ? '<strong class="down">逆転(VIX÷3か月 = ' + op.term + ')</strong>: 目先の急落への備えが先の不安より強い状態。パニックの最中に出やすく、逆転が解消すると落ち着きのサインになります。' : '<strong class="up">順(VIX÷3か月 = ' + op.term + ')</strong>: 平常の形。目先の恐怖より先の不確かさの方が大きく見積もられています。') + '</p>' +
+        (op.move1d ? '<p>オプションが織り込むS&amp;P 500の値動き: <strong>1日 ±' + op.move1d + '%・1週間 ±' + op.move1w + '%</strong>(約68%の確率でこの範囲)</p>' : '') + '</div>' +
+        '<div class="span-6"><h3 class="mini-h">プット・コール比率(CBOE)</h3>' + (pc.ok ? '<div class="table-wrap"><table class="num"><tbody><tr><td class="l">個別株</td><td>' + pc.equity + '</td><td class="sub">10日平均 ' + (pc.equity10 || '—') + '</td></tr><tr><td class="l">全体</td><td>' + pc.total + '</td><td class="sub">10日平均 ' + (pc.total10 || '—') + '</td></tr><tr><td class="l">指数</td><td>' + pc.index + '</td><td></td></tr><tr><td class="l">S&amp;P 500</td><td>' + (pc.spx || '—') + '</td><td></td></tr></tbody></table></div><p class="sub">個別株の比率が0.8を超えると悲観の行き過ぎ(逆張りでは買いの合図に近い)、0.5を下回ると楽観の行き過ぎと読まれます。</p>' : '<p class="sub">今日の値はまだ公表されていません。</p>') +
+        ['^VVIX', '^SKEW', '^VXN'].filter(function (k) { return it[k]; }).map(function (k) { var x = it[k]; return '<p><strong>' + esc(x.name) + '</strong> ' + x.last + ' <span class="sub">1年で' + x.pct1y + '%の位置</span></p>'; }).join('') + '</div></div></section>';
+    }
+    var vb = fl.volume || {};
+    if (Object.keys(vb).length) {
+      h += '<section><h2>' + ico('grid') + '出来高と市場の状態(オニール流)</h2><div class="table-wrap"><table class="num"><thead><tr><th class="l">指数</th><th class="l">状態</th><th>高値から</th><th>売り抜けの日<br>(25日)</th><th>出来高<br>÷50日平均</th></tr></thead><tbody>' +
+        Object.keys(vb).map(function (k) { var v = vb[k]; return '<tr><td class="l">' + esc(v.name) + '</td><td class="l">' + esc(v.phase) + (v.ftd ? '<br><span class="sub">フォロースルー ' + esc(v.ftd.date.slice(5).replace('-', '/')) + ' ' + sgn(v.ftd.chg, 2, '%') + '</span>' : '') + '</td><td class="down">' + sgn(v.drawdown, 1, '%') + '</td><td class="' + (v.dist_days >= 6 ? 'down' : '') + '">' + (v.dist_days == null ? '—' : v.dist_days) + '</td><td>' + (v.ratio50 || '—') + '</td></tr>'; }).join('') +
+        '</tbody></table></div><p class="sub">売り抜けの日は「0.2%以上下げ、出来高が前日より多い日」。大口の売りの跡とされ、25日間に5〜6日を超えると上昇トレンドが崩れやすくなります。調整局面では、安値から4日目以降に出来高を伴って1.25%以上上げた日(フォロースルー)が、底打ちの最初の確認になります。</p></section>';
+    }
+    var cot = fl.cot || {};
+    if (Object.keys(cot).length) {
+      h += '<section><h2>' + ico('person') + '大口投資家の持ち高(CFTC)<span class="h-r">' + esc(((cot.sp || cot[Object.keys(cot)[0]]).date || '').slice(5).replace('-', '/')) + '時点</span></h2><ul class="cot">' +
+        Object.keys(cot).map(function (k) { var v = cot[k]; return '<li><strong>' + esc(v.name) + '</strong><div class="cot-r"><span>ヘッジファンド等 <b class="' + (v.lev_net > 0 ? 'up' : 'down') + '">' + sgn(v.lev_net, 0, '枚') + '</b> <span class="sub">前週比 ' + sgn(v.lev_chg, 0) + '</span></span>' + idxBar(v.lev_idx, '3年での偏り') + '</div><div class="cot-r"><span>資産運用会社 <b class="' + (v.am_net > 0 ? 'up' : 'down') + '">' + sgn(v.am_net, 0, '枚') + '</b> <span class="sub">前週比 ' + sgn(v.am_chg, 0) + '</span></span>' + idxBar(v.am_idx, '3年での偏り') + '</div></li>'; }).join('') +
+        '</ul><p class="sub">偏りは過去3年の最も売り越し(0)〜最も買い越し(100)のどこにいるか。90以上・10以下は持ち高が一方に傾きすぎで、巻き戻されると逆向きに大きく動きやすくなります。円の先物でヘッジファンドが大きく売り越している時は円安に賭ける取引(円キャリー)が積み上がっている状態で、巻き戻しは円高と日本株安を招きやすいです。米国債の先物のヘッジファンドの大きな売り越しは、大半が現物の国債を買って先物を売る裁定取引(ベーシス取引)で、金利の方向への賭けではありません。</p></section>';
+    }
+    var ih = fl.investor_hist || [];
+    if (ih.length) {
+      var names = ['海外投資家', '個人', '信託銀行', '事業法人', '投資信託', '証券会社(自己)'];
+      h += '<section><h2>' + aico('market') + '日本: だれが売り、だれが買ったか(投資部門別・東証プライム)</h2><div class="table-wrap"><table class="num"><thead><tr><th class="l">週</th>' + names.map(function (n) { return '<th>' + n + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        ih.slice(-6).reverse().map(function (w) { return '<tr><td class="l">' + esc((w.from || '').slice(4, 6) + '/' + (w.from || '').slice(6) + '〜' + (w.to || '').slice(6)) + '</td>' + names.map(function (n) { var x = w[n]; return '<td class="' + (x > 0 ? 'up' : x < 0 ? 'down' : '') + '">' + oku(x) + '</td>'; }).join('') + '</tr>'; }).join('') +
+        '</tbody></table></div><p class="sub">差引(買い − 売り)。海外投資家は日本株の売買の約6〜7割を占め、相場の方向を左右します。信託銀行は年金の資産配分の調整、事業法人の買いは主に自社株買い、個人は下がると買う逆張りの傾向があります。翌週の木曜に公表されます。</p>';
+      var mh = fl.margin_hist || [];
+      if (mh.length) h += '<h3 class="mini-h">信用取引の残高(二市場)</h3><div class="table-wrap"><table class="num"><thead><tr><th class="l">週末</th><th>買い残</th><th>前週比</th><th>売り残</th><th>信用倍率</th></tr></thead><tbody>' +
+        mh.slice(-6).reverse().map(function (m) { return '<tr><td class="l">' + esc(m.date.slice(4, 6) + '/' + m.date.slice(6)) + '</td><td>' + oku(m.buy).replace('+', '') + '</td><td class="' + (m.buy_chg > 0 ? 'up' : 'down') + '">' + oku(m.buy_chg) + '</td><td>' + oku(m.sell).replace('+', '') + '</td><td>' + m.ratio + '倍</td></tr>'; }).join('') +
+        '</tbody></table></div><p class="sub">信用買い残は将来の売り(返済の売り)の予備軍。買い残が多いまま株価が下がると、損失を抱えた個人の投げ売りで下げが加速しやすく、買い残が大きく減ると「売りの出尽くし」に近づきます。</p>';
+      h += '</section>';
+    }
+    var cal = fl.calendar || [];
+    if (cal.length) h += '<section><h2>' + ico('redo') + '需給の日程</h2><ul class="sec-why">' + cal.map(function (e) { return '<li><strong>' + esc(e.date.slice(5).replace('-', '/')) + '(あと' + e.days + '日) ' + esc(e.what) + '</strong><p>' + esc(e.why) + '</p></li>'; }).join('') + '</ul></section>';
+    var passes = (AN.ai && AN.ai.passes) || {};
+    var pf = ['flow', 'strategy'].filter(function (k) { return passes[k]; });
+    if (pf.length) h += '<section><h2>' + ico('chat') + '担当アナリストの分析</h2><div class="panels">' + pf.map(function (k, i) {
+      var p = passes[k];
+      return '<details class="panel"' + (i === 0 ? ' open' : '') + '><summary>' + ico(k === 'flow' ? 'person' : 'shield') + '<span><strong>' + esc(p.role) + '</strong><span class="sub">' + esc(p.view) + '</span></span></summary><ul class="items">' + (p.items || []).map(function (it) {
+        return '<li><div class="cause-h"><strong>' + esc(it.title) + '</strong>' + (it.impact ? '<span class="pill ' + (it.impact === '上昇要因' ? 'up' : it.impact === '下落要因' ? 'down' : 'flat') + '">' + esc(it.impact) + '</span>' : '') + '</div><p>' + esc(it.explain) + '</p>' + evChips(it.evidence) + '</li>';
+      }).join('') + '</ul></details>';
+    }).join('') + '</div></section>';
+    h += '<p class="disclaimer">需給の数値は公開の統計を自動で集計したものです(CFTCは火曜時点で金曜公表、投資部門別と信用残は前週分)。規則の成績は過去の検証で、将来の成績を保証するものではありません。売買の判断はご自身で行ってください。更新 ' + esc((AN.updated || '').replace('T', ' ').slice(0, 16)) + '</p>';
     return h;
   }
 
@@ -1127,7 +1231,7 @@
 
   /* ================= ナビゲーションとルーティング ================= */
   var NAV = [
-    ['市場', [['home', 'ダッシュボード', 'grid'], ['market', '今日の相場', 'pulse'], ['why', 'なぜ動いたか', 'flow'], ['outlook', '相場の見立て', 'compass'], ['drill', 'チャート演習', 'target']]],
+    ['市場', [['home', 'ダッシュボード', 'grid'], ['market', '今日の相場', 'pulse'], ['why', 'なぜ動いたか', 'flow'], ['flow', '需給と戦略', 'person'], ['outlook', '相場の見立て', 'compass'], ['drill', 'チャート演習', 'target']]],
     ['学ぶ', [['library', 'ライブラリ', 'book'], ['macro', '因果マップ', 'flow'], ['charts', 'チャート図鑑', 'candle'], ['traders', 'トレーダー研究', 'person']]],
     ['鍛える', [['review', '復習', 'redo'], ['tools', 'ツール', 'tool']]],
     ['調べる', [['ask', '質問する', 'chat'], ['glossary', '用語集', 'abc']]]
@@ -1158,7 +1262,7 @@
   var AREA_ICON = { market: 'globe', company: 'doc', chart: 'candle', risk: 'shield', strategy: 'target', base: 'compass' };
   function aico(id) { return '<span class="aico a-' + id + '">' + ico(AREA_ICON[id]) + '</span>'; }
   function ico(name) { return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">' + ICON[name] + '</svg>'; }
-  var TITLES = { home: '株トレ道場', market: '今日の相場', why: 'なぜ動いたか', outlook: '相場の見立て', drill: 'チャート演習', library: 'ライブラリ', macro: '因果マップ', charts: 'チャート図鑑', traders: 'トレーダー研究', review: '復習', tools: 'ツール', ask: '質問する', glossary: '用語集' };
+  var TITLES = { home: '株トレ道場', market: '今日の相場', why: 'なぜ動いたか', flow: '需給と戦略', outlook: '相場の見立て', drill: 'チャート演習', library: 'ライブラリ', macro: '因果マップ', charts: 'チャート図鑑', traders: 'トレーダー研究', review: '復習', tools: 'ツール', ask: '質問する', glossary: '用語集' };
   var NAV_OF = { lesson: 'library', topic: 'library', course: 'library', chart: 'charts', trader: 'traders', search: 'ask' };
   function navHTML(cur) {
     var due = dueList().length;
@@ -1176,6 +1280,7 @@
       case 'home': html = viewHome(); break;
       case 'market': html = viewMarket(); break;
       case 'why': html = viewWhy(); break;
+      case 'flow': html = viewFlow(); break;
       case 'outlook': html = viewOutlook(); break;
       case 'drill': html = viewDrill(); break;
       case 'ask': html = viewAsk(); break;
@@ -1196,6 +1301,7 @@
     closeSheet();
     session = null;
     view.innerHTML = html;
+    if (name === 'flow') fsUpdate();
     var nav = NAV_OF[name] || name;
     var grp = function (list) { return '<div class="dock-group">' + list.map(function (n) { return '<a href="#' + n[0] + '"' + (n[0] === nav ? ' aria-current="page"' : '') + ' aria-label="' + n[1] + '">' + ico(n[2]) + '<span>' + n[1] + '</span></a>'; }).join('') + '</div>'; };
     $('#dock').innerHTML = '<div class="dock-in">' + grp(DOCK_L) + grp(DOCK_M) + '<a class="fab' + (nav === 'ask' ? ' on' : '') + '" href="#ask" aria-label="質問する" title="質問する">' + ico('plus') + '</a></div>';
@@ -1236,7 +1342,7 @@
     if (viaAsk || looksLikeQuestion(v)) { $('#q').value = ''; sendAsk(v); } else goSearch(v);
   });
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('#ol-run,#menu-btn,#search-open,#search-close,[data-term],[data-q],[data-ask],[data-goto],.opt,[data-review],#next-q,button[data-candle],[data-dmode],[data-whyh],[data-news],#dr-next,#dr-skip,#sim-run,#sheet-close,#bk-out,#bk-in,[data-reload],#ask-clear,#ask-stop');
+    var t = e.target.closest('#ol-run,#menu-btn,#search-open,#search-close,[data-term],[data-q],[data-ask],[data-goto],.opt,[data-review],#next-q,button[data-candle],[data-dmode],[data-whyh],[data-news],[data-fsm],#dr-next,#dr-skip,#sim-run,#sheet-close,#bk-out,#bk-in,[data-reload],#ask-clear,#ask-stop');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
     if (t.id === 'ol-run') { runOutlookAI(); return; }
     if (t.id === 'menu-btn') { openMenu(); return; }
@@ -1255,6 +1361,7 @@
     if (t.id === 'next-q') { session.i++; showSession(); return; }
     if (t.dataset.candle) { state.candle = t.dataset.candle; save(); route(); return; }
     if (t.dataset.news) { e.preventDefault(); var sec = document.querySelector('#why-news-sec details'); if (sec) { sec.open = true; var li = document.getElementById('news-' + t.dataset.news); (li || sec).scrollIntoView({ behavior: 'smooth', block: 'center' }); if (li) { li.classList.add('flash'); setTimeout(function () { li.classList.remove('flash'); }, 1600); } } return; }
+    if (t.dataset.fsm) { fsMkt = t.dataset.fsm; var y2 = window.scrollY; route(); window.scrollTo(0, y2); return; }
     if (t.dataset.whyh) { whyH = t.dataset.whyh; var y = window.scrollY; route(); window.scrollTo(0, y); return; }
     if (t.dataset.dmode) { drillMode = t.dataset.dmode; drill = null; route(); return; }
     if (t.id === 'dr-next' || t.id === 'dr-skip') { drill = null; route(); return; }
@@ -1286,6 +1393,7 @@
   document.addEventListener('input', function (e) {
     var id = e.target.id || '';
     if (id.indexOf('ps-') === 0) sizeUpdate();
+    else if (id.indexOf('fs-') === 0) fsUpdate();
     else if (id.indexOf('sim-') === 0) simUpdate();
     else if (id.indexOf('lab-') === 0) labUpdate();
     else if (id === 'mk-note') { var r = MK && K.mkt.regime(MK); if (r) { state.notes[r.date] = e.target.value; save(); } }
