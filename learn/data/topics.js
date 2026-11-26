@@ -14,7 +14,7 @@
   ];
 
   K.topics = [
-    { id: 'outlook', area: 'market', name: '相場の見通しを立てる', lessons: ['outlook-method', 'short-sellers', 'scenario-thinking', 'macro-quadrant', 'intermarket'] },
+    { id: 'outlook', area: 'market', name: '相場の見通しを立てる', lessons: ['outlook-method', 'money-flow', 'short-sellers', 'scenario-thinking', 'macro-quadrant', 'intermarket'] },
     { id: 'bears', area: 'market', name: '弱気筋・空売り筋の視点', lessons: ['short-sellers', 'shorting', 'market-history', 'blowups'] },
     { id: 'daily', area: 'market', name: '今日の相場を読む', lessons: ['daily-read', 'priced-in', 'macro-events', 'intermarket', 'risk-on-off', 'jp-drivers'] },
     { id: 'rates', area: 'market', name: '金利と中央銀行', lessons: ['rates', 'central-banks', 'bonds', 'liquidity'] },

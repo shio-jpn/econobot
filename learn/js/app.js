@@ -317,6 +317,8 @@
   /* ================= 実データ ================= */
   var MK = null, mkReady = false;
   K.mkt.load().then(function (d) { MK = d; mkReady = true; renderTicker(); if (curName === 'home' || curName === 'market' || curName === 'drill' || curName === 'outlook') route(); });
+  var AN = null, anReady = false;
+  K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; if (curName === 'why' || curName === 'outlook' || curName === 'home') route(); });
   function mkStats(id) { var s = MK && MK.series[id]; return s ? K.mkt.stats(s.rows, s.kind) : null; }
   function fmtLevel(st, kind) { if (!st) return '—'; if (st.kind === 'gauge') return st.last.toFixed(2); if (st.rate) return st.last.toFixed(2) + '%'; return st.last >= 1000 ? st.last.toLocaleString('en-US', { maximumFractionDigits: 0 }) : st.last.toFixed(2); }
   function fmtChg(st, k) { if (!st || st[k] == null) return '—'; if (st.kind === 'gauge') return sgn(st[k], 2); return st.rate ? sgn(st[k] * 100, 0, 'bp') : sgn(st[k], 2, '%'); }
@@ -462,7 +464,7 @@
     var h = '<section class="hero"><div class="chart" id="hero-chart"></div><div class="hero-top"><div id="ticker" class="ticker" hidden></div></div><p class="hero-cap">' +
       (r ? esc(r.date.slice(5).replace('-', '月') + '日') + ' ・ ' + esc(r.title) : '株トレ道場 ・ 日本株と米国株をプロの水準まで') + '</p></section>';
     h += '<section class="say"><p>' + (r ? esc(r.text) : nx ? (started ? '続きは「' + esc(nx.t) + '」。' : 'まずは「' + esc(nx.t) + '」から。') + esc(nx.sum) : '全レッスンを読み終えました。あとは復習と演習で磨きます。') + '</p>' +
-      '<div class="actions">' + (r ? '<a class="btn" href="#outlook">今後の見立てを見る</a><a class="btn ghost" href="#market">今日の相場</a>' : '') + (nx ? '<a class="btn' + (r ? ' ghost' : '') + '" href="#lesson-' + nx.id + '">' + (started ? '続きから読む' : '読み始める') + '</a>' : '') + (due ? '<a class="btn ghost" href="#review">復習 ' + due + '問</a>' : '') + '</div>' +
+      '<div class="actions">' + (r ? (AN ? '<a class="btn" href="#why">なぜ動いたか</a>' : '') + '<a class="btn' + (AN ? ' ghost' : '') + '" href="#outlook">今後の見立てを見る</a><a class="btn ghost" href="#market">今日の相場</a>' : '') + (nx ? '<a class="btn' + (r ? ' ghost' : '') + '" href="#lesson-' + nx.id + '">' + (started ? '続きから読む' : '読み始める') + '</a>' : '') + (due ? '<a class="btn ghost" href="#review">復習 ' + due + '問</a>' : '') + '</div>' +
       '<p class="stamp">' + ov.rank + ' ・ 定着 ' + ov.score + '% ・ 演習 ' + dr.n + '回</p></section>';
     K.areas.forEach(function (a) { h += shelf(a); });
     h += '<div class="dash">';
@@ -662,6 +664,8 @@
         '<section><h2>' + ico('grid') + '使う7つの視点</h2><ul class="lens-list">' + LENS_INFO.map(function (x) { return '<li><strong>' + x[0] + '</strong><span class="sub">' + x[1] + '</span><p>' + x[2] + '</p></li>'; }).join('') + '</ul></section>';
     }
     var reg = K.mkt.regime(MK);
+    if (AN && AN.ai && AN.ai.chief) h += '<section class="ai-card"><h2>' + ico('flow') + 'なぜ動いたか(深掘り分析)<a class="h-r" href="#why">詳しく ›</a></h2><p class="why-head">' + esc(AN.ai.chief.headline) + '</p><p>' + esc(AN.ai.chief.us.summary) + '</p><div class="actions"><a class="btn" href="#why">セクター・金利・世界情勢からの分析を見る</a></div></section>';
+    else if (AN) h += '<section><h2>' + ico('flow') + 'なぜ動いたか<a class="h-r" href="#why">詳しく ›</a></h2><p>セクター・金利・商品・世界の市場の動きから、値動きの原因を分析しています。</p></section>';
     h += '<section><h2>' + ico('target') + '結論<span class="h-r">' + esc(o.name) + ' ・ ' + esc(o.date) + '</span></h2><div class="verdicts">' + verdictBox(o.short, '短期') + verdictBox(o.mid, '中期') + '</div>' +
       '<p class="sub">確率は7つの視点の採点から置いた目安です。統計的に厳密な予測ではありません。</p></section>';
     var top = o.lenses.slice().sort(function (a, b) { return Math.abs(b.mid) + Math.abs(b.short) - Math.abs(a.mid) - Math.abs(a.short); }).filter(function (l) { return l.mid || l.short; }).slice(0, 3);
@@ -678,6 +682,136 @@
     if (o.jp) h += '<section><h2>' + aico('market') + '日本株への影響</h2><p>' + esc(o.jp.text) + '</p></section>';
     h += '<section class="ai-card"><h2>' + ico('chat') + 'プロのアナリストとしての分析</h2><p class="sub">上の採点と数値を材料に、AIがプロのトレーダー兼アナリストの目線で、原因・弱気筋と強気筋の見方・シナリオ・日本株への影響・動き方まで詳しく書きます。</p><div class="actions"><button type="button" class="btn" id="ol-run">' + (olAI.state === 'done' ? 'もう一度分析する' : '詳しく分析してもらう') + '</button><button type="button" class="btn ghost" data-ask="今日の相場の見立てについて、バーリのような空売り筋が今いちばん警戒しているのは何か、具体的に教えて">質問で深掘りする</button></div><div id="ol-ai"></div></section>';
     h += '<p class="disclaimer">この見立ては公的統計の数値から規則にもとづいて組み立てた学習用の分析で、将来の値動きを保証するものではありません。個別株の決算、出来高、相場の幅、オプションの売買動向は含まれていません。売買の判断はご自身で行ってください。</p>';
+    return h;
+  }
+
+  /* ================= 画面: なぜ動いたか(深掘り分析) ================= */
+  var whyH = 'c1';
+  var WHY_ROLES = [['macro', 'マクロ・金利', 'pulse'], ['sector', 'セクター・資金の流れ', 'grid'], ['world', '世界情勢・ニュース', 'flow'], ['bear', '弱気筋(バーリ・空売り筋)', 'shield'], ['bull', '強気筋(トレンド・需給)', 'target']];
+  function anName(id) {
+    if (/^N\d+$/.test(id)) return 'ニュース' + id.slice(1);
+    var f = AN.features && AN.features[id]; if (f) return f.name;
+    var s = (AN.signals || []).filter(function (x) { return x.id === id; })[0]; return s ? s.name : id;
+  }
+  function evChips(ev) { return ev && ev.length ? '<div class="ev">' + ev.slice(0, 5).map(function (e) { return '<span class="ev-c">' + esc(anName(e)) + '</span>'; }).join('') + '</div>' : ''; }
+  function dirPill(d) { return '<span class="pill ' + (d === '上昇' ? 'up' : d === '下落' ? 'down' : 'flat') + '">' + esc(d || 'もみ合い') + '</span>'; }
+  function wpct(x, unit) { if (x == null) return '—'; return unit === 'bp' ? (x > 0 ? '+' : '') + Math.round(x) + 'bp' : (x > 0 ? '+' : '') + x.toFixed(2) + '%'; }
+  function heatBg(z) { if (z == null) return 'var(--tile)'; var a = Math.min(Math.abs(z) / 2.5, 1) * 0.5 + 0.06; return z >= 0 ? 'rgba(95, 211, 160, ' + a.toFixed(2) + ')' : 'rgba(255, 127, 115, ' + a.toFixed(2) + ')'; }
+  function heatGrid(group) {
+    var z = 'z' + whyH.slice(1), rs = 'rs' + whyH.slice(1);
+    var xs = Object.keys(AN.features).map(function (k) { return AN.features[k]; }).filter(function (f) { return f.group === group; })
+      .sort(function (a, b) { return (b[whyH] == null ? -99 : b[whyH]) - (a[whyH] == null ? -99 : a[whyH]); });
+    return '<div class="heat">' + xs.map(function (f) {
+      return '<div class="heat-t" style="background:' + heatBg(f[z]) + '" title="ふだんの値動きの ' + (f[z] == null ? '—' : Math.abs(f[z]).toFixed(1)) + ' 倍"><span class="heat-n">' + esc(f.name) + '</span><span class="heat-v">' + wpct(f[whyH]) + '</span>' + (f[rs] != null ? '<span class="heat-r">対指数 ' + wpct(f[rs]) + '</span>' : '') + (f.stale && whyH === 'c1' ? '<span class="heat-r">データ遅れ</span>' : '') + '</div>';
+    }).join('') + '</div>';
+  }
+  function sigRow(s) {
+    var z = s['z' + whyH.slice(1)], v = s[whyH], w = z == null ? 0 : Math.min(Math.abs(z) / 3, 1) * 50;
+    return '<li><div class="sig-h"><strong>' + esc(s.name) + '</strong><span class="' + (v > 0 ? 'up' : v < 0 ? 'down' : '') + '">' + wpct(v) + '</span></div>' +
+      '<div class="sig-bar"><i class="' + (v >= 0 ? 'pos' : 'neg') + '" style="width:' + w + '%"></i></div><p class="sub">' + esc(s.meaning) + (z != null && Math.abs(z) >= 1.5 ? ' <strong class="hot">ふだんの' + Math.abs(z).toFixed(1) + '倍の動き</strong>' : '') + '</p></li>';
+  }
+  function crossTable(groups) {
+    var xs = Object.keys(AN.features).map(function (k) { return AN.features[k]; }).filter(function (f) { return groups.indexOf(f.group) >= 0 && f.group !== 'us' && f.group !== 'jp'; });
+    return '<div class="table-wrap"><table class="num"><thead><tr><th>市場</th><th>水準</th><th>1日</th><th>5日</th><th>20日</th></tr></thead><tbody>' + xs.map(function (f) {
+      var lv = f.unit === 'bp' ? f.last.toFixed(2) + '%' : f.last >= 1000 ? Math.round(f.last).toLocaleString('ja-JP') : f.last.toFixed(2);
+      return '<tr><td>' + esc(f.name) + '</td><td>' + lv + '</td>' + ['c1', 'c5', 'c20'].map(function (k) { var v = f[k], col = f.group !== 'cross' && f.sym !== 'TLT'; return '<td class="' + (!col ? '' : v > 0 ? 'up' : v < 0 ? 'down' : '') + '">' + wpct(v, f.unit) + '</td>'; }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+  function contribCard(c, title, gapName) {
+    if (!c) return '';
+    var h = whyH === 'c1' ? 'd1' : 'd5', d = c[h]; if (!d) return '';
+    var items = d.items.filter(function (x) { return x.contrib != null && Math.abs(x.contrib) >= 0.01; }).slice(0, 6);
+    var mx = Math.max.apply(null, items.map(function (x) { return Math.abs(x.contrib); }).concat([Math.abs(d.gap), 0.01]));
+    return '<section class="span-6"><h2>' + esc(title) + '<span class="h-r">' + (h === 'd1' ? '1日' : '5日') + '</span></h2><p class="sub">' + esc(gapName) + ' <strong class="' + (d.gap > 0 ? 'up' : d.gap < 0 ? 'down' : '') + '">' + (d.gap > 0 ? '+' : '') + d.gap.toFixed(2) + 'pt</strong> のうち、各銘柄の寄与(推定)</p><ul class="sigs">' +
+      items.map(function (x) {
+        var w = Math.abs(x.contrib) / mx * 50;
+        return '<li><div class="sig-h"><strong>' + esc(x.name) + ' <span class="sub">' + wpct(x.ret) + '</span></strong><span class="' + (x.contrib > 0 ? 'up' : 'down') + '">' + (x.contrib > 0 ? '+' : '') + x.contrib.toFixed(2) + 'pt</span></div><div class="sig-bar"><i class="' + (x.contrib >= 0 ? 'pos' : 'neg') + '" style="width:' + w + '%"></i></div></li>';
+      }).join('') + '</ul></section>';
+  }
+  function moversCard() {
+    var mv = AN.movers || []; if (!mv.length) return '';
+    return '<section><h2>' + ico('pulse') + 'その日に大きく動いた大型株(米国)<span class="h-r">時価総額500億ドル以上</span></h2><div class="table-wrap"><table class="num"><thead><tr><th class="l">銘柄</th><th>騰落</th><th>時価総額</th><th></th></tr></thead><tbody>' +
+      mv.map(function (m) { return '<tr><td class="l"><strong>' + esc(m.sym) + '</strong> <span class="sub">' + esc(m.name) + '</span></td><td class="' + (m.chg > 0 ? 'up' : 'down') + '">' + wpct(m.chg) + '</td><td>' + (m.cap_b >= 1000 ? (m.cap_b / 1000).toFixed(1) + '兆' : m.cap_b * 10 + '億') + 'ドル</td><td>' + (m.earnings ? '<span class="pill warn">決算</span>' : '') + '</td></tr>'; }).join('') +
+      '</tbody></table></div><p class="sub">毎日の値動き上位から、指数に影響する大型株だけを拾っています(小型株の急騰・急落は指数の説明に使えないため外しています)。同じ業種の銘柄がそろって動いた日は、その業種全体に材料が出ています。</p></section>';
+  }
+  function qualityLine() {
+    var q = AN.quality; if (!q) return '';
+    var nTot = Object.keys(AN.features || {}).length, st = Object.keys(q.stale || {}), ck = q.checks || [];
+    return '<p class="sub dq">データの確認: 米国 ' + esc((q.expected_us || '').slice(5).replace('-', '/')) + ' ・ 日本 ' + esc((q.expected_jp || '').slice(5).replace('-', '/')) + ' の終値 ・ ' +
+      (q.missing && q.missing.length ? '取れなかった銘柄 ' + esc(q.missing.join(', ')) + ' ・ ' : '全銘柄取得 ・ ') +
+      (st.length ? '遅れ ' + esc(st.join(', ')) + '(1日の値は出していません) ・ ' : '遅れなし ・ ') +
+      ck.map(function (c) { return esc(c.name) + 'の照合 ' + (c.ok ? 'OK' : 'ずれあり(' + c.a + ' / ' + c.b + ')'); }).join(' ・ ') + '</p>';
+  }
+  function mktCard(m, title) {
+    if (!m) return '';
+    return '<section class="span-6"><h2>' + esc(title) + '<span class="h-r">' + dirPill(m.direction) + '</span></h2><p>' + esc(m.summary) + '</p><ol class="causes">' + (m.causes || []).map(function (c) {
+      return '<li><div class="cause-h"><strong>' + esc(c.title) + '</strong><span class="cause-w">' + c.weight + '%</span></div><div class="wbar"><i style="width:' + c.weight + '%"></i></div><p>' + esc(c.explain) + '</p>' + evChips(c.evidence) + '</li>';
+    }).join('') + '</ol></section>';
+  }
+  function ruleList(list) {
+    return list && list.length ? '<ol class="why">' + list.map(function (r) { return '<li><strong>' + esc(r.title) + '</strong> <span class="pill ' + (r.side === '上昇要因' ? 'up' : r.side === '下落要因' ? 'down' : 'flat') + '">' + esc(r.side) + '</span><br>' + esc(r.text) + '</li>'; }).join('') + '</ol>' : '<p class="sub">ふだんより大きな動きは見つかりませんでした。</p>';
+  }
+  /* 過去の見立ての答え合わせ: 見立ての日から5営業日後のS&P 500(ETF)の騰落 */
+  function scoreHistory() {
+    var hs = (AN.history || []).filter(function (x) { return x.spy; });
+    return hs.map(function (x, i) {
+      var later = hs[i + 5], chg = later ? (later.spy / x.spy - 1) * 100 : null, hit = null;
+      if (chg != null && x.us) hit = x.us === '上昇' ? chg > 0.5 : x.us === '下落' ? chg < -0.5 : Math.abs(chg) <= 1.5;
+      return { date: x.date, us: x.us, headline: x.headline, chg: chg, hit: hit };
+    }).reverse();
+  }
+  function viewWhy() {
+    var h = '<div class="page-head"><h1>なぜ動いたか</h1><p class="lead">米国12セクター・日本17業種・金利・商品・世界の市場・ニュースを材料に、役割の違う5人のアナリストが順に分析を重ね、チーフアナリストが統合し、査読で矛盾を直した見解です。毎朝更新されます。</p></div>';
+    if (!anReady) return h + '<section><p class="sub">読み込み中…</p></section>';
+    if (!AN) return h + '<section><h2>' + ico('pulse') + 'データを待っています</h2><p>この画面のデータは、毎朝のニュースBotが投稿の後に <code>learn/data/analysis.json</code> として書き出します。公開版でBotが一度動いた後から表示されます。</p><div class="actions"><a class="btn" href="#outlook">相場の見立て</a><a class="btn ghost" href="#lesson-money-flow">セクターの読み方</a></div></section>';
+    var ai = AN.ai || {}, c = ai.chief, hs = whyH === 'c1' ? '1日' : whyH === 'c5' ? '5日' : '20日';
+    var asof = (AN.asof && AN.asof.us ? '米国 ' + AN.asof.us.slice(5).replace('-', '/') : '') + (AN.asof && AN.asof.jp ? ' ・ 日本 ' + AN.asof.jp.slice(5).replace('-', '/') : '');
+    if (c) {
+      h += '<section class="ai-card"><h2>' + ico('target') + 'チーフアナリストの結論</h2><p class="sub">' + esc(asof) + ' ・ 確信度 ' + esc(c.confidence) + '</p><p class="why-head">' + esc(c.headline) + '</p>' +
+        (c.debate ? '<p><strong>強気と弱気、どちらが優勢か:</strong> ' + esc(c.debate) + '</p>' : '') + '</section>';
+      h += '<div class="dash">' + mktCard(c.us, '米国株: なぜこう動いたか') + mktCard(c.jp, '日本株: なぜこう動いたか') + '</div>';
+      h += qualityLine();
+    } else {
+      h += '<section><h2>' + ico('target') + 'データから見える主因</h2><p class="sub">' + esc(asof) + '。今日はAIの分析ができなかったため、データの自動判定だけを表示しています。</p><h3 class="mini-h">直近5日</h3>' + ruleList(AN.rules && AN.rules.d5) + '<h3 class="mini-h">今日(1日)</h3>' + ruleList(AN.rules && AN.rules.d1) + '</section>';
+    }
+    if (!c) h += qualityLine();
+    var seg = '<div class="seg small" role="group" aria-label="期間">' + [['c1', '1日'], ['c5', '5日'], ['c20', '20日']].map(function (x) { return '<button type="button" data-whyh="' + x[0] + '" class="' + (whyH === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') + '</div>';
+    var bu = AN.breadth && AN.breadth.us, bj = AN.breadth && AN.breadth.jp;
+    h += '<section><h2>' + ico('grid') + 'セクターの動き<span class="h-r">' + hs + '</span></h2>' + seg +
+      '<h3 class="mini-h">米国(セクターETF)' + (bu ? '<span class="sub mini-s">今日の上昇 ' + bu.up1 + ' / ' + bu.n + ' ・ 50日線の上 ' + bu.above50 + ' / ' + bu.n + '</span>' : '') + '</h3>' + heatGrid('us') +
+      '<h3 class="mini-h">日本(TOPIX-17業種のETF)' + (bj ? '<span class="sub mini-s">今日の上昇 ' + bj.up1 + ' / ' + bj.n + ' ・ 50日線の上 ' + bj.above50 + ' / ' + bj.n + '</span>' : '') + '</h3>' + heatGrid('jp') +
+      '<p class="sub">色の濃さは「ふだんの値動きの何倍か」。濃いほど、めったにない大きさの動きです。対指数は S&P 500 / TOPIX との差。日本の業種ETFは売買が少ない日に指数とずれることがあります。</p>' +
+      (c && c.sectors && c.sectors.length ? '<h3 class="mini-h">大きく動いた業種と、その理由</h3><ul class="sec-why">' + c.sectors.map(function (x) { return '<li><strong>' + esc(x.name) + '</strong><p>' + esc(x.why) + '</p></li>'; }).join('') + '</ul>' : '') + '</section>';
+    var cu = AN.contrib && AN.contrib.us, cj = AN.contrib && AN.contrib.jp;
+    if (cu || cj) h += '<div class="dash">' + contribCard(cj, '日経平均を動かした値がさ株', '日経平均とTOPIXの差') + contribCard(cu, 'S&P 500を動かした巨大株', '時価総額加重と均等加重の差') + '</div>';
+    h += moversCard();
+    h += '<section><h2>' + ico('flow') + 'お金の流れ<span class="h-r">' + hs + '</span></h2>' + seg + '<ul class="sigs">' + (AN.signals || []).map(sigRow).join('') + '</ul><p class="sub">「買われた側 − 売られた側」の騰落の差。プロは指数そのものより、この差で市場が何を織り込んでいるかを読みます。<a href="#lesson-money-flow">考え方</a></p></section>';
+    h += '<div class="dash"><section class="span-6"><h2>' + ico('pulse') + '金利・恐怖指数・商品・為替</h2>' + crossTable(['cross', 'style']) + '</section><section class="span-6"><h2>' + aico('market') + '世界の株価指数</h2>' + crossTable(['global']) + '</section></div>';
+    var passes = ai.passes || {};
+    if (Object.keys(passes).length) {
+      h += '<section><h2>' + ico('chat') + 'アナリスト会議</h2><p class="steps">' + (ai.steps || []).map(esc).join(' → ') + '</p><p class="sub">同じデータとニュースを、5つの役割で順に分析しました。後の人は前の人の分析を読んだうえで、補ったり反論したりしています。</p><div class="panels">' +
+        WHY_ROLES.filter(function (r) { return passes[r[0]]; }).map(function (r, i) {
+          var p = passes[r[0]];
+          return '<details class="panel ' + r[0] + '"' + (i === 0 ? ' open' : '') + '><summary>' + ico(r[2]) + '<span><strong>' + esc(r[1]) + '</strong><span class="sub">' + esc(p.view) + '</span></span></summary><ul class="items">' + (p.items || []).map(function (it) {
+            return '<li><div class="cause-h"><strong>' + esc(it.title) + '</strong>' + (it.impact ? '<span class="pill ' + (it.impact === '上昇要因' ? 'up' : it.impact === '下落要因' ? 'down' : 'flat') + '">' + esc(it.impact) + '</span>' : '') + (it.confidence ? '<span class="sub">確信度 ' + esc(it.confidence) + '</span>' : '') + '</div><p>' + esc(it.explain) + '</p>' + evChips(it.evidence) + '</li>';
+          }).join('') + '</ul>' + (p.watch && p.watch.length ? '<p class="sub"><strong>注目点:</strong> ' + p.watch.map(esc).join(' / ') + '</p>' : '') + '</details>';
+        }).join('') + '</div></section>';
+    }
+    if (c) {
+      h += '<div class="dash"><section class="span-6"><h2>' + ico('compass') + 'この先の見通し</h2><h3 class="mini-h">数日〜2週間</h3><p>' + esc(c.outlook_short) + '</p><h3 class="mini-h">1〜3か月</h3><p>' + esc(c.outlook_mid) + '</p></section>' +
+        '<section class="span-6"><h2>' + ico('redo') + '見解が変わる条件</h2><ul>' + (c.change || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></section></div>';
+      if (c.watch && c.watch.length) h += '<section><h2>' + ico('target') + 'これから注目するもの</h2><ul class="sec-why">' + c.watch.map(function (x) { return '<li><strong>' + esc(x.what) + '</strong><p>' + esc(x.why) + '</p></li>'; }).join('') + '</ul></section>';
+      if (c.lesson) h += '<section class="say"><h2>' + ico('book') + '今日の相場から学べること</h2><p>' + esc(c.lesson) + '</p></section>';
+      h += '<section><h2>' + ico('grid') + 'データの自動判定(AIを使わない計算)</h2><p class="sub">上の分析の土台です。ふだんの値動きより大きく動いたものだけを、型に当てはめています。</p><h3 class="mini-h">直近5日</h3>' + ruleList(AN.rules && AN.rules.d5) + '<h3 class="mini-h">この1か月(20日)</h3>' + ruleList(AN.rules && AN.rules.d20) + '</section>';
+    }
+    var sh = scoreHistory().filter(function (x) { return x.us; });
+    if (sh.length) {
+      var done = sh.filter(function (x) { return x.hit != null; }), hits = done.filter(function (x) { return x.hit; }).length;
+      h += '<section><h2>' + ico('redo') + '過去の見解の答え合わせ<span class="h-r">' + (done.length ? '的中 ' + hits + ' / ' + done.length : '5営業日後に判定') + '</span></h2><div class="table-wrap"><table class="num"><thead><tr><th>日付</th><th>米国の方向</th><th>その後5日</th><th>判定</th><th class="l">見出し</th></tr></thead><tbody>' +
+        sh.slice(0, 15).map(function (x) { return '<tr><td>' + esc(x.date.slice(5).replace('-', '/')) + '</td><td>' + dirPill(x.us) + '</td><td class="' + (x.chg > 0 ? 'up' : x.chg < 0 ? 'down' : '') + '">' + (x.chg == null ? '—' : wpct(x.chg)) + '</td><td>' + (x.hit == null ? '判定待ち' : x.hit ? '的中' : '外れ') + '</td><td class="l">' + esc(x.headline) + '</td></tr>'; }).join('') +
+        '</tbody></table></div><p class="sub">「方向」は直近5日の動きの判定です。その後の5営業日のS&P 500(ETF)で、上昇=+0.5%超、下落=−0.5%未満、もみ合い=±1.5%以内を的中としています。外れた日に何を見落としたかを考えるのが、いちばんの練習になります。</p></section>';
+    }
+    h += '<p class="disclaimer">AIの文章は、数字をデータとニュースに照らして確かめ、確かめられない数字を含む文は捨てています(今日は ' + ((ai.dropped || []).length) + ' 文)。それでも分析は推測を含み、将来の値動きを保証するものではありません。売買の判断はご自身で行ってください。更新 ' + esc((AN.updated || '').replace('T', ' ').slice(0, 16)) + '</p>';
     return h;
   }
 
@@ -985,7 +1119,7 @@
 
   /* ================= ナビゲーションとルーティング ================= */
   var NAV = [
-    ['市場', [['home', 'ダッシュボード', 'grid'], ['market', '今日の相場', 'pulse'], ['outlook', '相場の見立て', 'compass'], ['drill', 'チャート演習', 'target']]],
+    ['市場', [['home', 'ダッシュボード', 'grid'], ['market', '今日の相場', 'pulse'], ['why', 'なぜ動いたか', 'flow'], ['outlook', '相場の見立て', 'compass'], ['drill', 'チャート演習', 'target']]],
     ['学ぶ', [['library', 'ライブラリ', 'book'], ['macro', '因果マップ', 'flow'], ['charts', 'チャート図鑑', 'candle'], ['traders', 'トレーダー研究', 'person']]],
     ['鍛える', [['review', '復習', 'redo'], ['tools', 'ツール', 'tool']]],
     ['調べる', [['ask', '質問する', 'chat'], ['glossary', '用語集', 'abc']]]
@@ -1016,7 +1150,7 @@
   var AREA_ICON = { market: 'globe', company: 'doc', chart: 'candle', risk: 'shield', strategy: 'target', base: 'compass' };
   function aico(id) { return '<span class="aico a-' + id + '">' + ico(AREA_ICON[id]) + '</span>'; }
   function ico(name) { return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">' + ICON[name] + '</svg>'; }
-  var TITLES = { home: '株トレ道場', market: '今日の相場', outlook: '相場の見立て', drill: 'チャート演習', library: 'ライブラリ', macro: '因果マップ', charts: 'チャート図鑑', traders: 'トレーダー研究', review: '復習', tools: 'ツール', ask: '質問する', glossary: '用語集' };
+  var TITLES = { home: '株トレ道場', market: '今日の相場', why: 'なぜ動いたか', outlook: '相場の見立て', drill: 'チャート演習', library: 'ライブラリ', macro: '因果マップ', charts: 'チャート図鑑', traders: 'トレーダー研究', review: '復習', tools: 'ツール', ask: '質問する', glossary: '用語集' };
   var NAV_OF = { lesson: 'library', topic: 'library', course: 'library', chart: 'charts', trader: 'traders', search: 'ask' };
   function navHTML(cur) {
     var due = dueList().length;
@@ -1033,6 +1167,7 @@
     switch (name) {
       case 'home': html = viewHome(); break;
       case 'market': html = viewMarket(); break;
+      case 'why': html = viewWhy(); break;
       case 'outlook': html = viewOutlook(); break;
       case 'drill': html = viewDrill(); break;
       case 'ask': html = viewAsk(); break;
@@ -1093,7 +1228,7 @@
     if (viaAsk || looksLikeQuestion(v)) { $('#q').value = ''; sendAsk(v); } else goSearch(v);
   });
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('#ol-run,#menu-btn,#search-open,#search-close,[data-term],[data-q],[data-ask],[data-goto],.opt,[data-review],#next-q,button[data-candle],[data-dmode],#dr-next,#dr-skip,#sim-run,#sheet-close,#bk-out,#bk-in,[data-reload],#ask-clear,#ask-stop');
+    var t = e.target.closest('#ol-run,#menu-btn,#search-open,#search-close,[data-term],[data-q],[data-ask],[data-goto],.opt,[data-review],#next-q,button[data-candle],[data-dmode],[data-whyh],#dr-next,#dr-skip,#sim-run,#sheet-close,#bk-out,#bk-in,[data-reload],#ask-clear,#ask-stop');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
     if (t.id === 'ol-run') { runOutlookAI(); return; }
     if (t.id === 'menu-btn') { openMenu(); return; }
@@ -1111,6 +1246,7 @@
     if (t.dataset.review) { startSession(t.dataset.review); return; }
     if (t.id === 'next-q') { session.i++; showSession(); return; }
     if (t.dataset.candle) { state.candle = t.dataset.candle; save(); route(); return; }
+    if (t.dataset.whyh) { whyH = t.dataset.whyh; var y = window.scrollY; route(); window.scrollTo(0, y); return; }
     if (t.dataset.dmode) { drillMode = t.dataset.dmode; drill = null; route(); return; }
     if (t.id === 'dr-next' || t.id === 'dr-skip') { drill = null; route(); return; }
     if (t.id === 'sim-run') { simUpdate(); return; }

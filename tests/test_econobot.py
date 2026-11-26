@@ -20,6 +20,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import econobot as eb  # noqa: E402
+import deep_dive  # noqa: E402
+deep_dive.RETRY_WAITS = deep_dive.BACKUP_WAITS = ()   # 試験では、取れない銘柄の取り直しを待たない
 
 NOW = datetime(2026, 10, 8, 6, 2, tzinfo=eb.JST)
 

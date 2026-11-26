@@ -20,6 +20,17 @@
     return loading;
   };
 
+  /* 深掘り分析(data/analysis.json)。無ければ null */
+  var aLoading = null;
+  M.loadAnalysis = function () {
+    if (aLoading) return aLoading;
+    if (typeof fetch !== 'function') return (aLoading = Promise.resolve(null));
+    aLoading = fetch('data/analysis.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { return d && d.features && Object.keys(d.features).length ? d : null; })
+      .catch(function () { return null; });
+    return aLoading;
+  };
+
   function avg(a, from, to) { var s = 0; for (var i = from; i < to; i++) s += a[i]; return s / (to - from); }
   function smaAt(v, n) { return v.length >= n ? avg(v, v.length - n, v.length) : null; }
   function rsiLast(v, n) {

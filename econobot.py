@@ -356,7 +356,15 @@ def _gemini_left():
     return GEMINI_BUDGET - (time.monotonic() - _GEMINI_CLOCK["start"])
 
 
-def _call_gemini(prompt, schema, label):
+def _gemini_reset(budget=None):
+    """Geminiに使う時間の数え直し。投稿の後に動く深掘り分析は、要約とは別の上限で数える(待ち時間を含めないため)"""
+    global GEMINI_BUDGET
+    if budget:
+        GEMINI_BUDGET = budget
+    _GEMINI_CLOCK["start"] = None
+
+
+def _call_gemini(prompt, schema, label, models=None):
     """Geminiを呼んで本文テキストを返す。JSONで返すよう指定し、スキーマも付ける。
     - 429/503 は待って同じモデルで最大3回(従来どおり)
     - スキーマ付きで400が返ったら、同じモデルでスキーマ無し(JSON指定のみ)で1回だけ送り直す
@@ -365,7 +373,7 @@ def _call_gemini(prompt, schema, label):
     - 1回の実行でGeminiに使う時間の合計はGEMINI_BUDGET秒まで(超えそうなら呼ばずにあきらめる)
     全モデルで失敗したら RuntimeError(各モデルの最後の失敗の理由つき。失敗通知で原因が分かるように)"""
     fails = []
-    for model in GEMINI_MODELS:
+    for model in (models or GEMINI_MODELS):
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models"
             f"/{model}:generateContent?key={GEMINI_API_KEY}"
@@ -2937,7 +2945,7 @@ def publish_market_json(econ):
     now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
     _gh_put_file(LEARN_MARKET_PATH, text.encode("utf-8"), f"📈 学習アプリの市場データ更新: {now_str}")
     print(f"  学習アプリ用データ: {len(data['series'])}系列を更新")
-    return True
+    return data
 
 
 # ========================================
@@ -3141,6 +3149,17 @@ def build_outputs(now=None, econ_summarizer=None, major_summarizer=None):
             "econ_articles": econ_articles, "major_articles": major_articles, "ai_errors": ai_errors}
 
 
+def _deep_dive_backup():
+    """投稿済みの日の予備の起動(8:10など): 今朝の深掘り分析のデータが欠けていたら作り直す。失敗しても何も止めない"""
+    if not _is_schedule() or (_now_jst().hour, _now_jst().minute) < (8, 0):
+        return
+    try:
+        import deep_dive
+        deep_dive.ensure_fresh()
+    except Exception as e:
+        print(f"  [WARN] 深掘り分析の作り直しに失敗: {e}")
+
+
 def main():
     missing = [k for k in _REQUIRED_ENV if not os.environ.get(k)]
     if missing:
@@ -3160,6 +3179,7 @@ def main():
             done, ok = posted_today(today)
             if done:
                 print(f"✅ {today}の分は投稿済みのため、公開も投稿もせずに終わる")
+                _deep_dive_backup()
                 return
         if wait_before_fetch() and not force:
             # 待つ間にほかの起動が投稿していないか(concurrencyで同時には動かないが、念のため取得の前にも見る)
@@ -3206,10 +3226,18 @@ def main():
             warnings.append(f"投稿は済みましたが、投稿済みの記録を書けませんでした({type(e).__name__})。予備の起動で二重に投稿される場合があります")
 
         print("📈 学習アプリ用の市場データを更新中...")
+        learn_data = None
         try:
-            publish_market_json(out["econ"])
+            learn_data = publish_market_json(out["econ"])
         except Exception as e:  # ニュースの配信は済んでいるので、ここでの失敗は記録だけにする
             print(f"  [WARN] 学習アプリ用データの更新に失敗: {e}")
+
+        print("🔎 学習アプリ用の深掘り分析を作成中(セクター・金利・世界・ニュースを複数のAIの役割で分析)...")
+        try:
+            import deep_dive
+            deep_dive.publish_analysis(out, learn_data or None)
+        except Exception as e:  # 同じく、配信には影響させない
+            print(f"  [WARN] 深掘り分析の更新に失敗: {e}")
 
         if out["ai_errors"]:
             # 公開・投稿は済ませたうえで、AIの失敗は別のメッセージで知らせる
