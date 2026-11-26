@@ -366,5 +366,25 @@ class HeavyAndMoversTest(unittest.TestCase):
         self.assertEqual(err, [])
 
 
+
+class LearnOnlyTest(unittest.TestCase):
+    def test_learn_only_does_not_post(self):
+        env = {k: "x" for k in eb._REQUIRED_ENV}
+        env["LEARN_ONLY"] = "true"
+        calls = []
+        with mock.patch.dict(os.environ, env), \
+             mock.patch.object(eb, "fetch_rss", lambda: []), \
+             mock.patch.object(eb, "fetch_news", lambda rss=(): []), \
+             mock.patch.object(eb, "fetch_major_news", lambda rss=(): []), \
+             mock.patch.object(eb, "publish_market_json", side_effect=lambda e: calls.append("market") or {"series": {}}), \
+             mock.patch.object(dd, "publish_analysis", side_effect=lambda o, m: calls.append(("deep", sorted(o))) or True), \
+             mock.patch.object(eb, "publish_to_github_pages", side_effect=AssertionError("公開しない")), \
+             mock.patch.object(eb, "post_to_slack", side_effect=AssertionError("投稿しない")), \
+             mock.patch.object(eb, "record_posted", side_effect=AssertionError("記録しない")):
+            eb.main()
+        self.assertEqual(calls[0], "market")
+        self.assertEqual(calls[1][0], "deep")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3149,6 +3149,22 @@ def build_outputs(now=None, econ_summarizer=None, major_summarizer=None):
             "econ_articles": econ_articles, "major_articles": major_articles, "ai_errors": ai_errors}
 
 
+def learn_only():
+    """手動実行で learn_only が指定された時: 学習アプリのデータ(市場データと深掘り分析)だけを作り直す。
+    ページの公開・Slackへの投稿・投稿済みの記録はしない。ニュースは要約せず、見出しと概要をそのまま深掘り分析に渡す"""
+    print("📚 学習アプリのデータだけを作り直す(公開・投稿はしない)")
+    rss = fetch_rss()
+    out = {"econ": {"ok": False}, "major": {"ok": False},
+           "econ_articles": usable_econ_articles(fetch_news(rss)), "major_articles": usable_major_articles(fetch_major_news(rss))}
+    print(f"  ニュース: 経済{len(out['econ_articles'])}件・主要{len(out['major_articles'])}件")
+    learn_data = publish_market_json({"ok": False})
+    import deep_dive
+    ok = deep_dive.publish_analysis(out, learn_data or None)
+    if not ok:
+        raise RuntimeError("深掘り分析を書き出せませんでした")
+    print("✅ 学習アプリのデータを更新しました")
+
+
 def _deep_dive_backup():
     """投稿済みの日の予備の起動(8:10など): 今朝の深掘り分析のデータが欠けていたら作り直す。失敗しても何も止めない"""
     if not _is_schedule() or (_now_jst().hour, _now_jst().minute) < (8, 0):
@@ -3164,6 +3180,14 @@ def main():
     missing = [k for k in _REQUIRED_ENV if not os.environ.get(k)]
     if missing:
         raise SystemExit(f"環境変数が未設定です: {', '.join(missing)}")
+    if os.environ.get("LEARN_ONLY", "").strip().lower() == "true":
+        try:
+            learn_only()
+        except Exception as e:
+            print(f"❌ エラー発生: {e}")
+            notify_failure(stage="学習アプリのデータ(手動)", error=str(e))
+            raise
+        return
     trigger, force = trigger_label(), _force()
     started = _now_jst()
     print(f"⏰ 起動: {trigger}(JST {started:%Y-%m-%d %H:%M:%S}){' / force:記録を無視してやり直す' if force else ''}")
