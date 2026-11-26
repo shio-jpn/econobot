@@ -432,5 +432,33 @@ class FactsTest(unittest.TestCase):
         self.assertIn("1日 -0.29%(下落)", t)
 
 
+
+class StructureTest(unittest.TestCase):
+    def test_clean_chain_downgrades_unsupported_status(self):
+        dropped = []
+        ch = dd.clean_chain([
+            {"kind": "現象", "text": "半導体株が急落した。", "evidence": ["SMH"], "status": "データで確認"},
+            {"kind": "きっかけ", "text": "AI投資の採算への疑問が報じられた。", "evidence": [], "status": "ニュースで確認"},
+            {"kind": "下地", "text": "先導役は高値まで98%上げていた。", "evidence": ["SMH"], "status": "データで確認"},
+            {"kind": "謎", "text": "持ち高が偏っていた。", "evidence": ["N3"], "status": "データで確認"},
+        ], [98.0], {"SMH"}, dropped)
+        self.assertEqual([c["status"] for c in ch], ["データで確認", "推測", "データで確認", "推測"])
+        self.assertEqual(ch[3]["kind"], "下地")          # 知らない段の種類は「下地」に
+
+    def test_move_types_unwind_and_risk_off(self):
+        rows = base_rows(**{"SPY": series(last=(5, -0.04)), "SMH": series(last=(5, -0.15)), "TLT": series(last=(5, 0.03)),
+                            "^TNX": yields(last_bp=(5, -25)), "HYG": series(last=(5, -0.03))})
+        feat = dd.features(rows)
+        sigs = dd.signals(rows)
+        st = dd.structure(rows, feat, sigs)
+        types = {t["type"]: t for t in st["types"]}
+        self.assertIn("成長不安・リスク回避", types)
+        self.assertIn("過熱の巻き戻し(ポジション解消)", types)
+        self.assertEqual(sum(t["share"] for t in st["types"]), 100)
+        txt = dd.structure_text(st)
+        self.assertIn("動きの型", txt)
+        self.assertIn("セクターどうしの相関", txt)
+
+
 if __name__ == "__main__":
     unittest.main()

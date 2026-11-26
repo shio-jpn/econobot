@@ -749,10 +749,22 @@
       (st.length ? '遅れ ' + esc(st.join(', ')) + '(1日の値は出していません) ・ ' : '遅れなし ・ ') +
       ck.map(function (c) { return esc(c.name) + 'の照合 ' + (c.ok ? 'OK' : 'ずれあり(' + c.a + ' / ' + c.b + ')'); }).join(' ・ ') + '</p>';
   }
+  var CH_ICON = { '現象': '①', 'きっかけ': '②', '下地': '③', '増幅': '④', '根本の原因': '⑤' };
+  function chainHTML(ch, open) {
+    if (!ch || !ch.length) return '';
+    return '<details class="chain"' + (open ? ' open' : '') + '><summary>なぜ? を根本までたどる(' + ch.length + '段)</summary><ol class="chain-l">' + ch.map(function (x) {
+      return '<li class="k-' + esc(x.kind) + '"><div class="chain-h"><span class="chain-k">' + (CH_ICON[x.kind] || '') + ' ' + esc(x.kind) + '</span><span class="pill ' + (x.status === '推測' ? 'warn' : 'flat') + '">' + esc(x.status) + '</span></div><p>' + esc(x.text) + '</p>' + evChips(x.evidence) + '</li>';
+    }).join('') + '</ol></details>';
+  }
+  function typesHTML() {
+    var ty = AN.structure && AN.structure.types; if (!ty || !ty.length) return '';
+    return '<section><h2>' + ico('grid') + '動きの型(データの判定)<span class="h-r">直近5日</span></h2><p class="sub">名前を付けて終わりにせず、なぜそうなったかをたどるための出発点です。それぞれの型を支えるデータの証拠を、プログラムが数えています(AIを使わない計算)。</p><ul class="types">' +
+      ty.map(function (t) { return '<li><div class="cause-h"><strong>' + esc(t.type) + '</strong><span class="cause-w">' + t.share + '%</span></div><div class="wbar"><i style="width:' + t.share + '%"></i></div><ul class="ev-list">' + t.evidence.map(function (e) { return '<li>' + esc(e) + '</li>'; }).join('') + '</ul></li>'; }).join('') + '</ul></section>';
+  }
   function mktCard(m, title) {
     if (!m) return '';
     return '<section class="span-6"><h2>' + esc(title) + '<span class="h-r">' + dirPill(m.direction) + '</span></h2><p>' + esc(m.summary) + '</p><ol class="causes">' + (m.causes || []).map(function (c) {
-      return '<li><div class="cause-h"><strong>' + esc(c.title) + '</strong><span class="cause-w">' + c.weight + '%</span></div><div class="wbar"><i style="width:' + c.weight + '%"></i></div><p>' + esc(c.explain) + '</p>' + evChips(c.evidence) + '</li>';
+      return '<li><div class="cause-h"><strong>' + esc(c.title) + '</strong><span class="cause-w">' + c.weight + '%</span></div><div class="wbar"><i style="width:' + c.weight + '%"></i></div><p>' + esc(c.explain) + '</p>' + evChips(c.evidence) + chainHTML(c.chain) + '</li>';
     }).join('') + '</ol></section>';
   }
   function ruleList(list) {
@@ -776,6 +788,8 @@
     if (c) {
       h += '<section class="ai-card"><h2>' + ico('target') + 'チーフアナリストの結論</h2><p class="sub">' + esc(asof) + ' ・ 確信度 ' + esc(c.confidence) + '</p><p class="why-head">' + esc(c.headline) + '</p>' +
         (c.debate ? '<p><strong>強気と弱気、どちらが優勢か:</strong> ' + esc(c.debate) + '</p>' : '') + '</section>';
+      if (c.root_cause && c.root_cause.summary) h += '<section class="root-card"><h2>' + ico('target') + '根本の原因</h2><p class="why-head small">' + esc(c.root_cause.summary) + '</p>' + chainHTML(c.root_cause.chain, true) + '</section>';
+      h += typesHTML();
       h += '<div class="dash">' + mktCard(c.us, '米国株: なぜこう動いたか') + mktCard(c.jp, '日本株: なぜこう動いたか') + '</div>';
       h += qualityLine();
     } else {
@@ -788,7 +802,7 @@
       '<h3 class="mini-h">米国(セクターETF)' + (bu ? '<span class="sub mini-s">今日の上昇 ' + bu.up1 + ' / ' + bu.n + ' ・ 50日線の上 ' + bu.above50 + ' / ' + bu.n + '</span>' : '') + '</h3>' + heatGrid('us') +
       '<h3 class="mini-h">日本(TOPIX-17業種のETF)' + (bj ? '<span class="sub mini-s">今日の上昇 ' + bj.up1 + ' / ' + bj.n + ' ・ 50日線の上 ' + bj.above50 + ' / ' + bj.n + '</span>' : '') + '</h3>' + heatGrid('jp') +
       '<p class="sub">色の濃さは「ふだんの値動きの何倍か」。濃いほど、めったにない大きさの動きです。対指数は S&P 500 / TOPIX との差。日本の業種ETFは売買が少ない日に指数とずれることがあります。</p>' +
-      (c && c.sectors && c.sectors.length ? '<h3 class="mini-h">大きく動いた業種と、その理由</h3><ul class="sec-why">' + c.sectors.map(function (x) { return '<li><strong>' + esc(x.name) + '</strong><p>' + esc(x.why) + '</p></li>'; }).join('') + '</ul>' : '') + '</section>';
+      (c && c.sectors && c.sectors.length ? '<h3 class="mini-h">大きく動いた業種と、その理由</h3><ul class="sec-why">' + c.sectors.map(function (x) { return '<li><strong>' + esc(x.name) + '</strong><p>' + esc(x.why) + '</p>' + (x.root ? '<p class="root-line"><span class="chain-k">⑤ 根本の原因</span> ' + esc(x.root) + '</p>' : '') + '</li>'; }).join('') + '</ul>' : '') + '</section>';
     var cu = AN.contrib && AN.contrib.us, cj = AN.contrib && AN.contrib.jp;
     if (cu || cj) h += '<div class="dash">' + contribCard(cj, '日経平均を動かした値がさ株', '日経平均とTOPIXの差') + contribCard(cu, 'S&P 500を動かした巨大株', '時価総額加重と均等加重の差') + '</div>';
     h += moversCard();
@@ -800,7 +814,7 @@
         WHY_ROLES.filter(function (r) { return passes[r[0]]; }).map(function (r, i) {
           var p = passes[r[0]];
           return '<details class="panel ' + r[0] + '"' + (i === 0 ? ' open' : '') + '><summary>' + ico(r[2]) + '<span><strong>' + esc(r[1]) + '</strong><span class="sub">' + esc(p.view) + '</span></span></summary><ul class="items">' + (p.items || []).map(function (it) {
-            return '<li><div class="cause-h"><strong>' + esc(it.title) + '</strong>' + (it.impact ? '<span class="pill ' + (it.impact === '上昇要因' ? 'up' : it.impact === '下落要因' ? 'down' : 'flat') + '">' + esc(it.impact) + '</span>' : '') + (it.confidence ? '<span class="sub">確信度 ' + esc(it.confidence) + '</span>' : '') + '</div><p>' + esc(it.explain) + '</p>' + evChips(it.evidence) + '</li>';
+            return '<li><div class="cause-h"><strong>' + esc(it.title) + '</strong>' + (it.impact ? '<span class="pill ' + (it.impact === '上昇要因' ? 'up' : it.impact === '下落要因' ? 'down' : 'flat') + '">' + esc(it.impact) + '</span>' : '') + (it.confidence ? '<span class="sub">確信度 ' + esc(it.confidence) + '</span>' : '') + '</div><p>' + esc(it.explain) + '</p>' + evChips(it.evidence) + chainHTML(it.chain) + '</li>';
           }).join('') + '</ul>' + (p.watch && p.watch.length ? '<p class="sub"><strong>注目点:</strong> ' + p.watch.map(esc).join(' / ') + '</p>' : '') + '</details>';
         }).join('') + '</div></section>';
     }
@@ -920,7 +934,7 @@
     if (pf.length) h += '<section><h2>' + ico('chat') + '担当アナリストの分析</h2><div class="panels">' + pf.map(function (k, i) {
       var p = passes[k];
       return '<details class="panel"' + (i === 0 ? ' open' : '') + '><summary>' + ico(k === 'flow' ? 'person' : 'shield') + '<span><strong>' + esc(p.role) + '</strong><span class="sub">' + esc(p.view) + '</span></span></summary><ul class="items">' + (p.items || []).map(function (it) {
-        return '<li><div class="cause-h"><strong>' + esc(it.title) + '</strong>' + (it.impact ? '<span class="pill ' + (it.impact === '上昇要因' ? 'up' : it.impact === '下落要因' ? 'down' : 'flat') + '">' + esc(it.impact) + '</span>' : '') + '</div><p>' + esc(it.explain) + '</p>' + evChips(it.evidence) + '</li>';
+        return '<li><div class="cause-h"><strong>' + esc(it.title) + '</strong>' + (it.impact ? '<span class="pill ' + (it.impact === '上昇要因' ? 'up' : it.impact === '下落要因' ? 'down' : 'flat') + '">' + esc(it.impact) + '</span>' : '') + '</div><p>' + esc(it.explain) + '</p>' + evChips(it.evidence) + chainHTML(it.chain) + '</li>';
       }).join('') + '</ul></details>';
     }).join('') + '</div></section>';
     h += '<p class="disclaimer">需給の数値は公開の統計を自動で集計したものです(CFTCは火曜時点で金曜公表、投資部門別と信用残は前週分)。規則の成績は過去の検証で、将来の成績を保証するものではありません。売買の判断はご自身で行ってください。更新 ' + esc((AN.updated || '').replace('T', ' ').slice(0, 16)) + '</p>';
