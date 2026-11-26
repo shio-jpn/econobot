@@ -68,14 +68,18 @@ def base_rows(**over):
 
 
 _TR = mock.patch.object(eb, "treasury_rows", side_effect=OSError("試験では財務省のCSVを取りに行かない"))
+import flows  # noqa: E402
+_FL = mock.patch.object(flows, "build", return_value=({}, {}))   # 需給と戦略は test_flows.py で確かめる(ここでは通信しない)
 
 
 def setUpModule():
     _TR.start()
+    _FL.start()
 
 
 def tearDownModule():
     _TR.stop()
+    _FL.stop()
 
 
 class FeatureTest(unittest.TestCase):
@@ -184,8 +188,9 @@ class AITest(unittest.TestCase):
         call, calls = fake_ai(reviews_ok=False)
         with mock.patch.object(eb, "_call_gemini", call):
             r = dd.run_ai(self.feat, self.sigs, [], {}, self.out)
-        self.assertEqual([c.split(":")[1] for c in calls[:5]], [x[1] for x in dd.ROLES] + [dd.BEAR[1], dd.BULL[1]])
-        self.assertEqual(calls[5:], ["深掘り:チーフ", "深掘り:査読", "深掘り:改訂"])
+        self.assertEqual([c.split(":")[1] for c in calls[:5]], [x[1] for x in dd.ROLES] + [dd.FLOW[1], dd.BEAR[1]])
+        self.assertEqual(calls[5:7], ["深掘り:" + dd.BULL[1], "深掘り:" + dd.STRAT[1]])
+        self.assertEqual(calls[7:], ["深掘り:チーフ", "深掘り:査読", "深掘り:改訂"])
         self.assertTrue(r["ok"])
         c = r["chief"]
         self.assertEqual(c["headline"], "改訂版")                       # 査読の指摘で直した版を使う
@@ -217,7 +222,7 @@ class AITest(unittest.TestCase):
         with mock.patch.object(eb, "_call_gemini", call):
             r = dd.run_ai(self.feat, self.sigs, [], {}, self.out)
         self.assertTrue(r["ok"])
-        self.assertEqual(len(r["passes"]), 4)
+        self.assertEqual(len(r["passes"]), 6)   # 7人のうち1人が失敗
         self.assertEqual(len(r["errors"]), 1)
 
 

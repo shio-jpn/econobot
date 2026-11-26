@@ -22,7 +22,7 @@ from datetime import datetime
 
 ANALYSIS_PATH = "learn/data/analysis.json"
 HISTORY_DAYS = 90          # 答え合わせ用に残す見立ての日数
-DEEP_BUDGET = 600          # 深掘り分析でGeminiに使う時間の合計の上限(秒)。投稿の後に動くので要約の時間とは別に数える
+DEEP_BUDGET = 840          # 深掘り分析でGeminiに使う時間の合計の上限(秒)。投稿の後に動くので要約の時間とは別に数える
 CHIEF_RESERVE = 200        # チーフの統合と査読のために残しておく時間(秒)。足りなくなりそうなら残りの役割を飛ばす
 REVIEW_MIN = 100           # 査読と改訂を始める時に残っているべき時間(秒)
 DEEP_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]   # 推論が深い方を先に試す
@@ -730,7 +730,7 @@ def _line(f):
             f"60日{_fmt(f.get('c60'))} (z1 {f.get('z1')}, z5 {f.get('z5')}){rs} 50日線の{pos[f.get('above50')]}・200日線の{pos[f.get('above200')]}")
 
 
-def data_block(feat, sigs, macro=None, contrib=None, movers=None):
+def data_block(feat, sigs, macro=None, contrib=None, movers=None, flow=None, strat=None):
     """AIに渡すデータの表(記号つき。主張の根拠にはこの記号を使わせる)"""
     parts = []
     for g, title in (("style", "米国株の全体と信用"), ("us", "米国のセクター(ETF)"), ("jp", "日本の業種(TOPIX-17のETF)"),
@@ -753,6 +753,9 @@ def data_block(feat, sigs, macro=None, contrib=None, movers=None):
         parts.append("■当日に大きく動いた大型の米国株(時価総額500億ドル以上)\n" + "\n".join(
             f"{m['sym']} {m['name']} {_fmt(m['chg'])} 時価総額{m['cap_b'] * 10:,}億ドル{' 決算発表の前後' if m['earnings'] else ''}"
             for m in movers))
+    if flow or strat:
+        import flows
+        parts.append(flows.describe(flow, strat))
     if macro:
         parts.append("■マクロ(FRED)\n" + "\n".join(f"{k} {v}" for k, v in macro.items()))
     return "\n\n".join(parts)
@@ -834,8 +837,14 @@ CHIEF_SCHEMA = {"type": "OBJECT", "properties": {
         "what": {"type": "STRING"}, "why": {"type": "STRING"}}, "required": ["what", "why"]}},
     "change": {"type": "ARRAY", "items": {"type": "STRING"}},
     "confidence": {"type": "STRING", "enum": ["高", "中", "低"]},
-    "lesson": {"type": "STRING"}},
-    "required": ["headline", "us", "jp", "debate", "outlook_short", "outlook_mid", "change", "confidence", "lesson"]}
+    "lesson": {"type": "STRING"},
+    "supply_demand": {"type": "STRING"},
+    "playbook": {"type": "OBJECT", "properties": {
+        "stance": {"type": "STRING"}, "do": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "avoid": {"type": "ARRAY", "items": {"type": "STRING"}}, "risk": {"type": "STRING"}},
+        "required": ["stance", "do", "avoid", "risk"]}},
+    "required": ["headline", "us", "jp", "debate", "outlook_short", "outlook_mid", "change", "confidence", "lesson",
+                 "supply_demand", "playbook"]}
 REVIEW_SCHEMA = {"type": "OBJECT", "properties": {
     "ok": {"type": "BOOLEAN"},
     "issues": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
@@ -857,6 +866,20 @@ ROLES = [
      "市場を動かした出来事を特定し、それが米国株と日本株にどう波及したかを分析する。当日に大きく動いた大型株(決算の前後の印つき)と"
      "ニュースを結び付ける。ニュースと値動きが一致しない場合はそう書く。"),
 ]
+FLOW = ("flow", "需給・ポジションのアナリスト",
+        "出来高(売り抜けの日・フォロースルー)、オプション市場(プット・コール比率、VIXの期間構造、SKEW、VVIX)、"
+        "大口の持ち高(CFTC: ヘッジファンドと資産運用会社、過去3年の偏り)、日本の投資部門別売買(海外投資家・個人・信託銀行・事業法人)、"
+        "信用取引の残高と信用倍率、需給の日程(オプションの満期・SQ・月末)から、今の需給がどうなっているかを判定する。"
+        "「だれが売っていて、だれが買っているか」「売りは出尽くしに近いか、まだ残っているか」「持ち高の偏りが巻き戻されると、どちらに動きやすいか」"
+        "「今後の需給の出来事でどう動きやすいか」を具体的に書く。逆張りの指標(悲観の行き過ぎ)と順張りの指標(売り抜けの日)を区別する。"
+        "CFTCは火曜時点、投資部門別と信用残は前週の値であることに注意する。")
+STRAT = ("strategy", "売買戦略とリスク管理の担当(ミネルヴィニ・オニール流)",
+         "ここまでの全員の分析を読み、プロのトレーダーとして今の相場での戦い方をまとめる。"
+         "投資比率の基準は、データの『戦略』にある規則(月末の終値が200日平均の上なら投資、下なら待機。過去20年で最大の下落を半分程度に抑えた)"
+         "の判定とし、注意の度合いで1回の売買の大きさを調整する。規則の判定と違うことを勧める時は、その理由を書く。"
+         "items には: 今の相場で機能しやすい手法(押し目買い・ブレイクアウト・戻り売り・様子見など)、避けるべき行動、"
+         "損切りの置き方(ATRや価格帯を使う)、どの価格を超えたら・割ったら考えを変えるか、を入れる。"
+         "具体的な個別銘柄の売買の推奨はしない。")
 BEAR = ("bear", "弱気筋(マイケル・バーリや空売り筋の思考)",
         "ここまでの3人の分析を読み、懐疑的な空売り筋として反論する。過熱、一部銘柄への集中、信用の悪化、"
         "金利と株価の不整合、強気の前提の弱さを探し、「何が起きたら下落が本格化するか」まで書く。items の impact は主に下落要因。")
@@ -893,7 +916,7 @@ def _prior_txt(passes):
 
 def _chief_prompt(data_txt, news_txt, passes, rules, issues=None, draft=None):
     p = COMMON + """
-あなたの役割: チーフアナリスト。5人の分析(マクロ・金利、セクター・資金、世界情勢、弱気筋、強気筋)を突き合わせ、
+あなたの役割: チーフアナリスト。7人の分析(マクロ・金利、セクター・資金、世界情勢、需給・ポジション、弱気筋、強気筋、売買戦略)を突き合わせ、
 データでいちばん裏付けのある説明を選び、チームの最終的な見解をまとめる。意見が割れる点は、どちらがデータで優勢かを判定する。
 出力(JSON):
 - headline: 今日の相場を一言で(40字以内)
@@ -906,9 +929,12 @@ def _chief_prompt(data_txt, news_txt, passes, rules, issues=None, draft=None):
 - change: この見解が変わる条件(3〜4個)
 - confidence: 見解の確信度
 - lesson: 今日の相場から学べる一般的な原則(2〜3文)
+- supply_demand: 需給の現状の結論(4〜6文)。だれが売り・だれが買っているか、売りは出尽くしに近いか、持ち高の偏り、今後の需給の出来事
+- playbook: プロのトレーダーとしての今の戦い方。stance(投資比率の考え方を2〜3文。規則の判定と注意の度合いを踏まえる)、
+  do(今の相場で機能しやすい行動を3〜4個)、avoid(避けるべき行動を2〜3個)、risk(損切りと考えを変える価格の目安を2〜3文)
 """
     p += "\n■規則にもとづく主因の候補(データから自動計算)\n" + "\n".join(f"- {r['title']}({r['side']}): {r['text']}" for r in rules)
-    p += "\n\n■5人の分析\n" + _prior_txt(passes)
+    p += "\n\n■7人の分析\n" + _prior_txt(passes)
     if issues and draft:
         p += "\n\n■あなたの前回の案\n" + json.dumps(draft, ensure_ascii=False) + \
              "\n\n■査読で指摘された問題(すべて直した最終版を出す)\n" + "\n".join(f"- {i.get('where', '')}: {i['problem']} → {i['fix']}" for i in issues)
@@ -928,7 +954,7 @@ def _review_prompt(data_txt, news_txt, draft):
 _NUM = re.compile(r"([+\-−▲]?)(\d+(?:,\d{3})*(?:\.\d+)?)\s*(%|％|bp|ベーシス|ポイント|pt|円|ドル|倍)")
 
 
-def allowed_numbers(feat, sigs, macro, news_texts, contrib=None, movers=None):
+def allowed_numbers(feat, sigs, macro, news_texts, contrib=None, movers=None, flow=None, strat=None):
     """単位ごとに、使ってよい数字の集合。{"pct": [...], "bp": [...], "x": [...], "lvl": [...]}
     %はデータの騰落率と利回りの水準、bpは利回りの変化、倍はz値、価格(円・ドル・ポイント)は水準。ニュースの数字はどの単位でも使ってよい"""
     vals = {"pct": set(), "bp": set(), "x": set(), "lvl": set()}
@@ -958,6 +984,11 @@ def allowed_numbers(feat, sigs, macro, news_texts, contrib=None, movers=None):
         add("pct", m.get("chg"))
         add("lvl", m.get("cap_b"))
         add("lvl", (m.get("cap_b") or 0) * 10)
+    if flow or strat:
+        import flows
+        for x in flows.numbers(flow, strat):
+            for kind in vals:
+                add(kind, x)
     for t in list((macro or {}).values()) + list(news_texts or []):
         t = re.sub(r"\d{4}-\d{2}-\d{2}", " ", str(t))   # 日付の数字は使ってよい数字に入れない
         for m in re.finditer(r"\d+(?:,\d{3})*(?:\.\d+)?", t):
@@ -1074,10 +1105,15 @@ def clean_chief(c, allowed, known, dropped):
         "change": [t for t in (scrub(x, allowed, dropped) for x in (c.get("change") or [])[:5]) if t],
         "confidence": c.get("confidence") if c.get("confidence") in ("高", "中", "低") else "中",
         "lesson": s("lesson"),
+        "supply_demand": s("supply_demand"),
+        "playbook": {"stance": scrub((c.get("playbook") or {}).get("stance"), allowed, dropped),
+                     "do": [t for t in (scrub(x, allowed, dropped) for x in ((c.get("playbook") or {}).get("do") or [])[:5]) if t],
+                     "avoid": [t for t in (scrub(x, allowed, dropped) for x in ((c.get("playbook") or {}).get("avoid") or [])[:4]) if t],
+                     "risk": scrub((c.get("playbook") or {}).get("risk"), allowed, dropped)},
     }
 
 
-def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=None):
+def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=None, flow=None, strat=None):
     """役割の違うアナリストを順に重ね、チーフが統合、査読、必要なら改訂。失敗した段は飛ばして続ける"""
     eb = _eb()
     eb._gemini_reset(DEEP_BUDGET)
@@ -1087,13 +1123,13 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
     labels.update({k: f["name"] for k, f in feat.items()})
     CODE_NAMES.clear()
     CODE_NAMES.update({k: v for k, v in labels.items() if k not in ("SPY",)})   # SPYはそのままでも通じる
-    data_txt = data_block(feat, sigs, macro, contrib, movers)
+    data_txt = data_block(feat, sigs, macro, contrib, movers, flow, strat)
     news_txt, news_texts = news_block(out, saved_news)
-    allowed = allowed_numbers(feat, sigs, macro, news_texts, contrib, movers)
+    allowed = allowed_numbers(feat, sigs, macro, news_texts, contrib, movers, flow, strat)
     known = set(feat) | {s["id"] for s in sigs} | {s for s, _ in HEAVY_US + HEAVY_JP} | {m["sym"] for m in movers or []} | set(macro or {})
     dropped, errors, steps = [], [], []
     passes = {}
-    for role in ROLES + [BEAR, BULL]:
+    for role in ROLES + [FLOW, BEAR, BULL, STRAT]:
         key, name, _ = role
         if len(passes) >= 3 and eb._gemini_left() < CHIEF_RESERVE:
             print(f"  深掘り分析: 残り時間が少ないため「{name}」以降を飛ばし、統合へ進む")
@@ -1139,7 +1175,7 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
 
 
 # ---------- 6. まとめと履歴 ----------
-def build_analysis(fetched, market=None, out=None, ai=True, now=None, saved_news=None):
+def build_analysis(fetched, market=None, out=None, ai=True, now=None, saved_news=None, prev=None, flow_fn=None):
     now = now or datetime.now(_eb().JST)
     rows, q = fetched["rows"], fetched["quality"]
     feat = features(rows, fetched.get("close"), q.get("stale"))
@@ -1152,11 +1188,17 @@ def build_analysis(fetched, market=None, out=None, ai=True, now=None, saved_news
     rules = {"d1": rule_drivers(feat, sigs, 1, contrib), "d5": rule_drivers(feat, sigs, 5, contrib),
              "d20": rule_drivers(feat, sigs, 20)}
     macro = macro_lines(market)
+    flow, strat = {}, {}
+    try:
+        import flows
+        flow, strat = (flow_fn or flows.build)(q.get("expected_us"), now.date(), prev, q.get("expected_jp"))
+    except Exception as e:   # 需給・戦略が取れなくても、ほかの分析は出す
+        print(f"  [WARN] 需給と戦略の計算に失敗: {type(e).__name__}: {e}")
     res = {"updated": now.isoformat(timespec="minutes"), "source": "Yahoo Finance(各ETF・指数)、FRED、ニュース要約",
            "asof": {"us": _f(feat, "SPY", "date"), "jp": _f(feat, "1306.T", "date")}, "quality": q,
-           "features": feat, "signals": sigs, "contrib": contrib, "movers": movers, "breadth": {"us": breadth(feat, "us"), "jp": breadth(feat, "jp")},
+           "features": feat, "signals": sigs, "contrib": contrib, "movers": movers, "flow": flow, "strategy": strat, "breadth": {"us": breadth(feat, "us"), "jp": breadth(feat, "jp")},
            "rules": rules}
-    res["ai"] = run_ai(feat, sigs, rules["d5"] + rules["d1"][:2], macro, out, contrib, movers, saved_news) if ai else {"ok": False, "errors": ["AIを使わない設定"]}
+    res["ai"] = run_ai(feat, sigs, rules["d5"] + rules["d1"][:2], macro, out, contrib, movers, saved_news, flow, strat) if ai else {"ok": False, "errors": ["AIを使わない設定"]}
     return res
 
 
@@ -1182,15 +1224,15 @@ def _read_prev():
         return None
 
 
-def publish_analysis(out=None, market=None, fetch=None, prev=None, saved_news=None, waits=None):
+def publish_analysis(out=None, market=None, fetch=None, prev=None, saved_news=None, waits=None, flow_fn=None):
     eb = _eb()
     fetched = fetch_all(fetch, waits=waits)
-    res = build_analysis(fetched, market, out, saved_news=saved_news)
+    if prev is None:
+        prev = _read_prev()
+    res = build_analysis(fetched, market, out, saved_news=saved_news, prev=prev, flow_fn=flow_fn)
     if res is None:
         print("  深掘り分析: 米国セクターのデータが足りないため更新しません")
         return False
-    if prev is None:
-        prev = _read_prev()
     add_history(res, prev)
     text = json.dumps(res, ensure_ascii=False, separators=(",", ":"))
     eb._gh_put_file(ANALYSIS_PATH, text.encode("utf-8"), f"🔎 学習アプリの深掘り分析: {res['updated'][:16]}")
