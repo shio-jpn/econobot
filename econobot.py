@@ -356,6 +356,16 @@ def _gemini_left():
     return GEMINI_BUDGET - (time.monotonic() - _GEMINI_CLOCK["start"])
 
 
+def _retry_delay(e, cap=65):
+    """429の応答に含まれる待ち時間(retryDelay "41s")を秒で返す。読めない時は0"""
+    try:
+        body = e.read().decode("utf-8", "ignore")
+        m = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', body)
+        return min(cap, int(float(m.group(1))) + 2) if m else 0
+    except Exception:
+        return 0
+
+
 def _gemini_reset(budget=None):
     """Geminiに使う時間の数え直し。投稿の後に動く深掘り分析は、要約とは別の上限で数える(待ち時間を含めないため)"""
     global GEMINI_BUDGET
@@ -415,8 +425,10 @@ def _call_gemini(prompt, schema, label, models=None):
                     _SCHEMA_REJECTED["value"] = True
                     use_schema = False
                     continue  # attemptは増やさない(400の送り直しは1回だけ)
-                if e.code in (503, 429) and attempt < 2 and _gemini_left() > 15 * (attempt + 1) + 20:
-                    wait = 15 * (attempt + 1)
+                wait = 15 * (attempt + 1)
+                if e.code == 429:
+                    wait = max(wait, _retry_delay(e))   # Geminiが示す待ち時間(1分あたりの上限に達した時)に従う
+                if e.code in (503, 429) and attempt < 2 and _gemini_left() > wait + 20:
                     print(f"  HTTP {e.code} → {wait}秒後にリトライ ({attempt+1}/3)...")
                     time.sleep(wait)
                     attempt += 1

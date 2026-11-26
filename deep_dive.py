@@ -1484,6 +1484,12 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
             print(f"  [WARN] 深掘り分析の「{name}」に失敗: {e}")
             if "時間の上限" in str(e):
                 break
+            if "429" in str(e) and len(passes) >= 3:
+                # 1分あたりの上限: 残りの役割は飛ばし、少し待ってからチーフの統合に回す(統合がいちばん大事)
+                print("  深掘り分析: Geminiの上限に達したため、残りの役割を飛ばし、60秒待ってチーフの統合へ進む")
+                if eb._gemini_left() > CHIEF_RESERVE + 60:
+                    time.sleep(60)
+                break
     if len(passes) < 3:
         return {"ok": False, "passes": passes, "errors": errors, "steps": steps, "dropped": dropped}
     chief = None

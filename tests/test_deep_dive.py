@@ -486,5 +486,32 @@ class DepthGuardTest(unittest.TestCase):
             self.assertIn(want, txt)
 
 
+
+class RateLimitTest(unittest.TestCase):
+    def test_retry_delay_parsed(self):
+        import io
+        import urllib.error
+        body = b'{"error": {"code": 429, "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "41s"}]}}'
+        e = urllib.error.HTTPError("u", 429, "Too Many", {}, io.BytesIO(body))
+        self.assertEqual(eb._retry_delay(e), 43)
+        self.assertEqual(eb._retry_delay(urllib.error.HTTPError("u", 429, "x", {}, io.BytesIO(b"{}"))), 0)
+
+    def test_429_skips_rest_and_goes_to_chief(self):
+        rows = base_rows()
+        feat, sigs = dd.features(rows), dd.signals(rows)
+        call, calls = fake_ai(reviews_ok=True, fail=(dd.FLOW[1],))
+        def call429(prompt, schema, label, models=None):
+            if dd.FLOW[1] in label:
+                calls.append(label)
+                raise RuntimeError("全モデルで失敗しました(gemini-2.5-flash: HTTP 429 / gemini-2.5-flash-lite: HTTP 429)")
+            return call(prompt, schema, label, models)
+        with mock.patch.object(eb, "_call_gemini", call429), mock.patch.object(dd.time, "sleep") as sl:
+            r = dd.run_ai(feat, sigs, [], {}, {})
+        self.assertTrue(r["ok"])                          # チーフの統合はできた
+        self.assertNotIn("深掘り:" + dd.BEAR[1], calls)   # 残りの役割は飛ばした
+        self.assertIn("深掘り:チーフ", calls)
+        sl.assert_called_with(60)
+
+
 if __name__ == "__main__":
     unittest.main()
