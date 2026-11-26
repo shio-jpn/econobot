@@ -513,5 +513,44 @@ class RateLimitTest(unittest.TestCase):
         sl.assert_called_with(60)
 
 
+
+class DailyQuotaTest(unittest.TestCase):
+    def test_per_day_quota_skips_model_without_waiting(self):
+        import io
+        import urllib.error
+        calls, sleeps = [], []
+        body = b'{"error": {"code": 429, "details": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}, {"retryDelay": "3600s"}]}}'
+
+        def fake_urlopen(req, timeout=None):
+            model = req.full_url.split("/models/")[1].split(":")[0]
+            calls.append(model)
+            if model == "gemini-2.5-flash":
+                raise urllib.error.HTTPError(req.full_url, 429, "Too Many", {}, io.BytesIO(body))
+            return io.BytesIO(json.dumps({"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}).encode())
+        eb._EXHAUSTED.clear()
+        eb._gemini_reset(600)
+        try:
+            with mock.patch.object(eb.urllib.request, "urlopen", side_effect=lambda r, timeout=None: _Ctx(fake_urlopen(r))), \
+                 mock.patch.object(eb.time, "sleep", side_effect=sleeps.append):
+                eb._call_gemini("p", None, "t", models=["gemini-2.5-flash", "gemini-2.5-flash-lite"])
+                eb._call_gemini("p", None, "t", models=["gemini-2.5-flash", "gemini-2.5-flash-lite"])
+        finally:
+            eb._EXHAUSTED.clear()
+        self.assertEqual(sleeps, [])                                   # 1日の上限では待たない
+        self.assertEqual(calls.count("gemini-2.5-flash"), 1)          # 2回目は上限のモデルを使わない
+        self.assertEqual(calls.count("gemini-2.5-flash-lite"), 2)
+
+
+class _Ctx:
+    def __init__(self, f):
+        self.f = f
+
+    def __enter__(self):
+        return self.f
+
+    def __exit__(self, *a):
+        return False
+
+
 if __name__ == "__main__":
     unittest.main()

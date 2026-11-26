@@ -25,7 +25,10 @@ HISTORY_DAYS = 90          # 答え合わせ用に残す見立ての日数
 DEEP_BUDGET = 840          # 深掘り分析でGeminiに使う時間の合計の上限(秒)。投稿の後に動くので要約の時間とは別に数える
 CHIEF_RESERVE = 200        # チーフの統合と査読のために残しておく時間(秒)。足りなくなりそうなら残りの役割を飛ばす
 REVIEW_MIN = 100           # 査読と改訂を始める時に残っているべき時間(秒)
-DEEP_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]   # 推論が深い方を先に試す
+# Geminiの無料枠は1日の回数の上限がモデルごとにある(2026-11-26、試験を重ねて上限に達した)。
+# 7人の分析は軽いモデルを先に、統合・査読・改訂(いちばん大事)は推論の深いモデルを先に使い、1日の回数を2つの枠に分ける
+DEEP_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash"]    # 7人の分析
+CHIEF_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]   # チーフの統合・査読・改訂
 MIN_US = 8                 # 米国セクターがこれより少なく取れた日は分析しない
 
 # ---------- 対象 ----------
@@ -1159,11 +1162,11 @@ BULL = ("bull", "強気筋(トレンドフォロワーとオプション・需�
         "政策の追い風を探し、弱気筋の主張のどこが弱いかを具体的に書く。items の impact は主に上昇要因。")
 
 
-def _ask(prompt, schema, label, tries=2):
+def _ask(prompt, schema, label, tries=2, models=None):
     """Geminiに聞いてJSONを返す。JSONとして読めない応答(長すぎて途中で切れた等)は1回だけ聞き直す"""
     eb = _eb()
     for i in range(tries):
-        text = eb._call_gemini(prompt, schema, label, models=DEEP_MODELS)
+        text = eb._call_gemini(prompt, schema, label, models=models or DEEP_MODELS)
         data = eb._loads_loose(text) if text else None
         if isinstance(data, dict):
             return data
@@ -1484,6 +1487,9 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
             print(f"  [WARN] 深掘り分析の「{name}」に失敗: {e}")
             if "時間の上限" in str(e):
                 break
+            if "1日の上限" in str(e) and len(passes) >= 3:
+                print("  深掘り分析: Geminiの1日の上限に達したため、残りの役割を飛ばしてチーフの統合へ進む")
+                break
             if "429" in str(e) and len(passes) >= 3:
                 # 1分あたりの上限: 残りの役割は飛ばし、少し待ってからチーフの統合に回す(統合がいちばん大事)
                 print("  深掘り分析: Geminiの上限に達したため、残りの役割を飛ばし、60秒待ってチーフの統合へ進む")
@@ -1494,18 +1500,18 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
         return {"ok": False, "passes": passes, "errors": errors, "steps": steps, "dropped": dropped}
     chief = None
     try:
-        draft = _ask(_chief_prompt(data_txt, news_txt, passes, rules), CHIEF_SCHEMA, "深掘り:チーフ")
+        draft = _ask(_chief_prompt(data_txt, news_txt, passes, rules), CHIEF_SCHEMA, "深掘り:チーフ", models=CHIEF_MODELS)
         steps.append("チーフアナリスト")
         chief = draft
         try:
             if eb._gemini_left() < REVIEW_MIN:
                 raise RuntimeError("残り時間が少ないため査読を飛ばした")
-            rv = _ask(_review_prompt(data_txt, news_txt, draft), REVIEW_SCHEMA, "深掘り:査読")
+            rv = _ask(_review_prompt(data_txt, news_txt, draft), REVIEW_SCHEMA, "深掘り:査読", models=CHIEF_MODELS)
             steps.append("査読")
             issues = [i for i in (rv.get("issues") or []) if isinstance(i, dict) and i.get("problem")]
             if issues and not rv.get("ok"):
                 print(f"  査読の指摘 {len(issues)}件 → チーフが改訂")
-                chief = _ask(_chief_prompt(data_txt, news_txt, passes, rules, issues[:8], draft), CHIEF_SCHEMA, "深掘り:改訂")
+                chief = _ask(_chief_prompt(data_txt, news_txt, passes, rules, issues[:8], draft), CHIEF_SCHEMA, "深掘り:改訂", models=CHIEF_MODELS)
                 steps.append(f"改訂(指摘{len(issues)}件)")
         except Exception as e:   # 査読・改訂の失敗は、チーフの案をそのまま使う
             errors.append(f"査読・改訂: {type(e).__name__}: {e}")
