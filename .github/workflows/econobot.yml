@@ -65,4 +65,4 @@ jobs:
           SCHEDULE_CRON: ${{ github.event.schedule }}
           FORCE: ${{ inputs.force }}
           LEARN_ONLY: ${{ inputs.learn_only }}
-        run: python econobot.py
+        run: python -u econobot.py   # -u: ログを途中から見られるよう、出力をためずに出す
