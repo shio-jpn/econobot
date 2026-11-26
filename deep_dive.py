@@ -766,11 +766,41 @@ def move_types(feat, sigs, st, h=5):
     return sorted(res, key=lambda x: -x["share"])
 
 
+def chain_material(st):
+    """データで確かめられた因果の段の下書き(下地・増幅)。AIはこの数字を段に使い、きっかけ(ニュース)と根本をつなぐ"""
+    out = []
+    hot = [x for x in st.get("leaders") or [] if (x.get("run_to_high") or 0) >= 40 and (x.get("from_high") or 0) <= -10]
+    if hot:
+        out.append(("下地", "先導役が短期間に大きく上げ、多くの投資家が同じ方向に賭けていた: " + "、".join(
+            f"{x['name']}は1年の安値から高値まで{x['run_to_high']:+.0f}%上げた後、高値から{x['from_high']:+.1f}%" for x in hot[:5]), [x["sym"] for x in hot[:5]]))
+    c = st.get("corr") or {}
+    if c.get("us_20") is not None and c.get("us_prev") is not None and c["us_20"] - c["us_prev"] >= 0.1:
+        out.append(("増幅", f"業種を問わずまとめて売られた: セクターどうしの相関の平均が米国{c['us_prev']}→{c['us_20']}、日本{c.get('jp_prev')}→{c.get('jp_20')}に上昇", ["cyc_def"]))
+    v = st.get("vol") or {}
+    if v.get("spy_rv20") and v.get("spy_rv120") and v["spy_rv20"] >= v["spy_rv120"] * 1.3:
+        out.append(("増幅", f"S&P 500の実際の変動率が{v['spy_rv120']}%→{v['spy_rv20']}%に上昇。変動率に合わせて株の量を決める運用(リスク・パリティなど)は、変動率が上がると機械的に株を減らす", ["^VIX"]))
+    xs = [x for x in (st.get("crosses") or {}).get("SPY", []) if x["dir"] == "下抜け"]
+    if xs:
+        out.append(("増幅", "S&P 500が" + "、".join(f"{x['date'][5:]}に{x['ma']}日線" for x in xs) + "を下抜け。トレンドに従う運用(CTAなど)の売りの目安とされる水準", ["SPY"]))
+    hv = st.get("havens") or {}
+    g = (hv.get("GC=F") or {}).get("c20")
+    if g is not None and g <= -5:
+        out.append(("増幅", f"逃避先の金まで20日で{g:+.2f}%下落。損失を埋めるため、利益の出ている資産まで売って現金を作る動き", ["GC=F"]))
+    t = (hv.get("TLT") or {}).get("c5")
+    if t is not None and t >= 1:
+        out.append(("下地", f"米長期国債が5日で{t:+.2f}%上昇(利回りは低下)。資金が株から安全な国債へ逃げた。金利の上昇による下げではない", ["TLT", "^TNX"]))
+    return out
+
+
 def structure_text(st):
     """AIに渡す文章"""
     if not st:
         return ""
     L = ["■構造の材料(なぜそうなったかを一段ずつたどるためのデータ)"]
+    cm = chain_material(st)
+    if cm:
+        L.append("データで確かめられた因果の段の下書き(下地・増幅の段では、この具体的な数字を必ず使い、statusは『データで確認』、evidenceは[]内の記号):")
+        L += [f"  [{k}] {t} [{', '.join(e)}]" for k, t, e in cm]
     ty = st.get("types") or []
     if ty:
         L.append("動きの型(直近5日、データの証拠からの判定): " + " / ".join(f"{t['type']} {t['share']}%" for t in ty))
@@ -1041,6 +1071,9 @@ COMMON = """あなたは米国株と日本株の両方を扱う、実績のあ�
   根本の原因(この動きの本当の理由を1文で)
 - 各段に根拠(evidence)と確かさ(status: データで確認 / ニュースで確認 / 推測)を付ける。データの『構造の材料』『動きの型』を使う
 - 「なぜ他の説明ではないのか」も確かめる(例: 金利は低下したので金利ショックではない)。データで確かめられない段は推測と書く
+- 下地・増幅の段には、具体的な数字や事実(どれだけ上げていたか、相関や変動率がいくつからいくつになったか等)を必ず入れる。
+  『構造の材料』の『因果の段の下書き』をそのまま使ってよい
+- 根本の原因は、現象や名前の言い換え(「過熱感の解消による下落」など)にしない。「なぜその下地ができ、なぜ今それが崩れたのか」を1文で書く
 """
 CHAIN = {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
     "kind": {"type": "STRING", "enum": ["現象", "きっかけ", "下地", "増幅", "根本の原因"]},
@@ -1295,8 +1328,21 @@ def strip_codes(text):
     return re.sub(r"[（(]\s*[)）]", "", t)
 
 
+RULE_POS = {}   # 市場の名前 → 規則の判定(100=投資、0=待機)。run_ai がその日のデータで埋める
+_RULE_CLAIM = re.compile(r"(待機|投資)(?:の)?(?:シグナル|サイン|判定)?(?:が|に)?(?:点灯|出(?:た|ている|ています|ました)|切り替わ(?:った|りました)|になった|になっている|が推奨)")
+
+
+def rule_conflict(sentence):
+    """規則の判定(プログラムの判定)と食い違う断定の文か。「可能性」「変わる」と将来の話として書いた文はよい"""
+    m = _RULE_CLAIM.search(sentence)
+    if not m or not RULE_POS or re.search(r"可能性|かもしれ|見込み|恐れ|場合", sentence):
+        return False
+    said = 100 if m.group(1) == "投資" else 0
+    return all(v != said for v in RULE_POS.values())
+
+
 def scrub(text, allowed, dropped):
-    """記号を取り除き、確かめられない数字を含む文を捨てる"""
+    """記号を取り除き、確かめられない数字を含む文と、規則の判定と食い違う文を捨てる"""
     if not isinstance(text, str):
         return ""
     text = strip_codes(text)
@@ -1307,6 +1353,9 @@ def scrub(text, allowed, dropped):
         bad = bad_numbers(s, allowed)
         if bad:
             dropped.append(f"{'・'.join(bad)}: {s.strip()[:40]}")
+            continue
+        if rule_conflict(s):
+            dropped.append(f"規則の判定と食い違う: {s.strip()[:40]}")
             continue
         keep.append(s)
     return "".join(keep).strip()
@@ -1336,6 +1385,8 @@ def clean_chain(chain, allowed, known, dropped):
         if status == "ニュースで確認" and not [e for e in ev if re.fullmatch(r"N\d{1,2}", e)]:
             status = "推測"
         kind = st.get("kind") if st.get("kind") in CHAIN_KINDS else "下地"
+        if kind in ("下地", "増幅") and status == "データで確認" and not re.search(r"\d", text):
+            status = "推測"     # 数字の無い下地・増幅は、データで確かめた段とは扱わない
         out.append({"kind": kind, "text": text, "evidence": ev, "status": status})
     return out
 
@@ -1407,6 +1458,8 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
     labels.update({k: f["name"] for k, f in feat.items()})
     import flows
     RULE_LINES[:] = [flows.rule_sentence(v) for v in (strat or {}).values()]
+    RULE_POS.clear()
+    RULE_POS.update({v["name"]: (v.get("rule") or {}).get("position") for v in (strat or {}).values() if v.get("rule")})
     CODE_NAMES.clear()
     CODE_NAMES.update({k: v for k, v in labels.items() if k not in ("SPY",)})   # SPYはそのままでも通じる
     data_txt = data_block(feat, sigs, macro, contrib, movers, flow, strat, st)

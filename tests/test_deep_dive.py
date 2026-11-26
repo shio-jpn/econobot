@@ -460,5 +460,31 @@ class StructureTest(unittest.TestCase):
         self.assertIn("セクターどうしの相関", txt)
 
 
+
+class DepthGuardTest(unittest.TestCase):
+    def test_vague_steps_become_guess(self):
+        ch = dd.clean_chain([{"kind": "下地", "text": "AIブームへの過度な期待があった。", "evidence": ["SMH"], "status": "データで確認"},
+                             {"kind": "下地", "text": "半導体は高値まで98%上げていた。", "evidence": ["SMH"], "status": "データで確認"}],
+                            [98.0], {"SMH"}, [])
+        self.assertEqual([c["status"] for c in ch], ["推測", "データで確認"])
+
+    def test_rule_conflict_sentence_dropped(self):
+        with mock.patch.dict(dd.RULE_POS, {"S&P 500": 100, "日経平均": 100}, clear=True):
+            dropped = []
+            t = dd.scrub("S&P 500は200日線を下回り、待機シグナルが点灯しています。月末に待機に変わる可能性があります。", [200.0], dropped)
+            self.assertEqual(t, "月末に待機に変わる可能性があります。")
+            self.assertTrue(dropped[0].startswith("規則の判定と食い違う"))
+
+    def test_chain_material_uses_numbers(self):
+        st = {"leaders": [{"sym": "SMH", "name": "半導体", "run_to_high": 97.8, "from_high": -36.8}],
+              "corr": {"us_20": 0.51, "us_prev": 0.15, "jp_20": 0.54, "jp_prev": 0.29},
+              "vol": {"spy_rv20": 31.6, "spy_rv120": 16.8}, "crosses": {"SPY": [{"ma": 200, "dir": "下抜け", "date": "2026-11-19"}]},
+              "havens": {"GC=F": {"c20": -12.73}, "TLT": {"c5": 2.52}}}
+        cm = dd.chain_material(st)
+        txt = " ".join(t for _, t, _ in cm)
+        for want in ("+98%", "0.15→0.51", "16.8%→31.6%", "200日線", "-12.73%", "+2.52%"):
+            self.assertIn(want, txt)
+
+
 if __name__ == "__main__":
     unittest.main()
