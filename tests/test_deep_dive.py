@@ -420,5 +420,17 @@ class AskRetryTest(unittest.TestCase):
                 dd._ask("p", None, "深掘り:査読")
 
 
+
+class FactsTest(unittest.TestCase):
+    def test_direction_words(self):
+        feat = {"^TNX": {"date": "2026-11-25", "c1": -6.0, "c5": -22.0, "unit": "bp"},
+                "JPY=X": {"date": "2026-11-25", "c1": -0.06, "c5": 0.4, "unit": "%"},
+                "SPY": {"date": "2026-11-25", "c1": -0.29, "c5": 1.2, "unit": "%"}}
+        t = dd.facts(feat)
+        self.assertIn("米10年債利回り(2026-11-25): 1日 -6bp(低下)、5日 -22bp(低下)", t)
+        self.assertIn("1日 -0.06%(ほぼ横ばい)、5日 +0.40%(円安)", t)
+        self.assertIn("1日 -0.29%(下落)", t)
+
+
 if __name__ == "__main__":
     unittest.main()
