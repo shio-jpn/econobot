@@ -319,6 +319,23 @@
   K.mkt.load().then(function (d) { MK = d; mkReady = true; renderLed(); if (curName === 'home' || curName === 'market' || curName === 'drill' || curName === 'outlook') route(); });
   var AN = null, anReady = false;
   K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; renderLed(); if (curName === 'why' || curName === 'flow' || curName === 'outlook' || curName === 'home') route(); });
+  /* 開いたままのページにも毎日のデータ更新を取り込む: 5分ごとと、画面に戻った時に読み直し、
+     更新時刻(updated)が変わっていれば電光掲示板と今の画面を描き直す */
+  var DATA_PAGES = { home: 1, market: 1, why: 1, flow: 1, outlook: 1 };
+  function refreshData() {
+    if (document.hidden) return;
+    Promise.all([K.mkt.load(true), K.mkt.loadAnalysis(true)]).then(function (r) {
+      var m = r[0], a = r[1], changed = false;
+      if (m && (!MK || m.updated !== MK.updated)) { MK = m; mkReady = true; changed = true; }
+      if (a && (!AN || a.updated !== AN.updated)) { AN = a; anReady = true; changed = true; }
+      if (!changed) return;
+      renderLed();
+      var ae = document.activeElement, busy = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);   // 入力中は描き直さない
+      if (DATA_PAGES[curName] && !busy) { var y = window.scrollY; route(); window.scrollTo(0, y); }
+    });
+  }
+  if (typeof setInterval === 'function') setInterval(refreshData, 5 * 60 * 1000);
+  if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshData(); });
   function mkStats(id) { var s = MK && MK.series[id]; return s ? K.mkt.stats(s.rows, s.kind) : null; }
   function fmtLevel(st, kind) { if (!st) return '—'; if (st.kind === 'gauge') return st.last.toFixed(2); if (st.rate) return st.last.toFixed(2) + '%'; return st.last >= 1000 ? st.last.toLocaleString('en-US', { maximumFractionDigits: 0 }) : st.last.toFixed(2); }
   function fmtChg(st, k) { if (!st || st[k] == null) return '—'; if (st.kind === 'gauge') return sgn(st[k], 2); return st.rate ? sgn(st[k] * 100, 0, 'bp') : sgn(st[k], 2, '%'); }
@@ -342,7 +359,7 @@
     if (AN && AN.features && AN.asof && (!r || AN.asof.us >= r.date)) {   // 深掘り分析の方が新しい時は、そちらの値(ホームの要点と同じ日付)
       var F = AN.features, S = AN.strategy || {}, d = AN.asof.us;
       var mkSame = function (id) { var st = mkStats(id); return st && st.date === d ? st : null; };   // 公的統計がその日まで出ていれば使う
-      out.push('<span class="led-h">◆ ' + md(d) + ' 米国' + (AN.asof.jp ? ' ・ ' + md(AN.asof.jp) + ' 日本' : '') + ' の終値</span>');
+      out.push('<span class="led-h">◆ ' + md(d) + ' 米国' + (AN.asof.jp ? ' ・ ' + md(AN.asof.jp) + ' 日本' : '') + ' の終値(更新 ' + esc((AN.updated || '').slice(5, 16).replace('-', '/').replace('T', ' ')) + ')</span>');
       var sl = S.us && S.us.levels, spx = sl ? sl.close : null, spc = sl && sl.prev ? (sl.close / sl.prev - 1) * 100 : F.SPY && F.SPY.c1;   // 指数そのものの前日の終値から(無ければETFの率)
       if (F.SPY || spx) out.push(ledItem('S&P 500', ledLevel(spx), spc, '%', F.SPY && F.SPY.stale, spx));
       [['NASDAQCOM', 'ナスダック'], ['DJIA', 'ダウ平均']].forEach(function (x) { var st = mkSame(x[0]); if (st) out.push(ledItem(x[1], ledLevel(st.last), st.d1, '%', false, st.last)); });
@@ -851,8 +868,10 @@
     var F = AN.features || {}, S = AN.strategy || {}, ap = (AN.quality && AN.quality.approx) || {};
     var xs = [['S&P 500', S.us && S.us.levels ? S.us.levels.close : null, F.SPY, 'SPY'], ['日経平均', F['^N225'] && F['^N225'].last, F['^N225'], '^N225'],
       ['米10年債利回り', F['^TNX'] && F['^TNX'].last, F['^TNX'], '^TNX'], ['VIX', F['^VIX'] && F['^VIX'].last, F['^VIX'], '^VIX'], ['ドル円', F['JPY=X'] && F['JPY=X'].last, F['JPY=X'], 'JPY=X']];
+    var sl = S.us && S.us.levels;
     return '<div class="kstrip">' + xs.filter(function (x) { return x[2]; }).map(function (x) {
-      var f = x[2], v = f.c1, lv = x[1] == null ? '—' : f.unit === 'bp' ? x[1].toFixed(2) + '%' : x[1] >= 1000 ? Math.round(x[1]).toLocaleString('ja-JP') : x[1].toFixed(2);
+      // S&P 500は指数そのものの前日比(電光掲示板と同じ)
+      var f = x[2], v = x[3] === 'SPY' && sl && sl.prev ? Math.round((sl.close / sl.prev - 1) * 10000) / 100 : f.c1, lv = x[1] == null ? '—' : f.unit === 'bp' ? x[1].toFixed(2) + '%' : x[1] >= 1000 ? Math.round(x[1]).toLocaleString('ja-JP') : x[1].toFixed(2);
       var risk = x[3] === '^VIX' || x[3] === '^TNX', cl = v == null ? '' : x[3] === 'JPY=X' ? '' : (risk ? -v : v) > 0 ? 'up' : (risk ? -v : v) < 0 ? 'down' : '';
       var apx = (ap[x[3]] || []).indexOf(f.date) >= 0;
       return '<div class="kv"><span class="kv-n">' + esc(x[0]) + '</span><strong class="kv-v">' + lv + (apx ? '<sup class="kv-a" title="1時間足からの概算">概算</sup>' : '') + '</strong><span class="kv-c ' + cl + '">' + (f.stale ? '遅れ' : wpct(v, f.unit)) + '</span></div>';
