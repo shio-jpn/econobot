@@ -66,12 +66,22 @@ def ohlcv(sym, rng="1y"):
     q = res["indicators"]["quote"][0]
     off = meta.get("gmtoffset") or 0
     out = {}
+    today = datetime.fromtimestamp(time.time() + off, timezone.utc).date().isoformat()
+    gaps = []
     for i, t in enumerate(ts):
         c = q["close"][i]
-        if c is None:
-            continue
         d = datetime.fromtimestamp(t + off, timezone.utc).date().isoformat()
+        if c is None:
+            if d < today:
+                gaps.append(d)
+            continue
         out[d] = (d, q["open"][i] or c, q["high"][i] or c, q["low"][i] or c, c, q["volume"][i] or 0)
+    gaps = [d for d in gaps[-20:] if d not in out]
+    if gaps:
+        try:
+            out.update(hourly_days(sym, gaps))
+        except Exception as e:
+            print(f"    [flows {sym}] 日足が空の日を1時間足で補えない: {type(e).__name__}")
     rows = [out[d] for d in sorted(out)]
     reg = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
     now = time.time()
@@ -79,6 +89,29 @@ def ohlcv(sym, rng="1y"):
         if datetime.fromtimestamp(reg["start"] + off, timezone.utc).date().isoformat() == rows[-1][0]:
             rows = rows[:-1]
     return rows
+
+
+def hourly_days(sym, days, get=None):
+    """日足が空の日(Yahooの^N225で2026-11-26)を1時間足から作る。出来高は分からないので None(出来高の判定では使わない)"""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(sym)}?range=1mo&interval=60m"
+    res = json.loads((get or _get)(url))["chart"]["result"][0]
+    off = (res.get("meta") or {}).get("gmtoffset") or 0
+    q = res["indicators"]["quote"][0]
+    agg = {}
+    for i, t in enumerate(res.get("timestamp") or []):
+        c = q["close"][i]
+        d = datetime.fromtimestamp(t + off, timezone.utc).date().isoformat()
+        if c is None or d not in days:
+            continue
+        o, h, lo = q["open"][i] or c, q["high"][i] or c, q["low"][i] or c
+        if d in agg:
+            a = agg[d]
+            agg[d] = (d, a[1], max(a[2], h), min(a[3], lo), c, None)
+        else:
+            agg[d] = (d, o, h, lo, c, None)
+    if agg:
+        print(f"    [flows {sym}] 日足が空の日を1時間足で補完: {', '.join(sorted(agg))}")
+    return agg
 
 
 def distribution_days(rows, window=25):
@@ -130,9 +163,9 @@ def volume_stats(rows):
     vols = [r[5] for r in rows if r[5]]
     if len(vols) < 51:
         return None
-    up = sum(r[5] for a, r in zip(rows[-21:-1], rows[-20:]) if r[4] > a[4])
-    dn = sum(r[5] for a, r in zip(rows[-21:-1], rows[-20:]) if r[4] < a[4])
-    return {"ratio50": _r(rows[-1][5] / (sum(vols[-51:-1]) / 50)), "updown20": _r(up / dn) if dn else None}
+    up = sum(r[5] or 0 for a, r in zip(rows[-21:-1], rows[-20:]) if r[4] > a[4])
+    dn = sum(r[5] or 0 for a, r in zip(rows[-21:-1], rows[-20:]) if r[4] < a[4])
+    return {"ratio50": _r(rows[-1][5] / (sum(vols[-51:-1]) / 50)) if rows[-1][5] else None, "updown20": _r(up / dn) if dn else None}
 
 
 def volume_block(symbols=(("^GSPC", "S&P 500"), ("^IXIC", "ナスダック総合"), ("^N225", "日経平均")), get=ohlcv, expected=None):

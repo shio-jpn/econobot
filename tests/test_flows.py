@@ -41,6 +41,20 @@ class VolumeTest(unittest.TestCase):
         self.assertEqual(ph["ftd"]["chg"], 1.5)
         self.assertLess(ph["drawdown"], -8)
 
+    def test_hourly_days_fills_null_daily_bar(self):
+        from datetime import datetime
+        def ts(h):
+            return int(datetime.fromisoformat(f"2026-11-26T{h:02d}:00:00+09:00").timestamp())
+        res = {"chart": {"result": [{"meta": {"gmtoffset": 32400}, "timestamp": [ts(9), ts(12), ts(15)],
+                                     "indicators": {"quote": [{"open": [57900, 57800, 57760], "high": [58000, 58076, 57760],
+                                                               "low": [57700, 57749, 57288], "close": [57990, 57763, 57440], "volume": [0, 0, 0]}]}}]}}
+        got = F.hourly_days("^N225", ["2026-11-26"], get=lambda u: json.dumps(res).encode())
+        self.assertEqual(got["2026-11-26"], ("2026-11-26", 57900, 58076, 57288, 57440, None))
+        rows = bars(n=40)
+        rows[-1] = rows[-1][:5] + (None,)          # 出来高の分からない補完の日は、未確定として捨てない
+        self.assertEqual(len(F._cut(rows, None)), 40)
+        F.distribution_days(rows)   # 出来高 None でも落ちない
+
     def test_cut_drops_unfinished_zero_volume(self):
         rows = bars(n=40)
         rows[-1] = rows[-1][:5] + (0,)
