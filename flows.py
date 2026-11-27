@@ -219,7 +219,9 @@ def putcall_block(expected_us, hist, get=_get):
             want.append(d.isoformat())
         d -= timedelta(days=1)
     for ds in want:
-        if ds in hist:
+        # 直近2営業日は履歴にあっても取り直す。CBOEは引け後に速報を出し、米東部の夜(21:40〜22:00ごろ)に確定版で
+        # 上書きするため、朝に取った値を夕方の更新で確定値に入れ替える(取れなければ履歴の値のまま)
+        if ds in hist and ds not in want[:2]:
             continue
         try:
             v = putcall_day(ds, get)

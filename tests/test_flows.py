@@ -152,7 +152,7 @@ class OptionsAndCOTTest(unittest.TestCase):
         self.assertNotIn("2026-11-26", [h["date"] for h in pc["hist"]])   # 感謝祭は取りに行かない
         calls.clear()
         pc2 = F.putcall_block("2026-11-25", pc["hist"], get=get)
-        self.assertEqual(len(calls), 0)                   # 2回目は履歴にあるので取りに行かない
+        self.assertEqual(len(calls), 2)                   # 2回目は直近2営業日だけ取り直す(速報を確定値に入れ替えるため)
         self.assertIsNotNone(pc2["equity10"])
 
     def test_putcall_not_ok_when_today_missing(self):

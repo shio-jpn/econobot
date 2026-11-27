@@ -2804,21 +2804,30 @@ def publish_to_github_pages(html_content):
 
 
 # ========================================
-# 5b. 投稿の時刻(JST 7:00。2026-11-27に8:00から変更)と、その日の投稿済みの記録(2026-11-18)
+# 5b. 投稿の時刻(JST 8:00)と夕方の更新(JST 17:30)、その日の投稿済みの記録(2026-11-18、2026-11-27に見直し)
 # ========================================
 # GitHubのscheduleは後回しにされ、10/09〜11/17は7:41〜12:19の起動だった(時刻どおりに来ない)。
-# そこでscheduleをJST 2:17・3:47・5:17(混みやすい00分・30分を避けた)と予備の7:10に置き、早く来た起動が
-# 6:25まで待ってから取得し、7:00:00まで待って公開・投稿する。2回目以降の起動は記録を見て何もせず終わる
-POST_HOUR = 7                # 公開・投稿の時刻(JST。2026-11-27 Shio「時間のズレを考慮して朝は7時」)。日本に夏時間は無いので、JSTの時計だけで判定すれば夏時間の影響は受けない
-FETCH_AFTER = (6, 25)        # scheduleの起動はこの時刻(JST)まで待ってから取得する(2026-11-18 Shio「前の取引日の終値で出す」)。
+# 11/27は2:17の予定が10:00、8:10の予定が13:55に動いた(7〜8時間の遅れ)。そこで朝は2:17〜7:17に30分おき(00分・30分を避ける)と
+# 予備の8:10に起動を置き、最初に始まった起動が7:25まで待ってから取得し、8:00:00まで待って公開・投稿する。2回目以降の起動は記録を見て何もせず終わる
+POST_HOUR = 8                # 公開・投稿の時刻(JST)。7:00も試したが、冬は財務省の米2年債が前日の値になるため8:00に戻した(2026-11-27)。日本に夏時間は無いので、JSTの時計だけで判定すれば夏時間の影響は受けない
+FETCH_AFTER = (7, 25)        # scheduleの起動はこの時刻(JST)まで待ってから取得する(2026-11-18 Shio「前の取引日の終値で出す」)。
                              # ・米国の引けはJST 6:00(夏は5:00)。_parse_yahooは引け後15分(冬は6:15)まで最後の足を取引中として捨てる
                              # ・米2年債の財務省の日次金利は米東部の夕方に公表され、6:20(米東部16:20)では当日の行が無い日が多い。
-                             #   6:25は米東部16:25(夏は17:25)。冬は財務省の2年債がまだ前日の行の日がある(その系列は日付つきで前日の値を出す)。
-                             #   取得・要約の最悪約21分を足しても6:46で、7:00に間に合う
+                             #   7:25は米東部17:25(夏は18:25)。取得・要約の最悪約21分を足しても7:46で、8:00に間に合う
+                             # ・CBOEのプット・コール比率は引け後に速報、米東部の夜に確定版。朝は速報、夕方の更新で確定値に入れ替える
                              # ・間に合わなかった日は、終わった時点で投稿する(遅れは健康診断「常設 econobot 8時」が見張る)
 SCHEDULE_EARLIEST = (2, 15)  # これより前に始まったscheduleの起動は何もせず終える(理由はmainに書いた)
-EARLY_LIMIT_HOUR = 6         # 手動実行だけ:これより前の起動は7:00を待たずに投稿する(今までどおり)
+EARLY_LIMIT_HOUR = 7         # 手動実行だけ:これより前の起動は8:00を待たずに投稿する(今までどおり)
 STATE_PATH = "state/last_posted.txt"
+# 夕方の更新(学習アプリのデータだけ。公開・投稿はしない)。17:30は、日本の引け(15:30)の後で業種ETFの日足もそろいやすく、
+# CBOEの確定値(前の米国の取引日)も出ていて、Geminiの1日の枠の切り替わり(太平洋時間0時 = JST 17:00、夏は16:00)の後。
+# そのため枠は季節によらず「夕方 + 翌朝」の2回で1日分になる
+EVENING_AT = (17, 30)
+EVENING_EARLIEST = (11, 50)  # これより前に始まった夕方の起動は何もせず終える(17:30までの待ち+作り直し約15分が6時間の上限に収まるように)
+EVENING_STATE = "state/last_learn.txt"
+MORNING_CRONS = ["17 2", "47 2", "17 3", "47 3", "17 4", "47 4", "17 5", "47 5", "17 6", "47 6", "17 7"]
+BACKUP_CRON = "10 8"
+EVENING_CRONS = ["17 12", "47 12", "17 13", "47 13", "17 14", "47 14", "17 15", "47 15", "17 16", "47 16", "17 17", "47 19"]
 
 
 def _now_jst():
@@ -2877,9 +2886,14 @@ def wait_for_post_time():
     return waited
 
 
-_CRON_LABEL = {"17 2 * * *": "早い起動(JST 2:17の予定)", "47 3 * * *": "早い起動(JST 3:47の予定)",
-               "17 5 * * *": "早い起動(JST 5:17の予定)", "10 7 * * *": "予備の起動(JST 7:10の予定)",
-               "4 16 * * *": "夕方の更新(JST 16:04の予定。学習アプリのデータだけ)"}
+def _hm(c):
+    m, h = c.split()
+    return f"{int(h)}:{int(m):02d}"
+
+
+_CRON_LABEL = {**{f"{c} * * *": f"早い起動(JST {_hm(c)}の予定)" for c in MORNING_CRONS},
+               f"{BACKUP_CRON} * * *": f"予備の起動(JST {_hm(BACKUP_CRON)}の予定)",
+               **{f"{c} * * *": f"夕方の更新(JST {_hm(c)}の予定。学習アプリのデータだけ)" for c in EVENING_CRONS}}
 
 
 def trigger_label():
@@ -3197,8 +3211,45 @@ def learn_only():
     print("✅ 学習アプリのデータを更新しました")
 
 
+def _evening_done(today):
+    """(今日の夕方の更新が済んでいるか, 記録を読めたか)。読めない時は「済んでいない」として作る側に倒す(公開・投稿をしないので二重でも害は小さい)"""
+    try:
+        _, body = _gh_get_file(EVENING_STATE)
+    except Exception as e:
+        print(f"  [WARN] 夕方の更新の記録を読めない({type(e).__name__}: {e})→ 確認せずに進める")
+        return False, False
+    return (body or b"").decode("utf-8", "replace").strip().split(" ")[0] == today.isoformat(), True
+
+
+def evening_update():
+    """夕方の定時の起動: 17:30まで待ってから、学習アプリのデータ(日本の終値・CBOEの確定値を入れた市場データと深掘り分析)だけを
+    作り直す。最初に始まった起動だけが作り、2回目以降は記録(state/last_learn.txt)を見て何もせず終わる。
+    11:50より前に始まった起動(6時間の上限に収まらない)と、日付をまたいで遅れた起動(翌朝の分に任せる)は何もしない"""
+    trigger, now = trigger_label(), _now_jst()
+    print(f"⏰ 起動: {trigger}(JST {now:%Y-%m-%d %H:%M:%S})")
+    if (now.hour, now.minute) < EVENING_EARLIEST:
+        print(f"  {now:%H:%M}は{EVENING_EARLIEST[0]}:{EVENING_EARLIEST[1]:02d}より前のため何もせず終わる"
+              "(夕方の更新は昼以降の起動が行う。日付をまたいで遅れた起動は翌朝の分に任せる)")
+        return False
+    today = now.date()
+    done, _ = _evening_done(today)
+    if done:
+        print(f"✅ {today}の夕方の更新は済んでいるため、何もせず終わる")
+        return False
+    _sleep_until(now.replace(hour=EVENING_AT[0], minute=EVENING_AT[1], second=0, microsecond=0), "夕方の更新の時刻")
+    done, _ = _evening_done(today)
+    if done:
+        print(f"✅ 待つ間に{today}の夕方の更新が済んだため、何もせず終わる")
+        return False
+    learn_only()
+    when = _now_jst()
+    _gh_put_file(EVENING_STATE, f"{today.isoformat()} 夕方の更新 {when:%Y-%m-%d %H:%M:%S} JST {trigger}\n".encode("utf-8"),
+                 f"econobot: {today.isoformat()} の夕方の更新を記録")
+    return True
+
+
 def _deep_dive_backup():
-    """投稿済みの日の予備の起動(7:10など): 今朝の深掘り分析のデータが欠けていたら作り直す。失敗しても何も止めない"""
+    """投稿済みの日の予備の起動(8:10など): 今朝の深掘り分析のデータが欠けていたら作り直す。失敗しても何も止めない"""
     if not _is_schedule() or (_now_jst().hour, _now_jst().minute) < (POST_HOUR, 0):
         return
     try:
@@ -3217,7 +3268,15 @@ def main():
             learn_only()
         except Exception as e:
             print(f"❌ エラー発生: {e}")
-            notify_failure(stage="学習アプリのデータ(" + ("夕方" if _is_schedule() else "手動") + ")", error=str(e))
+            notify_failure(stage="学習アプリのデータ(手動)", error=str(e))
+            raise
+        return
+    if _is_schedule() and os.environ.get("SCHEDULE_CRON", "") in {f"{c} * * *" for c in EVENING_CRONS}:
+        try:
+            evening_update()
+        except Exception as e:
+            print(f"❌ エラー発生: {e}")
+            notify_failure(stage="夕方の更新(学習アプリのデータ)", error=str(e))
             raise
         return
     trigger, force = trigger_label(), _force()
@@ -3225,7 +3284,7 @@ def main():
     print(f"⏰ 起動: {trigger}(JST {started:%Y-%m-%d %H:%M:%S}){' / force:記録を無視してやり直す' if force else ''}")
     if _is_schedule() and (started.hour, started.minute) < SCHEDULE_EARLIEST:
         # GitHubのジョブの時間の上限は6時間(timeout-minutes 360)。2:15より前に始まると、投稿の時刻までの待ちと公開・投稿で
-        # 上限を超え、待っている途中で打ち切られる(投稿されない)。何もせず終え、後の起動(3:47・5:17・7:10)に任せる
+        # 上限を超え、待っている途中で打ち切られる(投稿されない)。何もせず終え、後の起動(2:47〜7:17・予備の8:10)に任せる
         print(f"  {started:%H:%M}は{SCHEDULE_EARLIEST[0]}:{SCHEDULE_EARLIEST[1]:02d}より前のため、6時間の上限を超えないよう何もせず終わる")
         return
     warnings = []
