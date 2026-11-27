@@ -786,7 +786,7 @@
     var ai = AN.ai || {}, c = ai.chief, hs = whyH === 'c1' ? '1日' : whyH === 'c5' ? '5日' : '20日';
     var asof = (AN.asof && AN.asof.us ? '米国 ' + AN.asof.us.slice(5).replace('-', '/') : '') + (AN.asof && AN.asof.jp ? ' ・ 日本 ' + AN.asof.jp.slice(5).replace('-', '/') : '');
     if (c) {
-      h += '<section class="ai-card"><h2>' + ico('target') + 'チーフアナリストの結論</h2><p class="sub">' + esc(asof) + ' ・ 確信度 ' + esc(c.confidence) + '</p><p class="why-head">' + esc(c.headline) + '</p>' +
+      h += '<section class="ai-card"><h2>' + ico('target') + 'チーフアナリストの結論</h2><p class="sub">' + esc(asof) + ' ・ 確信度 ' + esc(c.confidence) + '</p>' + (ai.reused_from ? '<p class="sub">今朝はAIの利用枠が足りず、同じ取引日の ' + esc(ai.reused_from.slice(5, 16).replace('-', '/').replace('T', ' ')) + ' 時点の見解を表示しています(数値・需給は最新)。</p>' : '') + '<p class="why-head">' + esc(c.headline) + '</p>' +
         (c.debate ? '<p><strong>強気と弱気、どちらが優勢か:</strong> ' + esc(c.debate) + '</p>' : '') + '</section>';
       if (c.root_cause && c.root_cause.summary) h += '<section class="root-card"><h2>' + ico('target') + '根本の原因</h2><p class="why-head small">' + esc(c.root_cause.summary) + '</p>' + chainHTML(c.root_cause.chain, true) + '</section>';
       h += typesHTML();

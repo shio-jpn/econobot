@@ -541,6 +541,38 @@ class DailyQuotaTest(unittest.TestCase):
         self.assertEqual(calls.count("gemini-2.5-flash-lite"), 2)
 
 
+class ReuseAndGapTest(unittest.TestCase):
+    def test_reuse_only_same_trading_day(self):
+        prev = {"updated": "2026-11-26T21:29+09:00", "asof": {"us": "2026-11-25", "jp": "2026-11-26"},
+                "ai": {"ok": True, "chief": {"headline": "x"}}}
+        res = {"asof": {"us": "2026-11-25", "jp": "2026-11-26"}, "ai": {"ok": False, "errors": ["1日の上限"]}}
+        self.assertTrue(dd.reuse_ai(res, prev))
+        self.assertEqual(res["ai"]["chief"]["headline"], "x")
+        self.assertEqual(res["ai"]["reused_from"], "2026-11-26T21:29+09:00")
+        again = {"asof": dict(res["asof"]), "ai": {"ok": False}}
+        dd.reuse_ai(again, dict(res, updated="2026-11-27T10:08+09:00"))
+        self.assertEqual(again["ai"]["reused_from"], "2026-11-26T21:29+09:00")   # 最初の時刻を保つ
+        other = {"asof": {"us": "2026-11-27", "jp": "2026-11-27"}, "ai": {"ok": False}}
+        self.assertFalse(dd.reuse_ai(other, prev))      # 取引日が違えば使わない
+        ok = {"asof": dict(prev["asof"]), "ai": {"ok": True, "chief": {"headline": "new"}}}
+        self.assertFalse(dd.reuse_ai(ok, prev))
+
+    def test_fill_null_daily_bar_from_hourly(self):
+        from datetime import datetime, timezone
+        off = 9 * 3600
+        def ts(d, h):
+            return int(datetime.fromisoformat(f"{d}T{h:02d}:00:00+09:00").timestamp())
+        daily = {"meta": {"gmtoffset": off}, "timestamp": [ts("2026-11-25", 9), ts("2026-11-26", 9), ts("2026-11-27", 9)],
+                 "indicators": {"quote": [{"close": [57011.6, None, 57493.6]}]}}
+        now = datetime(2026, 11, 27, 1, 0, tzinfo=timezone.utc)
+        self.assertEqual(dd.null_days(daily, now), ["2026-11-26"])
+        hourly = {"meta": {"gmtoffset": off}, "timestamp": [ts("2026-11-26", 9), ts("2026-11-26", 15)],
+                  "indicators": {"quote": [{"close": [57990.5, 57440.4]}]}}
+        rows, close = dd.fill_gaps([("2026-11-25", 28505.8)], [("2026-11-25", 57011.6)], ["2026-11-26"], hourly)
+        self.assertEqual(close[-1], ("2026-11-26", 57440.4))   # その日の最後の1時間足
+        self.assertAlmostEqual(rows[-1][1], 57440.4 * 0.5, places=3)
+
+
 class _Ctx:
     def __init__(self, f):
         self.f = f

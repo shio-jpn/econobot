@@ -276,10 +276,58 @@ def fetch_one(sym, now=None):
     err = None
     for host in ("query1", "query2"):
         try:
-            return parse_chart(_get_chart(sym, host), sym, now)
+            res = _get_chart(sym, host)
+            rows, close = parse_chart(res, sym, now)
         except Exception as e:  # 次の取得元へ
             err = e
+            continue
+        gaps = null_days(res, now)
+        if gaps:
+            try:
+                rows, close = fill_gaps(rows, close, gaps, _get_hourly(sym, host))
+            except Exception as e:
+                print(f"    [Yahoo {sym} 1時間足] 抜けた日の補完に失敗 {type(e).__name__}")
+        return rows, close
     raise err
+
+
+def null_days(res, now=None, days=30):
+    """日足で終値が空(null)の、終わった取引日(現地の日付)。Yahooは引け後もしばらく空のことがある(^N225 2026-11-26)"""
+    from datetime import datetime, timezone, timedelta
+    now = now or datetime.now(timezone.utc)
+    off = (res.get("meta") or {}).get("gmtoffset") or 0
+    today = datetime.fromtimestamp(now.timestamp() + off, timezone.utc).date()
+    close = (((res.get("indicators") or {}).get("quote") or [{}])[0]).get("close") or []
+    out = []
+    for t, c in zip(res.get("timestamp") or [], close):
+        d = datetime.fromtimestamp(t + off, timezone.utc).date()
+        if c is None and d < today and today - d <= timedelta(days=days) and d.weekday() < 5:
+            out.append(d.isoformat())
+    return out
+
+
+def fill_gaps(rows, close, gaps, hourly):
+    """空の日を、その日の最後の1時間足の値で埋める。騰落用の値は前日の調整比率を掛ける"""
+    from datetime import datetime, timezone
+    off = (hourly.get("meta") or {}).get("gmtoffset") or 0
+    hc = (((hourly.get("indicators") or {}).get("quote") or [{}])[0]).get("close") or []
+    last = {}
+    for t, c in zip(hourly.get("timestamp") or [], hc):
+        if isinstance(c, (int, float)) and not isinstance(c, bool):
+            last[datetime.fromtimestamp(t + off, timezone.utc).date().isoformat()] = float(c)
+    have = {d for d, _ in close}
+    add = {d: last[d] for d in gaps if d in last and d not in have}
+    if not add:
+        return rows, close
+    ratio = dict((d, a / c) for (d, a), (_, c) in zip(rows, close) if c)
+    def merged(seq, adj):
+        out = dict(seq)
+        for d, v in add.items():
+            prev = [x for x in sorted(out) if x < d]
+            out[d] = v * (ratio.get(prev[-1], 1.0) if adj and prev else 1.0)
+        return sorted(out.items())
+    print(f"    [Yahoo 1時間足] 日足が空の日を補完: {', '.join(sorted(add))}")
+    return merged(rows, True), merged(close, False)
 
 
 def fetch_all(fetch=None, now=None, sleep=time.sleep, waits=None, fetch_movers_fn=None):
@@ -1559,6 +1607,20 @@ def build_analysis(fetched, market=None, out=None, ai=True, now=None, saved_news
     return res
 
 
+def reuse_ai(res, prev):
+    """AIが失敗し(Geminiの1日の上限など)、前回の分析が同じ取引日(米国・日本とも)のものなら、前回のAIの見解を残す。
+    数字・需給・構造は今回の取得のまま。使い回した時は True"""
+    ai, pai = res.get("ai") or {}, (prev or {}).get("ai") or {}
+    if ai.get("ok") or not pai.get("ok") or (prev or {}).get("asof") != res.get("asof"):
+        return False
+    keep = dict(pai)
+    keep["reused_from"] = pai.get("reused_from") or prev.get("updated")
+    keep["reuse_reason"] = (ai.get("errors") or ["AIの分析に失敗"])[0][:200]
+    res["ai"] = keep
+    print(f"  深掘り分析: AIに失敗したため、同じ取引日の前回の見解({keep['reused_from']})を使う")
+    return True
+
+
 def add_history(res, prev):
     """前回までの履歴に今日の見立てを足す(同じ日は置き換え)。答え合わせ用に指数の終値も残す"""
     hist = [h for h in ((prev or {}).get("history") or []) if isinstance(h, dict)]
@@ -1590,6 +1652,7 @@ def publish_analysis(out=None, market=None, fetch=None, prev=None, saved_news=No
     if res is None:
         print("  深掘り分析: 米国セクターのデータが足りないため更新しません")
         return False
+    reuse_ai(res, prev)
     add_history(res, prev)
     text = json.dumps(res, ensure_ascii=False, separators=(",", ":"))
     eb._gh_put_file(ANALYSIS_PATH, text.encode("utf-8"), f"🔎 学習アプリの深掘り分析: {res['updated'][:16]}")
