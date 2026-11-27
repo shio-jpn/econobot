@@ -1619,16 +1619,19 @@ def build_analysis(fetched, market=None, out=None, ai=True, now=None, saved_news
 
 
 def reuse_ai(res, prev):
-    """AIが失敗し(Geminiの1日の上限など)、前回の分析が同じ取引日(米国・日本とも)のものなら、前回のAIの見解を残す。
-    数字・需給・構造は今回の取得のまま。使い回した時は True"""
+    """AIが失敗し(Geminiの1日の上限など)、前回の分析が同じ米国の取引日のものなら、前回のAIの見解を残す。
+    夕方の更新(日本の終値だけ新しい)でAIが使えない時も、朝の見解を残す。数字・需給・構造は今回の取得のまま。
+    使い回した時は True"""
     ai, pai = res.get("ai") or {}, (prev or {}).get("ai") or {}
-    if ai.get("ok") or not pai.get("ok") or (prev or {}).get("asof") != res.get("asof"):
+    pa, ra = (prev or {}).get("asof") or {}, res.get("asof") or {}
+    if ai.get("ok") or not pai.get("ok") or not ra.get("us") or pa.get("us") != ra.get("us"):
         return False
     keep = dict(pai)
     keep["reused_from"] = pai.get("reused_from") or prev.get("updated")
+    keep["reused_asof"] = pai.get("reused_asof") or pa
     keep["reuse_reason"] = (ai.get("errors") or ["AIの分析に失敗"])[0][:200]
     res["ai"] = keep
-    print(f"  深掘り分析: AIに失敗したため、同じ取引日の前回の見解({keep['reused_from']})を使う")
+    print(f"  深掘り分析: AIに失敗したため、同じ米国の取引日の前回の見解({keep['reused_from']})を使う")
     return True
 
 

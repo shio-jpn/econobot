@@ -1,4 +1,4 @@
-name: EconoBot - 毎朝8時に米国経済ニュースをSlackに投稿
+name: EconoBot - 毎朝8時に米国経済ニュースをSlackに投稿(夕方18時台に学習アプリのデータを更新)
 
 on:
   # GitHubのscheduleは後回しにされ、10/09〜11/17は指定より1〜6時間遅い7:41〜12:19の起動だった。
@@ -15,6 +15,11 @@ on:
     - cron: '17 5 * * *'
       timezone: 'Asia/Tokyo'
     - cron: '10 8 * * *'
+      timezone: 'Asia/Tokyo'
+    # 夕方の更新: 日本の終値(15:30)とGeminiの1日の枠の切り替わり(太平洋時間0時 = JST 17:00、夏は16:00)の後に、
+    # 学習アプリのデータ(市場データと深掘り分析)だけを作り直す。ページの公開とSlackへの投稿はしない。
+    # 枠は「夕方 + 翌朝」の2回で1日分を使う(1回あたり約10〜12回の呼び出し)
+    - cron: '23 18 * * *'
       timezone: 'Asia/Tokyo'
   # 手動実行:待たずに取得する。7:00より前なら8:00も待たずに投稿する。forceで「今日の分は投稿済み」の記録を無視してやり直せる
   workflow_dispatch:
@@ -64,5 +69,5 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           SCHEDULE_CRON: ${{ github.event.schedule }}
           FORCE: ${{ inputs.force }}
-          LEARN_ONLY: ${{ inputs.learn_only }}
+          LEARN_ONLY: ${{ inputs.learn_only || github.event.schedule == '23 18 * * *' }}
         run: python -u econobot.py   # -u: ログを途中から見られるよう、出力をためずに出す
