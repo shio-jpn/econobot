@@ -389,6 +389,7 @@
     var key = items.join('');
     if (key === ledKey) return;   // 同じ内容なら作り直さない(流れが途切れないように)
     ledKey = key;
+    var ta = $('#top-asof'); if (ta && AN && AN.asof) { ta.textContent = '米 ' + mdDate(AN.asof.us) + (AN.asof.jp ? ' ・ 日 ' + mdDate(AN.asof.jp) : '') + ' 終値'; ta.hidden = false; }
     var row = '<span class="led-row">' + items.join('<span class="led-s" aria-hidden="true">・</span>') + '<span class="led-s" aria-hidden="true">・</span></span>';
     tr.innerHTML = row + row.replace('<span class="led-row">', '<span class="led-row" aria-hidden="true">');
     el.hidden = false;
@@ -529,6 +530,9 @@
       if (!anReady || !mkReady) return '<section><p class="sub">今日の市場のデータを読み込み中…</p></section>';
       return '<div class="page-head"><h1>今日の市場</h1><p class="lead">毎朝のBotがデータを書き出すと、ここに今日の要点・原因・需給・この先が並びます。</p></div>' + helpBox(['株価指数', 'VIX', '移動平均線'], ['daily-read', 'money-flow'], '相場の読み方を教えてください: ');
     }
+    // Claudeのアプリ(Artifact)で開いた時は、公開した時点のデータで止まっているので、毎朝更新される版を案内する
+    var live = /(^|\.)github\.io$|^localhost$|^127\.0\.0\.1$/.test(location.hostname || '');
+    if (!live && an) h += '<p class="notice">この画面は ' + esc((an.updated || '').slice(5, 16).replace('-', '/').replace('T', ' ')) + ' 時点のデータです。毎朝自動で更新される版は <a href="https://shio-jpn.github.io/econobot/learn/" target="_blank" rel="noopener">shio-jpn.github.io/econobot/learn/</a> で開けます。</p>';
     if (an) h += briefHTML(true);
     else h += '<section class="brief"><h2>' + ico('pulse') + '今日の相場<a class="h-r" href="#market">詳しく ›</a></h2>' + marketMini() + '</section>';
     if (an) {
@@ -665,7 +669,7 @@
     var r = K.mkt.regime(MK);
     h += '<p class="lead">データ更新 ' + esc((MK.updated || '').replace('T', ' ').slice(0, 16)) + ' ・ 出典 ' + esc(MK.source || 'FRED') + '。各系列の最新の日付は系列ごとに異なります。</p></div><div class="dash">';
     if (r) {
-      h += '<section class="span-7"><h2>値動きの型(公的統計)<span class="h-r">' + esc(r.date) + '</span></h2>' + (AN && AN.asof && AN.asof.us > r.date ? '<p class="note">公的統計(FRED)は1日遅れで公表されます。' + esc(mdDate(AN.asof.us)) + 'までの最新の分析は<a href="#why">なぜ動いたか</a>にあります。</p>' : '') + '<p class="regime-t">' + esc(r.title) + '</p><p>' + esc(r.text) + '</p><ul class="facts">' + r.facts.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
+      h += '<section class="span-7"><h2>値動きの型(公的統計)<span class="h-r">' + esc(r.date) + '</span></h2>' + (AN && AN.asof && AN.asof.us > r.date ? '<p class="notice">公的統計(FRED)は1日遅れで公表されます。' + esc(mdDate(AN.asof.us)) + 'までの最新の分析は<a href="#why">なぜ動いたか</a>にあります。</p>' : '') + '<p class="regime-t">' + esc(r.title) + '</p><p>' + esc(r.text) + '</p><ul class="facts">' + r.facts.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
         (r.notes.length ? '<ul class="plain notes">' + r.notes.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
         '<p class="sub">組み合わせから当てはめた目安です。原因の確定には、材料の時刻と業種ごとの動きで裏を取ります。</p><div class="actions"><a class="btn" href="#outlook">相場の見立て(今後の見通し)を見る</a><button type="button" class="btn" data-ask="今日の相場の動きを、データから読み解いてください。何が効いた可能性が高く、何を確かめるべきか、日本株への影響も含めて。">AIに読み解いてもらう</button>' + r.lessons.map(function (x) { return lessonById[x] ? '<a class="btn ghost" href="#lesson-' + x + '">' + esc(lessonById[x].t) + '</a>' : ''; }).join('') + '</div></section>';
     }
@@ -910,8 +914,8 @@
   function briefHTML(home) {
     var ai = AN.ai || {}, c = ai.chief, rc = c && c.root_cause && c.root_cause.summary ? c.root_cause : null, seen = {};
     return '<section class="brief ai-card"><h2>' + ico('target') + '今日の要点<span class="h-r sub">' + esc(asofText()) + (c ? ' ・ 確信度 ' + esc(c.confidence) : '') + '</span></h2>' +
-      (ai.reused_from ? '<p class="note">今朝はAIの利用枠が足りず、同じ取引日の ' + esc(ai.reused_from.slice(5, 16).replace('-', '/').replace('T', ' ')) + ' 時点の見解を表示しています(数値・需給は最新)。</p>' : '') +
-      (c ? '<p class="why-head">' + esc(c.headline) + '</p>' : '<p class="note">今日はAIの分析ができなかったため、データの自動判定を表示しています。</p>') + keyStrip() +
+      (ai.reused_from ? '<p class="notice">今朝はAIの利用枠が足りず、同じ取引日の ' + esc(ai.reused_from.slice(5, 16).replace('-', '/').replace('T', ' ')) + ' 時点の見解を表示しています(数値・需給は最新)。</p>' : '') +
+      (c ? '<p class="why-head">' + esc(c.headline) + '</p>' : '<p class="notice">今日はAIの分析ができなかったため、データの自動判定を表示しています。</p>') + keyStrip() +
       '<dl class="qa">' +
       '<div><dt>何が起きたか</dt><dd>' + (c ? '<p>' + dirPill(c.us && c.us.direction) + ' <b>米国</b> ' + inline(firstS(c.us && c.us.summary), seen) + '</p><p>' + dirPill(c.jp && c.jp.direction) + ' <b>日本</b> ' + inline(firstS(c.jp && c.jp.summary), seen) + '</p>' : ruleList((AN.rules && AN.rules.d1 || []).slice(0, 2))) + '</dd></div>' +
       '<div><dt>なぜ</dt><dd>' + (rc ? '<p>' + inline(rc.summary, seen) + ' <a href="#why"' + (home ? '' : ' data-goto="why-root"') + '>根本までたどる ›</a></p>' : ruleList((AN.rules && AN.rules.d5 || []).slice(0, 2))) + '</dd></div>' +
@@ -1034,7 +1038,7 @@
     h += '<section class="brief ai-card"><h2>' + ico('target') + '今日の要点<span class="h-r sub">' + esc(asofText()) + '</span></h2>' +
       (c && c.supply_demand ? '<p>' + esc(c.supply_demand) + '</p>' : '') + stratTiles() + '</section>';
     // 2. 今の戦い方
-    if (pb && pb.stance) h += '<section><h2>' + ico('shield') + '今の戦い方</h2><p>' + esc(pb.stance) + '</p><div class="dash"><div class="span-6 do-box"><h3 class="mini-h up">機能しやすい行動</h3><ul>' + (pb.do || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div><div class="span-6 avoid-box"><h3 class="mini-h down">避けるべき行動</h3><ul>' + (pb.avoid || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>' + (pb.risk ? '<p class="note"><strong>損切りと考えを変える価格:</strong> ' + esc(pb.risk) + '</p>' : '') + '</section>';
+    if (pb && pb.stance) h += '<section><h2>' + ico('shield') + '今の戦い方</h2><p>' + esc(pb.stance) + '</p><div class="dash"><div class="span-6 do-box"><h3 class="mini-h up">機能しやすい行動</h3><ul>' + (pb.do || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div><div class="span-6 avoid-box"><h3 class="mini-h down">避けるべき行動</h3><ul>' + (pb.avoid || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>' + (pb.risk ? '<p class="notice"><strong>損切りと考えを変える価格:</strong> ' + esc(pb.risk) + '</p>' : '') + '</section>';
     // 3. 指数ごとの規則と計算
     if (stg.us || stg.jp) {
       TAB.fsm = fsMkt;
@@ -1043,7 +1047,7 @@
     // 4. 需給のデータ
     var op = fl.options || {}, pc = fl.putcall || {}, it = op.items, vb = fl.volume || {}, cot = fl.cot || {}, ih = fl.investor_hist || [], mh = fl.margin_hist || [], cal = fl.calendar || [];
     var opH = it ? '<div class="dash"><div class="span-6"><h3 class="mini-h">恐怖の期間構造</h3>' +
-      '<div class="term">' + ['^VIX9D', '^VIX', '^VIX3M'].filter(function (k) { return it[k]; }).map(function (k) { var x = it[k]; return '<div class="term-c"><span class="sub">' + esc(x.name) + '</span><strong>' + x.last + '</strong><span class="sub">1年で' + x.pct1y + '%の位置</span></div>'; }).join('<span class="term-a">→</span>') + '</div>' +
+      '<div class="vterm">' + ['^VIX9D', '^VIX', '^VIX3M'].filter(function (k) { return it[k]; }).map(function (k) { var x = it[k]; return '<div class="term-c"><span class="sub">' + esc(x.name) + '</span><strong>' + x.last + '</strong><span class="sub">1年で' + x.pct1y + '%の位置</span></div>'; }).join('<span class="term-a">→</span>') + '</div>' +
       '<p>' + (op.term > 1 ? '<strong class="down">逆転(VIX÷3か月 = ' + op.term + ')</strong>: 目先の急落への備えが先の不安より強い状態。パニックの最中に出やすく、逆転が解消すると落ち着きのサインになります。' : '<strong class="up">順(VIX÷3か月 = ' + op.term + ')</strong>: 平常の形。目先の恐怖より先の不確かさの方が大きく見積もられています。') + '</p>' +
       (op.move1d ? '<p>オプションが織り込むS&amp;P 500の値動き: <strong>1日 ±' + op.move1d + '%・1週間 ±' + op.move1w + '%</strong>(約68%の確率でこの範囲)</p>' : '') + '</div>' +
       '<div class="span-6"><h3 class="mini-h">プット・コール比率(CBOE)</h3>' + (pc.ok ? '<div class="table-wrap"><table class="num"><tbody><tr><td class="l">個別株</td><td>' + pc.equity + '</td><td class="sub">10日平均 ' + (pc.equity10 || '—') + '</td></tr><tr><td class="l">全体</td><td>' + pc.total + '</td><td class="sub">10日平均 ' + (pc.total10 || '—') + '</td></tr><tr><td class="l">指数</td><td>' + pc.index + '</td><td></td></tr><tr><td class="l">S&amp;P 500</td><td>' + (pc.spx || '—') + '</td><td></td></tr></tbody></table></div><p class="sub">個別株の比率が0.8を超えると悲観の行き過ぎ(逆張りでは買いの合図に近い)、0.5を下回ると楽観の行き過ぎと読まれます。</p>' : '<p class="sub">今日の値はまだ公表されていません。</p>') +
@@ -1459,7 +1463,7 @@
     var due = dueList().length, badge = $('#due-badge');
     badge.hidden = !due; badge.textContent = due > 99 ? '99+' : due;
     $('#top').classList.toggle('searching', name === 'search');
-    $('#top-title').textContent = TITLES[nav] || '株トレ道場';
+    $('#top-title').textContent = TITLES[nav] || '今日の市場';
     if (name !== 'search') { $('#q').value = ''; query = ''; }
     document.documentElement.dataset.candle = state.candle;
     if (name === 'charts') labUpdate();

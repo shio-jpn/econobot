@@ -333,8 +333,8 @@
     var line = '';
     for (i = 0; i < n; i++) line += (i ? 'L' : 'M') + f1(X(i)) + ' ' + f1(Y(d[i].c));
     var s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true"><defs>' +
-      '<linearGradient id="' + id + '" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#5b7cff"/><stop offset="0.45" stop-color="#c05cf0"/><stop offset="0.75" stop-color="#ff5d8f"/><stop offset="1" stop-color="#ffb36b"/></linearGradient>' +
-      '<linearGradient id="' + id + 'f" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#b060f0" stop-opacity="0.42"/><stop offset="1" stop-color="#b060f0" stop-opacity="0"/></linearGradient></defs>';
+      '<linearGradient id="' + id + '" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#3f8fd8"/><stop offset="0.5" stop-color="#6cc4f0"/><stop offset="0.82" stop-color="#f4a93b"/><stop offset="1" stop-color="#ffcf7a"/></linearGradient>' +
+      '<linearGradient id="' + id + 'f" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#f4a93b" stop-opacity="0.28"/><stop offset="1" stop-color="#f4a93b" stop-opacity="0"/></linearGradient></defs>';
     s += '<path d="' + line + 'L' + w + ' ' + h + 'L0 ' + h + 'Z" fill="url(#' + id + 'f)"/>';
     if (hero && !arr) {
       var cw = Math.max(1.5, w / n * 0.5);
