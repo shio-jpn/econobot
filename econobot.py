@@ -2877,7 +2877,8 @@ def wait_for_post_time():
 
 
 _CRON_LABEL = {"17 2 * * *": "早い起動(JST 2:17の予定)", "47 3 * * *": "早い起動(JST 3:47の予定)",
-               "17 5 * * *": "早い起動(JST 5:17の予定)", "10 8 * * *": "予備の起動(JST 8:10の予定)"}
+               "17 5 * * *": "早い起動(JST 5:17の予定)", "10 8 * * *": "予備の起動(JST 8:10の予定)",
+               "23 18 * * *": "夕方の更新(JST 18:23の予定。学習アプリのデータだけ)"}
 
 
 def trigger_label():
@@ -3215,7 +3216,7 @@ def main():
             learn_only()
         except Exception as e:
             print(f"❌ エラー発生: {e}")
-            notify_failure(stage="学習アプリのデータ(手動)", error=str(e))
+            notify_failure(stage="学習アプリのデータ(" + ("夕方" if _is_schedule() else "手動") + ")", error=str(e))
             raise
         return
     trigger, force = trigger_label(), _force()

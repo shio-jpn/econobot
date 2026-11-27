@@ -553,7 +553,10 @@ class ReuseAndGapTest(unittest.TestCase):
         dd.reuse_ai(again, dict(res, updated="2026-11-27T10:08+09:00"))
         self.assertEqual(again["ai"]["reused_from"], "2026-11-26T21:29+09:00")   # 最初の時刻を保つ
         other = {"asof": {"us": "2026-11-27", "jp": "2026-11-27"}, "ai": {"ok": False}}
-        self.assertFalse(dd.reuse_ai(other, prev))      # 取引日が違えば使わない
+        self.assertFalse(dd.reuse_ai(other, prev))      # 米国の取引日が違えば使わない
+        evening = {"asof": {"us": "2026-11-25", "jp": "2026-11-27"}, "ai": {"ok": False}}
+        self.assertTrue(dd.reuse_ai(evening, prev))     # 夕方(日本だけ新しい)は朝の見解を残す
+        self.assertEqual(evening["ai"]["reused_asof"]["jp"], "2026-11-26")
         ok = {"asof": dict(prev["asof"]), "ai": {"ok": True, "chief": {"headline": "new"}}}
         self.assertFalse(dd.reuse_ai(ok, prev))
 

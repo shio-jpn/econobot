@@ -914,7 +914,7 @@
   function briefHTML(home) {
     var ai = AN.ai || {}, c = ai.chief, rc = c && c.root_cause && c.root_cause.summary ? c.root_cause : null, seen = {};
     return '<section class="brief ai-card"><h2>' + ico('target') + '今日の要点<span class="h-r sub">' + esc(asofText()) + (c ? ' ・ 確信度 ' + esc(c.confidence) : '') + '</span></h2>' +
-      (ai.reused_from ? '<p class="notice">今朝はAIの利用枠が足りず、同じ取引日の ' + esc(ai.reused_from.slice(5, 16).replace('-', '/').replace('T', ' ')) + ' 時点の見解を表示しています(数値・需給は最新)。</p>' : '') +
+      (ai.reused_from ? '<p class="notice">AIの利用枠が足りなかったため、' + esc(ai.reused_from.slice(5, 16).replace('-', '/').replace('T', ' ')) + ' 時点のAIの見解を表示しています' + (ai.reused_asof && ai.reused_asof.jp && AN.asof && ai.reused_asof.jp !== AN.asof.jp ? '(日本は' + esc(mdDate(ai.reused_asof.jp)) + 'の終値までの見解)' : '') + '。数値・需給は最新です。</p>' : '') +
       (c ? '<p class="why-head">' + esc(c.headline) + '</p>' : '<p class="notice">今日はAIの分析ができなかったため、データの自動判定を表示しています。</p>') + keyStrip() +
       '<dl class="qa">' +
       '<div><dt>何が起きたか</dt><dd>' + (c ? '<p>' + dirPill(c.us && c.us.direction) + ' <b>米国</b> ' + inline(firstS(c.us && c.us.summary), seen) + '</p><p>' + dirPill(c.jp && c.jp.direction) + ' <b>日本</b> ' + inline(firstS(c.jp && c.jp.summary), seen) + '</p>' : ruleList((AN.rules && AN.rules.d1 || []).slice(0, 2))) + '</dd></div>' +
