@@ -1774,6 +1774,28 @@ class NewScheduleTest(unittest.TestCase):
         self.assertEqual(called, [1])
 
 
+    def test_clock_slots(self):
+        """時計(clock.py)からの起動: slot=evening は夕方の更新へ、slot=morning は定時の朝(7:25・8:00まで待つ)として扱う"""
+        called = []
+        env = {k: "x" for k in eb._REQUIRED_ENV}
+        env.update({"EVENT_NAME": "workflow_dispatch", "SCHEDULE_CRON": "", "LEARN_ONLY": "false", "SLOT": "evening"})
+        with mock.patch.dict(os.environ, env), mock.patch.object(eb, "evening_update", lambda: called.append(1)), \
+             mock.patch.object(eb, "build_outputs", side_effect=AssertionError("朝の投稿をしてはいけない")):
+            eb.main()
+        self.assertEqual(called, [1])
+        with mock.patch.dict(os.environ, {"EVENT_NAME": "workflow_dispatch", "SLOT": "morning"}):
+            self.assertTrue(eb._is_schedule())
+            self.assertEqual(eb.trigger_label(), "時計の起動(朝。7:25取得・8:00投稿)")
+        with mock.patch.dict(os.environ, {"EVENT_NAME": "workflow_dispatch", "SLOT": ""}):
+            self.assertFalse(eb._is_schedule())
+        wf = self._wf()
+        self.assertIn("SLOT: ${{ inputs.slot }}", wf)
+        self.assertIn("inputs.slot == 'evening') && 'econobot-evening'", wf)
+        ck = open(os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "clock.yml"), encoding="utf-8").read()
+        self.assertIn("actions: write", ck)
+        self.assertIn("python -u clock.py", ck)
+
+
 class LearnMarketJsonTest(unittest.TestCase):
     def test_build_keeps_fetched_series_and_points(self):
         def fake(sid, days):

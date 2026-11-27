@@ -6,6 +6,7 @@ on:
   # ・夕方: 17:30に学習アプリのデータだけ作り直す(公開・投稿はしない)。日本の引け15:30の後、CBOEの確定値の後、Geminiの1日の枠の切り替わり(JST 17:00・夏16:00)の後
   # GitHubのscheduleは後回しにされ、10/09〜11/17は1〜6時間、11/27は7〜8時間遅れた。そこで目標の時刻より前に30分おきに起動を置き、
   # 最初に始まった起動が目標の時刻まで中で待つ。2回目以降の起動は記録(state/last_posted.txt・state/last_learn.txt)を見て何もせず終わる。
+  # 11/27は夕方の起動が1回も来なかった。そこで時刻どおりの起動は時計(clock.yml)が受け持ち、ここのscheduleは予備として残す。
   # 00分・30分は混みやすいので17分・47分にする。timezone指定があるのでcronは日本時間のまま書く
   schedule:
     - cron: '17 2 * * *'   # 朝(早い起動)
@@ -67,12 +68,16 @@ on:
         description: '学習アプリのデータ(市場データと深掘り分析)だけを作り直す。ページの公開とSlackへの投稿はしない'
         type: boolean
         default: false
+      slot:
+        description: '時計(clock.yml)が使う。morning=朝の定時(7:25取得・8:00投稿)、evening=夕方の定時(17:30の更新)。手動では空のまま'
+        type: string
+        default: ''
 
 # 同時に動かさない。GitHubは順番待ちを1つしか持たず、新しく来た起動が前の順番待ちを取り消す(実行中のものは取り消さない)。
 # 最初の起動が途中で失敗した日は、残っている順番待ちの起動が動いて、その日の分を投稿する。
 # 朝(投稿)と夕方の更新は組を分ける。夕方の起動は昼から17:30まで中で待つので、同じ組だと遅れて来た朝の投稿を足止めしてしまう
 concurrency:
-  group: ${{ contains(fromJSON('["17 12 * * *", "47 12 * * *", "17 13 * * *", "47 13 * * *", "17 14 * * *", "47 14 * * *", "17 15 * * *", "47 15 * * *", "17 16 * * *", "47 16 * * *", "17 17 * * *", "47 19 * * *"]'), github.event.schedule) && 'econobot-evening' || 'econobot-post' }}
+  group: ${{ (contains(fromJSON('["17 12 * * *", "47 12 * * *", "17 13 * * *", "47 13 * * *", "17 14 * * *", "47 14 * * *", "17 15 * * *", "47 15 * * *", "17 16 * * *", "47 16 * * *", "17 17 * * *", "47 19 * * *"]'), github.event.schedule) || inputs.slot == 'evening') && 'econobot-evening' || 'econobot-post' }}
   cancel-in-progress: false
 
 jobs:
@@ -106,4 +111,5 @@ jobs:
           SCHEDULE_CRON: ${{ github.event.schedule }}
           FORCE: ${{ inputs.force }}
           LEARN_ONLY: ${{ inputs.learn_only }}
+          SLOT: ${{ inputs.slot }}
         run: python -u econobot.py   # -u: ログを途中から見られるよう、出力をためずに出す
