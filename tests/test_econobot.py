@@ -1289,6 +1289,20 @@ class PostTimeTest(unittest.TestCase):
         def __exit__(self, *a):
             return False
 
+    # 2026-11-27: 投稿の時刻を8:00 → 7:00(取得 7:25 → 6:25)に変えた。ここの流れの試験(待ち・二重投稿の防止・記録)は
+    # 時刻の値に依らないので、書いた時の設定(8:00・7:25・予備8:10)に差し替えて確かめる。今の設定は NewScheduleTest で確かめる
+    def setUp(self):
+        labels = dict(eb._CRON_LABEL)
+        labels["10 8 * * *"] = "予備の起動(JST 8:10の予定)"
+        self._ps = [mock.patch.object(eb, "POST_HOUR", 8), mock.patch.object(eb, "FETCH_AFTER", (7, 25)),
+                    mock.patch.object(eb, "EARLY_LIMIT_HOUR", 7), mock.patch.object(eb, "_CRON_LABEL", labels)]
+        for p in self._ps:
+            p.start()
+
+    def tearDown(self):
+        for p in self._ps:
+            p.stop()
+
     def _clock(self, h, m, s=0, day=18):
         state = {"now": datetime(2026, 11, day, h, m, s, tzinfo=eb.JST), "sleeps": []}
 
@@ -1629,7 +1643,7 @@ class PostTimeTest(unittest.TestCase):
         """workflowのtimeout-minutesは360(上限)。最も早い2:15の起動から8:00までの待ち+公開・投稿の最悪(約3分)+準備(約2分)が収まる"""
         wf = open(os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "econobot.yml"), encoding="utf-8").read()
         self.assertIn("timeout-minutes: 360", wf)
-        for cron in ("17 2 * * *", "47 3 * * *", "17 5 * * *", "10 8 * * *"):
+        for cron in ("17 2 * * *", "47 3 * * *", "17 5 * * *"):
             self.assertIn(f"- cron: '{cron}'", wf)
         wait_min = (eb.POST_HOUR * 60) - (eb.SCHEDULE_EARLIEST[0] * 60 + eb.SCHEDULE_EARLIEST[1])
         self.assertLessEqual(wait_min + 3 + 2, 360)
@@ -1665,6 +1679,38 @@ class PostTimeTest(unittest.TestCase):
             for p in ps:
                 p.stop()
         self.assertEqual((m["series"]["米2年債利回り"]["src"], c["value_text"], c["stale"]), ("米国財務省", "4.88%", False))
+
+
+class NewScheduleTest(unittest.TestCase):
+    """2026-11-27 Shio「時間のズレを考慮して朝は7時、夕方は16時」: 6:25に取得、7:00に公開・投稿、予備7:10、夕方16:04は学習アプリのデータだけ"""
+
+    def test_constants_and_workflow(self):
+        self.assertEqual((eb.POST_HOUR, eb.FETCH_AFTER, eb.EARLY_LIMIT_HOUR), (7, (6, 25), 6))
+        wf = open(os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "econobot.yml"), encoding="utf-8").read()
+        for cron in ("17 2 * * *", "47 3 * * *", "17 5 * * *", "10 7 * * *", "4 16 * * *"):
+            self.assertIn(f"- cron: '{cron}'", wf)
+        self.assertNotIn("'10 8 * * *'", wf)
+        self.assertIn("LEARN_ONLY: ${{ inputs.learn_only || github.event.schedule == '4 16 * * *' }}", wf)
+        # 冬の引け(6:00)+終値の確定を待つ15分より後に取得し、取得・要約の最悪(約21分)でも7:00に間に合う
+        self.assertGreaterEqual(eb.FETCH_AFTER[0] * 60 + eb.FETCH_AFTER[1], 6 * 60 + 15)
+        self.assertLessEqual(eb.FETCH_AFTER[0] * 60 + eb.FETCH_AFTER[1] + 21, eb.POST_HOUR * 60)
+
+    def test_labels(self):
+        for cron, want in (("10 7 * * *", "予備の起動(JST 7:10の予定)"), ("4 16 * * *", "夕方の更新(JST 16:04の予定。学習アプリのデータだけ)")):
+            with mock.patch.dict(os.environ, {"EVENT_NAME": "schedule", "SCHEDULE_CRON": cron}):
+                self.assertEqual(eb.trigger_label(), want)
+
+    def test_wait_until_7(self):
+        state = {"now": datetime(2026, 11, 28, 6, 50, tzinfo=eb.JST)}
+
+        def sleep(sec):
+            state["now"] = state["now"] + eb.timedelta(seconds=sec)
+        with mock.patch.object(eb, "_now_jst", lambda: state["now"]), mock.patch.object(eb, "_sleep", sleep), \
+             mock.patch.dict(os.environ, {"EVENT_NAME": "schedule"}):
+            self.assertEqual(eb.wait_for_post_time(), 600)
+            self.assertEqual(state["now"], datetime(2026, 11, 28, 7, 0, tzinfo=eb.JST))
+            state["now"] = datetime(2026, 11, 28, 3, 0, tzinfo=eb.JST)
+            self.assertEqual(eb.wait_before_fetch(), (3 * 60 + 25) * 60)   # 6:25まで
 
 
 class LearnMarketJsonTest(unittest.TestCase):
