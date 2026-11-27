@@ -284,11 +284,18 @@ def fetch_one(sym, now=None):
         gaps = null_days(res, now)
         if gaps:
             try:
+                had = {d for d, _ in close}
                 rows, close = fill_gaps(rows, close, gaps, _get_hourly(sym, host))
+                added = sorted({d for d, _ in close} - had)
+                if added:
+                    APPROX[sym] = added
             except Exception as e:
                 print(f"    [Yahoo {sym} 1時間足] 抜けた日の補完に失敗 {type(e).__name__}")
         return rows, close
     raise err
+
+
+APPROX = {}   # 1時間足で補った(引けの売買を含まない概算の)日 {銘柄: [日付]}
 
 
 def null_days(res, now=None, days=30):
@@ -341,6 +348,7 @@ def fetch_all(fetch=None, now=None, sleep=time.sleep, waits=None, fetch_movers_f
         fetch_movers_fn = fetch_movers_fn or fetch_movers
     syms = [s for s, _, _ in all_symbols()]
     rows, close, fails = {}, {}, {}
+    APPROX.clear()
     exp_us = expected_us_date(now)
 
     def expected(sym):
@@ -386,7 +394,8 @@ def fetch_all(fetch=None, now=None, sleep=time.sleep, waits=None, fetch_movers_f
         except Exception as e:  # 動的な銘柄が取れなくても、固定の銘柄で分析する
             merr = [f"{type(e).__name__}"]
     q = {"expected_us": exp_us, "expected_jp": expected("1306.T"), "movers": len(movers), "movers_errors": merr, "missing": sorted(set(syms) - set(rows)),
-         "stale": stale, "fails": fails, "checks": cross_checks(rows, close)}
+         "stale": stale, "fails": fails, "checks": cross_checks(rows, close),
+         "approx": {k: v for k, v in APPROX.items() if k in rows}}
     q["complete"] = not q["missing"] and not stale and all(c["ok"] for c in q["checks"])
     print(f"  深掘り用: {len(rows)}/{len(syms)}銘柄 米国の取引日 {exp_us} 遅れ {len(stale)} 欠け {len(q['missing'])}"
           f" 照合 {'OK' if all(c['ok'] for c in q['checks']) else 'ずれあり'}")
