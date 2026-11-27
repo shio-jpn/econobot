@@ -589,3 +589,24 @@ class _Ctx:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class KeepDraftTest(unittest.TestCase):
+    """2026-11-28: 改訂が主因と因果の段を空で返した。空になった所はチーフの案から戻す"""
+
+    def test_keep_draft_fills_empty_parts(self):
+        draft = {"us": {"summary": "米", "causes": [{"title": "A"}]}, "jp": {"causes": [{"title": "B"}]},
+                 "root_cause": {"summary": "根本", "chain": [{"kind": "現象"}]}, "sectors": [{"name": "X"}]}
+        rev = {"us": {"summary": "米2", "causes": []}, "jp": {"causes": [{"title": "B2"}]},
+               "root_cause": {"summary": "根本2", "chain": []}, "sectors": []}
+        out = dd.keep_draft(rev, draft)
+        self.assertEqual(out["us"], {"summary": "米2", "causes": [{"title": "A"}]})
+        self.assertEqual(out["jp"]["causes"], [{"title": "B2"}])               # 改訂の中身があればそちら
+        self.assertEqual(out["root_cause"], {"summary": "根本2", "chain": [{"kind": "現象"}]})
+        self.assertEqual(out["sectors"], [{"name": "X"}])
+        self.assertEqual(dd.empty_parts(out), [])
+        self.assertEqual(dd.empty_parts(rev), ["us", "root_cause"])
+
+    def test_schema_requires_items(self):
+        self.assertEqual(dd.CHIEF_SCHEMA["properties"]["us"]["properties"]["causes"]["minItems"], 1)
+        self.assertEqual(dd.CHIEF_SCHEMA["properties"]["root_cause"]["properties"]["chain"]["minItems"], 2)

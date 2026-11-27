@@ -1159,13 +1159,14 @@ CAUSE = {"type": "OBJECT", "properties": {
     "evidence": {"type": "ARRAY", "items": {"type": "STRING"}}, "chain": CHAIN}, "required": ["title", "weight", "explain", "evidence", "chain"]}
 MKT = {"type": "OBJECT", "properties": {
     "direction": {"type": "STRING", "enum": ["上昇", "下落", "もみ合い"]},
-    "summary": {"type": "STRING"}, "causes": {"type": "ARRAY", "items": CAUSE}},
+    "summary": {"type": "STRING"}, "causes": {"type": "ARRAY", "items": CAUSE, "minItems": 1}},
     "required": ["direction", "summary", "causes"]}
 CHIEF_SCHEMA = {"type": "OBJECT", "properties": {
     "headline": {"type": "STRING"}, "us": MKT, "jp": MKT,
     "sectors": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
         "name": {"type": "STRING"}, "why": {"type": "STRING"}, "root": {"type": "STRING"}}, "required": ["name", "why", "root"]}},
-    "root_cause": {"type": "OBJECT", "properties": {"summary": {"type": "STRING"}, "chain": CHAIN}, "required": ["summary", "chain"]},
+    "root_cause": {"type": "OBJECT", "properties": {"summary": {"type": "STRING"}, "chain": dict(CHAIN, minItems=2)},
+                   "required": ["summary", "chain"]},
     "debate": {"type": "STRING"},
     "outlook_short": {"type": "STRING"}, "outlook_mid": {"type": "STRING"},
     "watch": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
@@ -1523,6 +1524,35 @@ def clean_chief(c, allowed, known, dropped):
     }
 
 
+def keep_draft(revised, draft):
+    """改訂で消えた中身は、チーフの案から戻す(2026-11-28: 改訂が主因と因果の段を空で返し、画面の「なぜ」が空になった)"""
+    if not isinstance(revised, dict):
+        return draft
+    if not isinstance(draft, dict):
+        return revised
+    out = dict(revised)
+    for m in ("us", "jp"):
+        r, d = out.get(m) if isinstance(out.get(m), dict) else {}, draft.get(m) if isinstance(draft.get(m), dict) else {}
+        if not r.get("causes") and d.get("causes"):
+            out[m] = dict(r, causes=d["causes"])
+    r, d = out.get("root_cause") if isinstance(out.get("root_cause"), dict) else {}, draft.get("root_cause") or {}
+    if not r.get("chain") and isinstance(d, dict) and d.get("chain"):
+        out["root_cause"] = dict(r, chain=d["chain"], summary=r.get("summary") or d.get("summary"))
+    for k in ("sectors", "watch", "change", "forecast"):
+        if not out.get(k) and draft.get(k):
+            out[k] = draft[k]
+    return out
+
+
+def empty_parts(c):
+    """主因・根本の原因の段が空の所(画面の「なぜ」が空になる)"""
+    c = c if isinstance(c, dict) else {}
+    out = [m for m in ("us", "jp") if not ((c.get(m) or {}).get("causes"))]
+    if not ((c.get("root_cause") or {}).get("chain")):
+        out.append("root_cause")
+    return out
+
+
 def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=None, flow=None, strat=None, st=None):
     """役割の違うアナリストを順に重ね、チーフが統合、査読、必要なら改訂。失敗した段は飛ばして続ける"""
     eb = _eb()
@@ -1584,17 +1614,21 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
             issues = [i for i in (rv.get("issues") or []) if isinstance(i, dict) and i.get("problem")]
             if issues and not rv.get("ok"):
                 print(f"  査読の指摘 {len(issues)}件 → チーフが改訂")
-                chief = _ask(_chief_prompt(data_txt, news_txt, passes, rules, issues[:8], draft), CHIEF_SCHEMA, "深掘り:改訂", models=CHIEF_MODELS)
+                revised = _ask(_chief_prompt(data_txt, news_txt, passes, rules, issues[:8], draft), CHIEF_SCHEMA, "深掘り:改訂", models=CHIEF_MODELS)
+                chief = keep_draft(revised, draft)
                 steps.append(f"改訂(指摘{len(issues)}件)")
         except Exception as e:   # 査読・改訂の失敗は、チーフの案をそのまま使う
             errors.append(f"査読・改訂: {type(e).__name__}: {e}")
     except Exception as e:
         errors.append(f"チーフ: {type(e).__name__}: {e}")
+    if chief is not None and empty_parts(chief):
+        print(f"  [WARN] 深掘り分析: チーフの主因・根本の原因の段が空({', '.join(empty_parts(chief))})")
     result = {"ok": chief is not None, "passes": passes, "errors": errors, "steps": steps, "labels": labels,
               "news": news_txt.split("\n")[:60]}
     if chief is not None:
         result["chief"] = clean_chief(chief, allowed, known, dropped)
         result["chief"]["playbook"]["rule"] = list(RULE_LINES)   # 規則の判定はプログラムの文をそのまま出す
+        result["empty"] = empty_parts(result["chief"])            # 主因・根本の原因の段が空の所(確認用)
     result["dropped"] = dropped
     return result
 
