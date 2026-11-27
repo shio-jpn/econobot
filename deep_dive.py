@@ -22,6 +22,8 @@ from datetime import datetime
 
 ANALYSIS_PATH = "learn/data/analysis.json"
 HISTORY_DAYS = 90          # 答え合わせ用に残す見立ての日数
+TRACK_CONTEXT = ""         # 過去の見立ての答え合わせ(track.py)。チーフに渡す
+TRACK_PCT = set()          # チーフの文で使ってよい数字(もみ合いの幅)
 DEEP_BUDGET = 840          # 深掘り分析でGeminiに使う時間の合計の上限(秒)。投稿の後に動くので要約の時間とは別に数える
 CHIEF_RESERVE = 200        # チーフの統合と査読のために残しておく時間(秒)。足りなくなりそうなら残りの役割を飛ばす
 REVIEW_MIN = 100           # 査読と改訂を始める時に残っているべき時間(秒)
@@ -1176,8 +1178,11 @@ CHIEF_SCHEMA = {"type": "OBJECT", "properties": {
         "stance": {"type": "STRING"}, "do": {"type": "ARRAY", "items": {"type": "STRING"}},
         "avoid": {"type": "ARRAY", "items": {"type": "STRING"}}, "risk": {"type": "STRING"}},
         "required": ["stance", "do", "avoid", "risk"]}},
+    "forecast": {"type": "OBJECT", "properties": {m: {"type": "OBJECT", "properties": {
+        "dir": {"type": "STRING", "enum": ["上昇", "下落", "もみ合い"]}, "reason": {"type": "STRING"}}, "required": ["dir", "reason"]}
+        for m in ("us", "jp")}, "required": ["us", "jp"]},
     "required": ["headline", "us", "jp", "root_cause", "debate", "outlook_short", "outlook_mid", "change", "confidence", "lesson",
-                 "supply_demand", "playbook"]}
+                 "supply_demand", "playbook", "forecast"]}
 REVIEW_SCHEMA = {"type": "OBJECT", "properties": {
     "ok": {"type": "BOOLEAN"},
     "issues": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
@@ -1274,9 +1279,14 @@ def _chief_prompt(data_txt, news_txt, passes, rules, issues=None, draft=None):
 - playbook: プロのトレーダーとしての今の戦い方。stance(投資比率の考え方を2〜3文。規則の判定はプログラムが別に表示するので
   言い換えて書かない。判定(投資・待機)と違うことを書かない。判定と注意の度合いを踏まえた行動の考え方を書く)、
   do(今の相場で機能しやすい行動を3〜4個)、avoid(避けるべき行動を2〜3個)、risk(損切りと考えを変える価格の目安を2〜3文)
+- forecast: 次の5営業日の方向の予想。us(S&P 500)と jp(日経平均)それぞれに dir(上昇・下落・もみ合い)と reason(根拠を2〜3文)。
+  終値で採点され、結果は蓄積して次の分析に渡される。もみ合いの幅は下の『予想の採点のしかた』のとおり。
+  outlook_short と矛盾させない。過去の答え合わせの教訓が当てはまる時は、どう考慮したかを reason に書く
 """
     p += "\n■規則にもとづく主因の候補(データから自動計算)\n" + "\n".join(f"- {r['title']}({r['side']}): {r['text']}" for r in rules)
     p += "\n\n■規則の判定(プログラムの判定。このとおりに扱う)\n" + "\n".join(RULE_LINES)
+    if TRACK_CONTEXT:
+        p += "\n\n" + TRACK_CONTEXT
     p += "\n\n■7人の分析\n" + _prior_txt(passes)
     if issues and draft:
         p += "\n\n■あなたの前回の案\n" + json.dumps(draft, ensure_ascii=False) + \
@@ -1507,6 +1517,9 @@ def clean_chief(c, allowed, known, dropped):
                      "do": [t for t in (scrub(x, allowed, dropped) for x in ((c.get("playbook") or {}).get("do") or [])[:5]) if t],
                      "avoid": [t for t in (scrub(x, allowed, dropped) for x in ((c.get("playbook") or {}).get("avoid") or [])[:4]) if t],
                      "risk": scrub((c.get("playbook") or {}).get("risk"), allowed, dropped)},
+        "forecast": {m: {"dir": ((c.get("forecast") or {}).get(m) or {}).get("dir"),
+                         "reason": scrub(((c.get("forecast") or {}).get(m) or {}).get("reason"), allowed, dropped)}
+                     for m in ("us", "jp") if ((c.get("forecast") or {}).get(m) or {}).get("dir") in ("上昇", "下落", "もみ合い")},
     }
 
 
@@ -1527,6 +1540,7 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
     data_txt = data_block(feat, sigs, macro, contrib, movers, flow, strat, st)
     news_txt, news_texts = news_block(out, saved_news)
     allowed = allowed_numbers(feat, sigs, macro, news_texts, contrib, movers, flow, strat, st)
+    allowed["pct"] = sorted(set(allowed["pct"]) | TRACK_PCT)
     known = set(feat) | {s["id"] for s in sigs} | {s for s, _ in HEAVY_US + HEAVY_JP} | {m["sym"] for m in movers or []} | set(macro or {})
     dropped, errors, steps = [], [], []
     passes = {}
@@ -1657,17 +1671,63 @@ def _read_prev():
         return None
 
 
+def track_before(fetched):
+    """答え合わせ(track.py)の前半: 記録を読み、5営業日たった予想を採点し、考察し、チーフに渡す文を作る。失敗しても分析は続ける"""
+    global TRACK_CONTEXT
+    import track as T
+    TRACK_CONTEXT = ""
+    TRACK_PCT.clear()
+    try:
+        eb = _eb()
+        tr = T.load(eb._gh_get_file)
+        cl = fetched.get("close") or {}
+        closes = {m: cl.get(sym) or [] for m, (sym, _) in T.MKTS.items()}
+        names = {s: n for s, n, _ in all_symbols()}
+        groups = {}
+        for s, _, g in all_symbols():
+            groups.setdefault(g, []).append(s)
+        n = T.evaluate(tr, closes, fetched.get("rows") or {}, names, groups)
+        k = T.reflect(tr, lambda p, sc, label: _ask(p, sc, label, models=CHIEF_MODELS)) if n or any(
+            x.get("status") == "evaluated" and not x.get("reflection") for x in tr["items"]) else 0
+        bnds = T.bands(closes)
+        T.summary(tr)
+        TRACK_CONTEXT = T.context(tr, bnds)
+        TRACK_PCT.update(T.numbers(bnds))
+        s = tr["summary"]["all"]
+        print(f"  答え合わせ: 採点 {n}件・考察 {k}件・これまで {s['hit']}/{s['n']} 的中・判定待ち {tr['summary']['pending']}件")
+        return tr, closes, bnds
+    except Exception as e:
+        print(f"  [WARN] 答え合わせの準備に失敗(分析は続ける): {type(e).__name__}: {e}")
+        return None, {}, {}
+
+
+def track_after(tr, res, closes, bnds):
+    """答え合わせの後半: 今回の予想を保存し、成績の要約を分析にも載せる"""
+    if tr is None:
+        return
+    import track as T
+    try:
+        n = T.record(tr, res, closes, bnds)
+        res["track"] = T.summary(tr)
+        _eb()._gh_put_file(T.TRACK_PATH, json.dumps(tr, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+                           f"📒 見立ての答え合わせ: 予想 {n}件を保存")
+    except Exception as e:
+        print(f"  [WARN] 答え合わせの保存に失敗(分析は続ける): {type(e).__name__}: {e}")
+
+
 def publish_analysis(out=None, market=None, fetch=None, prev=None, saved_news=None, waits=None, flow_fn=None):
     eb = _eb()
     fetched = fetch_all(fetch, waits=waits)
     if prev is None:
         prev = _read_prev()
+    tr, closes, bnds = track_before(fetched)
     res = build_analysis(fetched, market, out, saved_news=saved_news, prev=prev, flow_fn=flow_fn)
     if res is None:
         print("  深掘り分析: 米国セクターのデータが足りないため更新しません")
         return False
     reuse_ai(res, prev)
     add_history(res, prev)
+    track_after(tr, res, closes, bnds)
     text = json.dumps(res, ensure_ascii=False, separators=(",", ":"))
     eb._gh_put_file(ANALYSIS_PATH, text.encode("utf-8"), f"🔎 学習アプリの深掘り分析: {res['updated'][:16]}")
     ai = res["ai"]

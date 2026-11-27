@@ -31,6 +31,15 @@
     return aLoading;
   };
 
+  /* 見立ての答え合わせ(data/track.json)。無ければ null */
+  var tLoading = null;
+  M.loadTrack = function (force) {
+    if (tLoading && !force) return tLoading;
+    if (typeof fetch !== 'function') return (tLoading = Promise.resolve(null));
+    tLoading = getJSON('data/track.json').then(function (d) { return d && Array.isArray(d.items) ? d : null; });
+    return tLoading;
+  };
+
   function avg(a, from, to) { var s = 0; for (var i = from; i < to; i++) s += a[i]; return s / (to - from); }
   function smaAt(v, n) { return v.length >= n ? avg(v, v.length - n, v.length) : null; }
   function rsiLast(v, n) {
