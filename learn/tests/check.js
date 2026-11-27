@@ -21,6 +21,15 @@ var charts = {}; K.charts.forEach(function (c) { charts[c.id] = c; });
 var terms = {}; K.glossary.forEach(function (g) { terms[g.name] = 1; });
 
 ok('アプリ本体が読み込める(章ごとの画面を組み立てられる)', function () { assert.strictEqual(typeof K.search, 'function'); assert.strictEqual(typeof K.renderSpark, 'function'); assert(K.renderSpark(K.labSeries, 300, 150, true).indexOf('NaN') < 0); });
+ok('各スクリプトで同じ名前の関数を2回定義していない(後の定義が前を上書きし、レッスン本文が壊れたことがある)', function () {
+  html.match(/<script src="([^"]+)"/g).map(function (s) { return s.slice(13, -1); }).forEach(function (f) {
+    var seen = {}, src = fs.readFileSync(path.join(root, f), 'utf8'), re = /^  function ([A-Za-z0-9_$]+)\(/gm, m;
+    while ((m = re.exec(src))) { assert(!seen[m[1]], f + ': function ' + m[1] + ' が重複'); seen[m[1]] = 1; }
+  });
+});
+ok('ホームは今日の市場、学ぶ画面にレッスンの一覧がある', function () {
+  assert(fs.readFileSync(path.join(root, 'js/app.js'), 'utf8').indexOf("['home', '今日の市場'") >= 0);
+});
 ok('レッスンのIDは重複せず、URLに使える文字だけ', function () {
   assert.strictEqual(Object.keys(ids).length, lessons.length);
   lessons.concat(K.charts, K.macro, K.traders, K.stages).forEach(function (x) { assert(/^[a-z0-9-]+$/.test(x.id), x.id); });

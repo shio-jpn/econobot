@@ -548,6 +548,14 @@
   .cal-l li > span { display: flex; flex-direction: column; gap: 2px; }
   .cal-d b { color: var(--ink); font-size: 1rem; }
   .do-box, .avoid-box { background: var(--tile); border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+  .types-s > li { padding: 8px 12px; }
+  .sec-mini { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .sm { display: flex; flex-direction: column; border-radius: 12px; padding: 8px 10px; font-size: 0.86rem; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; min-width: 0; }
+  .sm b { font-size: 0.74rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .help { background: transparent; border-style: dashed; }
+  .help .chips { gap: 6px; }
+  .practice { padding-block: 14px; }
+  .practice .actions { margin: 0; }
   @media (max-width: 760px) {
     .kstrip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .stiles { grid-template-columns: minmax(0, 1fr); }
