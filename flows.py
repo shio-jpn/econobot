@@ -570,7 +570,7 @@ def levels(rows):
     closes = [r[4] for r in rows]
     c = closes[-1]
     sma = {n: sum(closes[-n:]) / n for n in (20, 50, 200) if len(closes) >= n}
-    return {"close": _r(c), "atr": _r(atr), "atr_pct": _r(atr / c * 100), "sma20": _r(sma.get(20)), "sma50": _r(sma.get(50)),
+    return {"close": _r(c), "prev": _r(closes[-2]) if len(closes) > 1 else None, "atr": _r(atr), "atr_pct": _r(atr / c * 100), "sma20": _r(sma.get(20)), "sma50": _r(sma.get(50)),
             "sma200": _r(sma.get(200)), "hi20": _r(max(r[2] for r in rows[-20:])), "lo20": _r(min(r[3] for r in rows[-20:])),
             "hi60": _r(max(r[2] for r in rows[-60:])), "lo60": _r(min(r[3] for r in rows[-60:]))}
 

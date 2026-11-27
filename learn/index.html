@@ -75,7 +75,7 @@
 
   /* ---- 電光掲示板(ページ上部) ---- */
   .led-wrap { max-width: 860px; margin: -6px auto 14px; padding-left: var(--gl); padding-right: var(--gr); }
-  .led { position: relative; display: block; overflow: hidden; height: 42px; border-radius: 14px; text-decoration: none !important;
+  .led { position: relative; display: block; overflow: hidden; height: 66px; border-radius: 14px; text-decoration: none !important;
     background: radial-gradient(120% 140% at 50% 0%, #1a0f07 0%, #070504 60%); border: 1px solid rgba(255, 255, 255, 0.07); border-top: 2px solid rgba(220, 225, 235, 0.28); border-bottom: 2px solid rgba(220, 225, 235, 0.16);
     box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.06), inset 0 -10px 18px rgba(0, 0, 0, 0.6), 0 10px 26px rgba(0, 0, 0, 0.45);
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent); mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent); }
@@ -84,16 +84,18 @@
   .led-track { position: absolute; top: 0; left: 0; height: 100%; display: flex; white-space: nowrap; will-change: transform; animation: led-run 60s linear infinite; }
   .led:hover .led-track, .led:focus-visible .led-track { animation-play-state: paused; }
   .led-row { display: inline-flex; align-items: center; height: 100%; flex: none; }
-  .led-i, .led-h { display: inline-flex; align-items: baseline; gap: 0.45em; padding: 0 0.2em; font-family: 'DotGothic16', ui-monospace, 'Osaka-Mono', monospace; font-size: 19px; line-height: 42px; letter-spacing: 0.04em; }
+  .led-i, .led-h, .led-s { font-family: 'DotGothic16', ui-monospace, 'Osaka-Mono', monospace; font-size: 18px; line-height: 1.35; letter-spacing: 0.04em; }
+  .led-i { display: inline-flex; flex-direction: column; justify-content: center; gap: 2px; padding: 0 0.3em; }
+  .led-t { display: inline-flex; align-items: baseline; gap: 0.45em; }
   .led-n { color: #ff8c1a; text-shadow: 0 0 6px rgba(255, 120, 20, 0.75); }
   .led-v { color: #ffc266; text-shadow: 0 0 6px rgba(255, 170, 60, 0.7); font-variant-numeric: tabular-nums; }
-  .led-c { color: #ffb347; text-shadow: 0 0 6px rgba(255, 160, 50, 0.6); }
+  .led-c { color: #ffb347; text-shadow: 0 0 6px rgba(255, 160, 50, 0.6); font-variant-numeric: tabular-nums; }
   .led-c.up { color: #4dff8f; text-shadow: 0 0 7px rgba(60, 255, 130, 0.7); }
   .led-c.down { color: #ff4d3d; text-shadow: 0 0 7px rgba(255, 70, 50, 0.8); }
-  .led-h { color: #ffd27a; text-shadow: 0 0 7px rgba(255, 190, 90, 0.75); }
-  .led-s { color: #5a3410; padding: 0 0.9em; font-family: 'DotGothic16', monospace; font-size: 19px; line-height: 42px; }
+  .led-h { display: inline-flex; align-items: center; padding: 0 0.2em; color: #ffd27a; text-shadow: 0 0 7px rgba(255, 190, 90, 0.75); }
+  .led-s { color: #5a3410; padding: 0 0.9em; }
   @keyframes led-run { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-  @media (max-width: 560px) { .led { height: 36px; border-radius: 12px; } .led-i, .led-h, .led-s { font-size: 16px; line-height: 36px; } }
+  @media (max-width: 560px) { .led { height: 58px; border-radius: 12px; } .led-i, .led-h, .led-s { font-size: 15px; } }
   @media (prefers-reduced-motion: reduce) { .led-track { animation: none; position: static; } .led { overflow-x: auto; } .led-row[aria-hidden] { display: none; } }
   /* ---- 本体とカード ---- */
   .side { display: none; }

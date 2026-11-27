@@ -486,8 +486,10 @@ def features(rows, close=None, stale=None):
             continue
         daily = _daily(r, sym)
         sd = _std([x for _, x in daily[-61:-1]])   # 当日を除いた直近60日
-        lastv = (close.get(sym) or r)[-1][1]
+        cr = close.get(sym) or r
+        lastv = cr[-1][1]
         f = {"sym": sym, "name": name, "group": group, "date": r[-1][0], "last": _r(lastv, 4),
+             "prev": _r(cr[-2][1], 4) if len(cr) > 1 else None,   # 前日の実際の終値(電光掲示板の値幅に使う)
              "unit": "bp" if sym in YIELD_SYMS else "%", "sd": _r(sd, 3)}
         for h in (1, 5, 20, 60):
             c = _chg(r, sym, h)
