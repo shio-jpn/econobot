@@ -1682,35 +1682,96 @@ class PostTimeTest(unittest.TestCase):
 
 
 class NewScheduleTest(unittest.TestCase):
-    """2026-11-27 Shio「時間のズレを考慮して朝は7時、夕方は16時」: 6:25に取得、7:00に公開・投稿、予備7:10、夕方16:04は学習アプリのデータだけ"""
+    """2026-11-27 時刻の見直し: 朝は7:25取得・8:00投稿(財務省の日次金利の後、東証の寄り付きの前)、
+    夕方は17:30に学習アプリのデータだけ(日本の引け・CBOEの確定値・Geminiの枠の切り替わりの後)。
+    GitHubの遅れに備えて目標の時刻より前に30分おきに起動を置き、最初の起動が中で待つ"""
+
+    def _wf(self):
+        return open(os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "econobot.yml"), encoding="utf-8").read()
 
     def test_constants_and_workflow(self):
-        self.assertEqual((eb.POST_HOUR, eb.FETCH_AFTER, eb.EARLY_LIMIT_HOUR), (7, (6, 25), 6))
-        wf = open(os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "econobot.yml"), encoding="utf-8").read()
-        for cron in ("17 2 * * *", "47 3 * * *", "17 5 * * *", "10 7 * * *", "4 16 * * *"):
-            self.assertIn(f"- cron: '{cron}'", wf)
-        self.assertNotIn("'10 8 * * *'", wf)
-        self.assertIn("LEARN_ONLY: ${{ inputs.learn_only || github.event.schedule == '4 16 * * *' }}", wf)
-        # 冬の引け(6:00)+終値の確定を待つ15分より後に取得し、取得・要約の最悪(約21分)でも7:00に間に合う
-        self.assertGreaterEqual(eb.FETCH_AFTER[0] * 60 + eb.FETCH_AFTER[1], 6 * 60 + 15)
-        self.assertLessEqual(eb.FETCH_AFTER[0] * 60 + eb.FETCH_AFTER[1] + 21, eb.POST_HOUR * 60)
+        self.assertEqual((eb.POST_HOUR, eb.FETCH_AFTER, eb.EARLY_LIMIT_HOUR, eb.EVENING_AT), (8, (7, 25), 7, (17, 30)))
+        wf = self._wf()
+        for c in eb.MORNING_CRONS + [eb.BACKUP_CRON] + eb.EVENING_CRONS:
+            self.assertIn(f"- cron: '{c} * * *'", wf)
+        self.assertEqual(wf.count("- cron:"), len(eb.MORNING_CRONS) + 1 + len(eb.EVENING_CRONS))
+        self.assertIn("LEARN_ONLY: ${{ inputs.learn_only }}", wf)
+        self.assertIn("'econobot-evening' || 'econobot-post'", wf)
+        for c in eb.EVENING_CRONS:
+            self.assertIn(f'"{c} * * *"', wf)          # 夕方の起動は別の組(朝の投稿を足止めしない)
+        # 00分・30分を避ける
+        self.assertTrue(all(c.split()[0] not in ("0", "30") for c in eb.MORNING_CRONS + eb.EVENING_CRONS))
+
+    def test_time_budgets(self):
+        """朝: 最も早い起動(2:15)から8:00の投稿まで、夕方: 最も早い起動(11:50)から17:30+作り直し(約15分)までが6時間の上限に収まる"""
+        start = lambda hm: hm[0] * 60 + hm[1]
+        self.assertLessEqual(eb.POST_HOUR * 60 + 5 - start(eb.SCHEDULE_EARLIEST), 360)
+        self.assertLessEqual(start(eb.EVENING_AT) + 15 + 2 - start(eb.EVENING_EARLIEST), 360)
+        first_morning = min(int(c.split()[1]) * 60 + int(c.split()[0]) for c in eb.MORNING_CRONS)
+        first_evening = min(int(c.split()[1]) * 60 + int(c.split()[0]) for c in eb.EVENING_CRONS)
+        self.assertGreaterEqual(first_morning, start(eb.SCHEDULE_EARLIEST))
+        self.assertGreaterEqual(first_evening, start(eb.EVENING_EARLIEST))
+        # 冬の引け(6:00)+終値の確定を待つ15分より後に取得し、取得・要約の最悪(約21分)でも投稿に間に合う
+        self.assertGreaterEqual(start(eb.FETCH_AFTER), 6 * 60 + 15)
+        self.assertLessEqual(start(eb.FETCH_AFTER) + 21, eb.POST_HOUR * 60)
+        # 夕方はGeminiの枠の切り替わり(冬17:00)の後
+        self.assertGreater(start(eb.EVENING_AT), 17 * 60)
 
     def test_labels(self):
-        for cron, want in (("10 7 * * *", "予備の起動(JST 7:10の予定)"), ("4 16 * * *", "夕方の更新(JST 16:04の予定。学習アプリのデータだけ)")):
+        for cron, want in (("47 6 * * *", "早い起動(JST 6:47の予定)"), ("10 8 * * *", "予備の起動(JST 8:10の予定)"),
+                           ("17 13 * * *", "夕方の更新(JST 13:17の予定。学習アプリのデータだけ)")):
             with mock.patch.dict(os.environ, {"EVENT_NAME": "schedule", "SCHEDULE_CRON": cron}):
                 self.assertEqual(eb.trigger_label(), want)
 
-    def test_wait_until_7(self):
-        state = {"now": datetime(2026, 11, 28, 6, 50, tzinfo=eb.JST)}
+    def _evening(self, h, m, record=None, day=27):
+        state = {"now": datetime(2026, 11, day, h, m, tzinfo=eb.JST), "sleeps": []}
+        files, ran = {}, []
+        if record is not None:
+            files[eb.EVENING_STATE] = record.encode()
 
         def sleep(sec):
+            state["sleeps"].append(sec)
             state["now"] = state["now"] + eb.timedelta(seconds=sec)
+
+        def get(path):
+            if path not in files:
+                raise urllib.error.HTTPError(path, 404, "Not Found", {}, None)
+            return "sha", files[path]
+
+        def put(path, b, msg):
+            files[path] = b
         with mock.patch.object(eb, "_now_jst", lambda: state["now"]), mock.patch.object(eb, "_sleep", sleep), \
-             mock.patch.dict(os.environ, {"EVENT_NAME": "schedule"}):
-            self.assertEqual(eb.wait_for_post_time(), 600)
-            self.assertEqual(state["now"], datetime(2026, 11, 28, 7, 0, tzinfo=eb.JST))
-            state["now"] = datetime(2026, 11, 28, 3, 0, tzinfo=eb.JST)
-            self.assertEqual(eb.wait_before_fetch(), (3 * 60 + 25) * 60)   # 6:25まで
+             mock.patch.object(eb, "_gh_get_file", get), mock.patch.object(eb, "_gh_put_file", put), \
+             mock.patch.object(eb, "learn_only", lambda: ran.append(state["now"])), \
+             mock.patch.dict(os.environ, {"EVENT_NAME": "schedule", "SCHEDULE_CRON": "17 13 * * *"}):
+            r = eb.evening_update()
+        return r, ran, files.get(eb.EVENING_STATE, b"").decode(), state
+
+    def test_evening_waits_until_1730_and_records(self):
+        r, ran, rec, st = self._evening(13, 20)
+        self.assertTrue(r)
+        self.assertEqual(ran, [datetime(2026, 11, 27, 17, 30, tzinfo=eb.JST)])
+        self.assertTrue(rec.startswith("2026-11-27 夕方の更新 2026-11-27 17:30:00 JST 夕方の更新(JST 13:17の予定"))
+
+    def test_evening_after_target_runs_now_and_skips_when_done(self):
+        r, ran, rec, st = self._evening(19, 55)
+        self.assertEqual(ran, [datetime(2026, 11, 27, 19, 55, tzinfo=eb.JST)])
+        r2, ran2, _, _ = self._evening(20, 10, record=rec)
+        self.assertEqual((r2, ran2), (False, []))       # 2回目以降は何もしない
+
+    def test_evening_too_early_or_after_midnight_does_nothing(self):
+        for h, m in ((11, 40), (1, 30), (9, 0)):        # 6時間の上限に収まらない/日付をまたいで遅れた(翌朝の分に任せる)
+            r, ran, rec, st = self._evening(h, m)
+            self.assertEqual((r, ran, rec), (False, [], ""), (h, m))
+
+    def test_main_routes_evening_cron(self):
+        called = []
+        env = {k: "x" for k in eb._REQUIRED_ENV}
+        env.update({"EVENT_NAME": "schedule", "SCHEDULE_CRON": "47 16 * * *", "LEARN_ONLY": "false"})
+        with mock.patch.dict(os.environ, env), mock.patch.object(eb, "evening_update", lambda: called.append(1)), \
+             mock.patch.object(eb, "build_outputs", side_effect=AssertionError("朝の投稿をしてはいけない")):
+            eb.main()
+        self.assertEqual(called, [1])
 
 
 class LearnMarketJsonTest(unittest.TestCase):

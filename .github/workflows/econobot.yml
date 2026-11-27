@@ -1,27 +1,62 @@
-name: EconoBot - 毎朝7時に米国経済ニュースをSlackに投稿(夕方16時台に学習アプリのデータを更新)
+name: EconoBot - 毎朝8時に米国経済ニュースをSlackに投稿(夕方17時半に学習アプリのデータを更新)
 
 on:
-  # GitHubのscheduleは後回しにされ、10/09〜11/17は指定より1〜6時間遅い7:41〜12:19の起動だった。
-  # そこで早い時刻に3回(混みやすい00分・30分を避けた)と予備を1回置く。最初に始まった起動が、
-  # 6:25まで待って取得し(米国の引けJST 6:00・夏5:00の後)、7:00:00まで待ってから公開・投稿する(econobot.py。2026-11-27に8:00から変更)。
-  # 2回目以降の起動は、投稿済みの記録(state/last_posted.txt)を見て何もせず終わる。
-  # 予備の7:10は、早い3回がすべて失敗・欠けた日でも、後回しで8〜9時台になってもその日の分を投稿するため。
-  # timezone指定があるのでcronは日本時間のまま書く
+  # 時刻の決め方(2026-11-27に見直し)
+  # ・朝: 7:25に取得、8:00に公開・Slackへ投稿(econobot.py)。米国の引けJST 6:00(夏5:00)、財務省の日次金利(米東部の夕方)の後で、東証の寄り付き9:00の前
+  # ・夕方: 17:30に学習アプリのデータだけ作り直す(公開・投稿はしない)。日本の引け15:30の後、CBOEの確定値の後、Geminiの1日の枠の切り替わり(JST 17:00・夏16:00)の後
+  # GitHubのscheduleは後回しにされ、10/09〜11/17は1〜6時間、11/27は7〜8時間遅れた。そこで目標の時刻より前に30分おきに起動を置き、
+  # 最初に始まった起動が目標の時刻まで中で待つ。2回目以降の起動は記録(state/last_posted.txt・state/last_learn.txt)を見て何もせず終わる。
+  # 00分・30分は混みやすいので17分・47分にする。timezone指定があるのでcronは日本時間のまま書く
   schedule:
-    - cron: '17 2 * * *'
+    - cron: '17 2 * * *'   # 朝(早い起動)
       timezone: 'Asia/Tokyo'
-    - cron: '47 3 * * *'
+    - cron: '47 2 * * *'   # 朝(早い起動)
       timezone: 'Asia/Tokyo'
-    - cron: '17 5 * * *'
+    - cron: '17 3 * * *'   # 朝(早い起動)
       timezone: 'Asia/Tokyo'
-    - cron: '10 7 * * *'
+    - cron: '47 3 * * *'   # 朝(早い起動)
       timezone: 'Asia/Tokyo'
-    # 夕方の更新: 日本の終値(15:30)の後に、学習アプリのデータ(市場データと深掘り分析)だけを作り直す。
-    # ページの公開とSlackへの投稿はしない。Geminiの1日の枠(太平洋時間0時 = JST 17:00、夏は16:00に戻る)は
-    # 朝と夕方の2回で1日分を使う(1回あたり約10〜12回の呼び出し)。起動が遅れて枠の切り替わりをまたいでも3回で約35回
-    - cron: '4 16 * * *'
+    - cron: '17 4 * * *'   # 朝(早い起動)
       timezone: 'Asia/Tokyo'
-  # 手動実行:待たずに取得する。6:00より前なら7:00も待たずに投稿する。forceで「今日の分は投稿済み」の記録を無視してやり直せる
+    - cron: '47 4 * * *'   # 朝(早い起動)
+      timezone: 'Asia/Tokyo'
+    - cron: '17 5 * * *'   # 朝(早い起動)
+      timezone: 'Asia/Tokyo'
+    - cron: '47 5 * * *'   # 朝(早い起動)
+      timezone: 'Asia/Tokyo'
+    - cron: '17 6 * * *'   # 朝(早い起動)
+      timezone: 'Asia/Tokyo'
+    - cron: '47 6 * * *'   # 朝(早い起動)
+      timezone: 'Asia/Tokyo'
+    - cron: '17 7 * * *'   # 朝(早い起動)
+      timezone: 'Asia/Tokyo'
+    - cron: '10 8 * * *'   # 朝(予備。投稿されていなければすぐ投稿)
+      timezone: 'Asia/Tokyo'
+    - cron: '17 12 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+    - cron: '47 12 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+    - cron: '17 13 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+    - cron: '47 13 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+    - cron: '17 14 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+    - cron: '47 14 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+    - cron: '17 15 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+    - cron: '47 15 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+    - cron: '17 16 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+    - cron: '47 16 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+    - cron: '17 17 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+    - cron: '47 19 * * *'   # 夕方の更新
+      timezone: 'Asia/Tokyo'
+  # 手動実行:待たずに取得する。7:00より前なら8:00も待たずに投稿する。forceで「今日の分は投稿済み」の記録を無視してやり直せる
   workflow_dispatch:
     inputs:
       force:
@@ -34,15 +69,16 @@ on:
         default: false
 
 # 同時に動かさない。GitHubは順番待ちを1つしか持たず、新しく来た起動が前の順番待ちを取り消す(実行中のものは取り消さない)。
-# 最初の起動が途中で失敗した日は、残っている順番待ちの起動が動いて、その日の分を投稿する
+# 最初の起動が途中で失敗した日は、残っている順番待ちの起動が動いて、その日の分を投稿する。
+# 朝(投稿)と夕方の更新は組を分ける。夕方の起動は昼から17:30まで中で待つので、同じ組だと遅れて来た朝の投稿を足止めしてしまう
 concurrency:
-  group: econobot-post
+  group: ${{ contains(fromJSON('["17 12 * * *", "47 12 * * *", "17 13 * * *", "47 13 * * *", "17 14 * * *", "47 14 * * *", "17 15 * * *", "47 15 * * *", "17 16 * * *", "47 16 * * *", "17 17 * * *", "47 19 * * *"]'), github.event.schedule) && 'econobot-evening' || 'econobot-post' }}
   cancel-in-progress: false
 
 jobs:
   post-news:
     runs-on: ubuntu-latest
-    # GitHubのジョブの上限(360分)にする。2:17の起動が遅れずに始まると、7:00までの待ち(約4時間43分。途中の6:25に取得・要約、最悪約21分で6:46に終わる)
+    # GitHubのジョブの上限(360分)にする。2:17の起動が遅れずに始まると、8:00までの待ち(約5時間43分。途中の7:25に取得・要約、最悪約21分で7:46に終わる)
     # と公開・投稿(最悪約3分)で約5時間50分。
     # 2:15より前に始まったscheduleの起動は、上限を超えないようeconobot.pyが何もせず終える
     timeout-minutes: 360
@@ -69,5 +105,5 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           SCHEDULE_CRON: ${{ github.event.schedule }}
           FORCE: ${{ inputs.force }}
-          LEARN_ONLY: ${{ inputs.learn_only || github.event.schedule == '4 16 * * *' }}
+          LEARN_ONLY: ${{ inputs.learn_only }}
         run: python -u econobot.py   # -u: ログを途中から見られるよう、出力をためずに出す
