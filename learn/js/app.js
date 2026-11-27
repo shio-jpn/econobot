@@ -316,9 +316,9 @@
 
   /* ================= 実データ ================= */
   var MK = null, mkReady = false;
-  K.mkt.load().then(function (d) { MK = d; mkReady = true; renderLed(); if (curName === 'home' || curName === 'market' || curName === 'drill' || curName === 'outlook') route(); });
+  K.mkt.load().then(function (d) { MK = d; mkReady = true; renderStrip(); if (curName === 'home' || curName === 'market' || curName === 'drill' || curName === 'outlook') route(); });
   var AN = null, anReady = false;
-  K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; renderLed(); if (curName === 'why' || curName === 'flow' || curName === 'outlook' || curName === 'home') route(); });
+  K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; renderStrip(); if (curName === 'why' || curName === 'flow' || curName === 'outlook' || curName === 'home') route(); });
   /* 開いたままのページにも毎日のデータ更新を取り込む: 5分ごとと、画面に戻った時に読み直し、
      更新時刻(updated)が変わっていれば電光掲示板と今の画面を描き直す */
   var DATA_PAGES = { home: 1, market: 1, why: 1, flow: 1, outlook: 1 };
@@ -329,7 +329,7 @@
       if (m && (!MK || m.updated !== MK.updated)) { MK = m; mkReady = true; changed = true; }
       if (a && (!AN || a.updated !== AN.updated)) { AN = a; anReady = true; changed = true; }
       if (!changed) return;
-      renderLed();
+      renderStrip();
       var ae = document.activeElement, busy = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);   // 入力中は描き直さない
       if (DATA_PAGES[curName] && !busy) { var y = window.scrollY; route(); window.scrollTo(0, y); }
     });
@@ -339,62 +339,58 @@
   function mkStats(id) { var s = MK && MK.series[id]; return s ? K.mkt.stats(s.rows, s.kind) : null; }
   function fmtLevel(st, kind) { if (!st) return '—'; if (st.kind === 'gauge') return st.last.toFixed(2); if (st.rate) return st.last.toFixed(2) + '%'; return st.last >= 1000 ? st.last.toLocaleString('en-US', { maximumFractionDigits: 0 }) : st.last.toFixed(2); }
   function fmtChg(st, k) { if (!st || st[k] == null) return '—'; if (st.kind === 'gauge') return sgn(st[k], 2); return st.rate ? sgn(st[k] * 100, 0, 'bp') : sgn(st[k], 2, '%'); }
-  /* 電光掲示板(東証アローズの円形の表示のように、その日の取得データをページ上部に流す) */
-  var ledKey = '';
-  /* 1つの銘柄: 上の行に名前と実数、下の行にその日の増減(値幅と率) */
-  function ledItem(name, level, chg, unit, stale, raw) {
-    var c = chg == null ? '' : chg > 0 ? 'up' : chg < 0 ? 'down' : '';
-    var mark = chg > 0 ? '▲' : chg < 0 ? '▼' : '―', ch = '';
+  /* 上部の数値の帯: その日の取得データ(終値と前日比)。主要な6つを常に出し、残りは「すべて表示」で開く */
+  var stripKey = '', stripOpen = false;
+  function stripLevel(v, unit) { return v == null ? '' : unit === 'bp' ? v.toFixed(2) + '%' : v >= 1000 ? v.toLocaleString('en-US', { minimumFractionDigits: v >= 10000 ? 0 : 2, maximumFractionDigits: v >= 10000 ? 0 : 2 }) : v.toFixed(2); }
+  /* 1つの銘柄: 名前・終値・前日比(値幅と率)。値幅は前日の実際の終値との差 */
+  function stripItem(name, level, chg, unit, stale, raw) {
+    var c = chg == null ? '' : chg > 0 ? 'up' : chg < 0 ? 'down' : '', ch = '';
     if (stale) ch = 'データ遅れ';
-    else if (chg != null && unit === 'bp') ch = mark + Math.abs(Math.round(chg)) + 'bp';
+    else if (chg != null && unit === 'bp') ch = (chg > 0 ? '+' : chg < 0 ? '−' : '±') + Math.abs(Math.round(chg)) + 'bp';
     else if (chg != null) {
-      var diff = raw != null ? raw - raw / (1 + chg / 100) : null;   // 前日比の率から値幅を出す
-      ch = diff != null ? mark + ledLevel(Math.abs(diff)) + ' ' + (chg > 0 ? '+' : chg < 0 ? '−' : '') + Math.abs(chg).toFixed(2) + '%' : mark + Math.abs(chg).toFixed(2) + '%';
+      var diff = raw != null ? raw - raw / (1 + chg / 100) : null, sg = chg > 0 ? '+' : chg < 0 ? '−' : '±';
+      ch = (diff != null ? sg + stripLevel(Math.abs(diff)) + ' ' : '') + '(' + sg + Math.abs(chg).toFixed(2) + '%)';
     }
-    return '<span class="led-i"><span class="led-t"><span class="led-n">' + esc(name) + '</span>' + (level ? '<span class="led-v">' + level + '</span>' : '') + '</span><span class="led-c ' + c + '">' + (ch || '　') + '</span></span>';
+    return '<div class="ms-i"><span class="ms-n">' + esc(name) + '</span><span class="ms-v">' + (level || '—') + '</span><span class="ms-c ' + c + '">' + (ch || '—') + '</span></div>';
   }
-  function ledLevel(v, unit) { return v == null ? '' : unit === 'bp' ? v.toFixed(2) + '%' : v >= 1000 ? v.toLocaleString('en-US', { minimumFractionDigits: v >= 10000 ? 0 : 2, maximumFractionDigits: v >= 10000 ? 0 : 2 }) : v.toFixed(2); }
-  function ledItems() {
-    var r = MK && K.mkt.regime(MK), out = [];
-    if (AN && AN.features && AN.asof && (!r || AN.asof.us >= r.date)) {   // 深掘り分析の方が新しい時は、そちらの値(ホームの要点と同じ日付)
-      var F = AN.features, S = AN.strategy || {}, d = AN.asof.us;
+  function stripData() {
+    var r = MK && K.mkt.regime(MK);
+    if (AN && AN.features && AN.asof && (!r || AN.asof.us >= r.date)) {   // 深掘り分析の方が新しい時は、そちらの値(ほかの画面と同じ日付)
+      var F = AN.features, S = AN.strategy || {}, d = AN.asof.us, main = [], more = [];
       var mkSame = function (id) { var st = mkStats(id); return st && st.date === d ? st : null; };   // 公的統計がその日まで出ていれば使う
-      out.push('<span class="led-h">◆ ' + mdDate(d) + ' 米国' + (AN.asof.jp ? ' ・ ' + mdDate(AN.asof.jp) + ' 日本' : '') + ' の終値(更新 ' + esc((AN.updated || '').slice(5, 16).replace('-', '/').replace('T', ' ')) + ')</span>');
-      var sl = S.us && S.us.levels, spx = sl ? sl.close : null, spc = sl && sl.prev ? (sl.close / sl.prev - 1) * 100 : F.SPY && F.SPY.c1;   // 指数そのものの前日の終値から(無ければETFの率)
-      if (F.SPY || spx) out.push(ledItem('S&P 500', ledLevel(spx), spc, '%', F.SPY && F.SPY.stale, spx));
-      [['NASDAQCOM', 'ナスダック'], ['DJIA', 'ダウ平均']].forEach(function (x) { var st = mkSame(x[0]); if (st) out.push(ledItem(x[1], ledLevel(st.last), st.d1, '%', false, st.last)); });
-      ['^N225', '1306.T', '^TNX', '^IRX', '^VIX', 'JPY=X', 'DX-Y.NYB', 'CL=F', 'GC=F', 'HG=F', 'BTC-USD', '^STOXX50E', '^GDAXI', '^HSI', '000001.SS', '^KS11'].forEach(function (k) {
-        var f = F[k]; if (!f) return;
+      var feat = function (k, label) {
+        var f = F[k]; if (!f) return '';
         var pc = f.unit !== 'bp' && f.prev ? (f.last / f.prev - 1) * 100 : f.c1;   // 前日の実際の終値があれば、それとの差
-        out.push(ledItem(f.name.replace('(恐怖指数)', ''), k === '1306.T' ? '' : ledLevel(f.last, f.unit), pc, f.unit, f.stale, k === '1306.T' ? null : f.last));
-      });
-      var mv = (AN.movers || []).slice(0, 10);
-      if (mv.length) { out.push('<span class="led-h">◆ 大きく動いた米国の大型株</span>'); mv.forEach(function (m) { out.push(ledItem(m.sym, '', m.chg, '%')); }); }
-      var sec = Object.keys(F).map(function (k) { return F[k]; }).filter(function (f) { return f.group === 'us' && f.c1 != null; }).sort(function (a, b) { return b.c1 - a.c1; });
-      if (sec.length > 1) out.push('<span class="led-h">◆ 米国のセクター 上位 ' + esc(sec[0].name) + ' ' + wpct(sec[0].c1) + ' ・ 下位 ' + esc(sec[sec.length - 1].name) + ' ' + wpct(sec[sec.length - 1].c1) + '</span>');
-      return out;
+        return stripItem(label || f.name.replace('(恐怖指数)', ''), k === '1306.T' ? '' : stripLevel(f.last, f.unit), pc, f.unit, f.stale, k === '1306.T' ? null : f.last);
+      };
+      var sl = S.us && S.us.levels, spx = sl ? sl.close : null, spc = sl && sl.prev ? (sl.close / sl.prev - 1) * 100 : F.SPY && F.SPY.c1;   // 指数そのものの前日の終値から
+      if (F.SPY || spx) main.push(stripItem('S&P 500', stripLevel(spx), spc, '%', F.SPY && F.SPY.stale, spx));
+      var nq = mkSame('NASDAQCOM'), dj = mkSame('DJIA');
+      if (nq) main.push(stripItem('ナスダック', stripLevel(nq.last), nq.d1, '%', false, nq.last));
+      main.push(feat('^N225'), feat('^TNX', '米10年債'), feat('JPY=X'), feat('^VIX'));
+      if (dj) more.push(stripItem('ダウ平均', stripLevel(dj.last), dj.d1, '%', false, dj.last));
+      ['1306.T', '^IRX', 'DX-Y.NYB', 'CL=F', 'GC=F', 'HG=F', 'BTC-USD', '^STOXX50E', '^GDAXI', '^HSI', '000001.SS', '^KS11'].forEach(function (k) { more.push(feat(k, k === '^IRX' ? '米3か月債' : '')); });
+      return { head: mdDate(d) + ' 米国' + (AN.asof.jp ? ' ・ ' + mdDate(AN.asof.jp) + ' 日本' : '') + ' の終値', upd: (AN.updated || '').slice(5, 16).replace('-', '/').replace('T', ' '),
+        main: main.filter(Boolean), more: more.filter(Boolean) };
     }
-    if (!MK) return out;
-    out.push('<span class="led-h">◆ 公的統計(FRED)の最新値</span>');
-    ['SP500', 'NASDAQCOM', 'DJIA', 'NIKKEI225', 'DGS10', 'DEXJPUS', 'VIXCLS', 'DCOILWTICO'].forEach(function (id) {
-      var st = mkStats(id); if (!st) return;
-      out.push(ledItem(MK.series[id].name + ' ' + mdDate(st.date), fmtLevel(st), st.rate ? st.d1 * 100 : st.d1, st.rate ? 'bp' : '%', false, st.rate ? null : st.last));
-    });
-    return out;
+    if (!MK) return null;
+    var xs = ['SP500', 'NASDAQCOM', 'NIKKEI225', 'DGS10', 'DEXJPUS', 'VIXCLS', 'DJIA', 'DCOILWTICO'].map(function (id) {
+      var st = mkStats(id); if (!st) return '';
+      return stripItem(MK.series[id].name + ' ' + mdDate(st.date), fmtLevel(st), st.rate ? st.d1 * 100 : st.d1, st.rate ? 'bp' : '%', false, st.rate ? null : st.last);
+    }).filter(Boolean);
+    return { head: '公的統計(FRED)の最新値', upd: (MK.updated || '').slice(5, 16).replace('-', '/').replace('T', ' '), main: xs.slice(0, 6), more: xs.slice(6) };
   }
-  function renderLed() {
-    var el = $('#led'), tr = $('#led-track'); if (!el || !tr) return;
-    var items = ledItems();
-    if (!items.length) { el.hidden = true; return; }
-    var key = items.join('');
-    if (key === ledKey) return;   // 同じ内容なら作り直さない(流れが途切れないように)
-    ledKey = key;
-    var ta = $('#top-asof'); if (ta && AN && AN.asof) { ta.textContent = '米 ' + mdDate(AN.asof.us) + (AN.asof.jp ? ' ・ 日 ' + mdDate(AN.asof.jp) : '') + ' 終値'; ta.hidden = false; }
-    var row = '<span class="led-row">' + items.join('<span class="led-s" aria-hidden="true">・</span>') + '<span class="led-s" aria-hidden="true">・</span></span>';
-    tr.innerHTML = row + row.replace('<span class="led-row">', '<span class="led-row" aria-hidden="true">');
+  function renderStrip() {
+    var el = $('#mstrip'); if (!el) return;
+    var d = stripData();
+    if (!d || !d.main.length) { el.hidden = true; return; }
+    var key = JSON.stringify(d) + stripOpen;
+    if (key === stripKey) return;
+    stripKey = key;
+    el.innerHTML = '<div class="ms-head"><span>' + esc(d.head) + '</span><span class="ms-upd">更新 ' + esc(d.upd) + '</span>' +
+      (d.more.length ? '<button type="button" class="ms-more" id="ms-toggle" aria-expanded="' + stripOpen + '">' + (stripOpen ? '閉じる' : 'すべて表示(+' + d.more.length + ')') + '</button>' : '') + '</div>' +
+      '<div class="ms-grid">' + d.main.join('') + (stripOpen ? d.more.join('') : '') + '</div>';
     el.hidden = false;
-    var w = tr.firstChild.getBoundingClientRect().width;
-    tr.style.animationDuration = Math.max(20, w / 70) + 's';   // 1秒に約70px
   }
 
   /* ================= AIへの質問 ================= */
@@ -882,21 +878,6 @@
   }
   function firstS(t) { if (!t) return ''; var i = t.indexOf('。'); return i < 0 ? t : t.slice(0, i + 1); }
   function mdDate(d) { return d ? d.slice(5).replace('-', '/') : ''; }
-  function asofText() { return AN && AN.asof ? (AN.asof.us ? '米国 ' + mdDate(AN.asof.us) : '') + (AN.asof.jp ? ' ・ 日本 ' + mdDate(AN.asof.jp) : '') + ' の終値' : ''; }
-  /* 数字の帯: 主要な指数・金利・VIX・為替の水準と前日比 */
-  function keyStrip() {
-    var F = AN.features || {}, S = AN.strategy || {}, ap = (AN.quality && AN.quality.approx) || {};
-    var xs = [['S&P 500', S.us && S.us.levels ? S.us.levels.close : null, F.SPY, 'SPY'], ['日経平均', F['^N225'] && F['^N225'].last, F['^N225'], '^N225'],
-      ['米10年債利回り', F['^TNX'] && F['^TNX'].last, F['^TNX'], '^TNX'], ['VIX', F['^VIX'] && F['^VIX'].last, F['^VIX'], '^VIX'], ['ドル円', F['JPY=X'] && F['JPY=X'].last, F['JPY=X'], 'JPY=X']];
-    var sl = S.us && S.us.levels;
-    return '<div class="kstrip">' + xs.filter(function (x) { return x[2]; }).map(function (x) {
-      // S&P 500は指数そのものの前日比(電光掲示板と同じ)
-      var f = x[2], v = x[3] === 'SPY' && sl && sl.prev ? Math.round((sl.close / sl.prev - 1) * 10000) / 100 : f.c1, lv = x[1] == null ? '—' : f.unit === 'bp' ? x[1].toFixed(2) + '%' : x[1] >= 1000 ? Math.round(x[1]).toLocaleString('ja-JP') : x[1].toFixed(2);
-      var risk = x[3] === '^VIX' || x[3] === '^TNX', cl = v == null ? '' : x[3] === 'JPY=X' ? '' : (risk ? -v : v) > 0 ? 'up' : (risk ? -v : v) < 0 ? 'down' : '';
-      var apx = (ap[x[3]] || []).indexOf(f.date) >= 0;
-      return '<div class="kv"><span class="kv-n">' + esc(x[0]) + '</span><strong class="kv-v">' + lv + (apx ? '<sup class="kv-a" title="1時間足からの概算">概算</sup>' : '') + '</strong><span class="kv-c ' + cl + '">' + (f.stale ? '遅れ' : wpct(v, f.unit)) + '</span></div>';
-    }).join('') + '</div>';
-  }
   /* 指数ごとの規則の判定の札(需給と戦略の判定を、どの画面でも同じ形で出す) */
   function stratTiles() {
     var S = AN.strategy || {};
@@ -913,9 +894,9 @@
   /* 今日の要点(ホームとなぜ動いたかで同じものを出す)。本文の用語は押すと用語集が開く */
   function briefHTML(home) {
     var ai = AN.ai || {}, c = ai.chief, rc = c && c.root_cause && c.root_cause.summary ? c.root_cause : null, seen = {};
-    return '<section class="brief ai-card"><h2>' + ico('target') + '今日の要点<span class="h-r sub">' + esc(asofText()) + (c ? ' ・ 確信度 ' + esc(c.confidence) : '') + '</span></h2>' +
+    return '<section class="brief ai-card"><h2>' + ico('target') + '今日の要点' + (c ? '<span class="h-r sub">確信度 ' + esc(c.confidence) + '</span>' : '') + '</h2>' +
       (ai.reused_from ? '<p class="notice">AIの利用枠が足りなかったため、' + esc(ai.reused_from.slice(5, 16).replace('-', '/').replace('T', ' ')) + ' 時点のAIの見解を表示しています' + (ai.reused_asof && ai.reused_asof.jp && AN.asof && ai.reused_asof.jp !== AN.asof.jp ? '(日本は' + esc(mdDate(ai.reused_asof.jp)) + 'の終値までの見解)' : '') + '。数値・需給は最新です。</p>' : '') +
-      (c ? '<p class="why-head">' + esc(c.headline) + '</p>' : '<p class="notice">今日はAIの分析ができなかったため、データの自動判定を表示しています。</p>') + keyStrip() +
+      (c ? '<p class="why-head">' + esc(c.headline) + '</p>' : '<p class="notice">今日はAIの分析ができなかったため、データの自動判定を表示しています。</p>') +
       '<dl class="qa">' +
       '<div><dt>何が起きたか</dt><dd>' + (c ? '<p>' + dirPill(c.us && c.us.direction) + ' <b>米国</b> ' + inline(firstS(c.us && c.us.summary), seen) + '</p><p>' + dirPill(c.jp && c.jp.direction) + ' <b>日本</b> ' + inline(firstS(c.jp && c.jp.summary), seen) + '</p>' : ruleList((AN.rules && AN.rules.d1 || []).slice(0, 2))) + '</dd></div>' +
       '<div><dt>なぜ</dt><dd>' + (rc ? '<p>' + inline(rc.summary, seen) + ' <a href="#why"' + (home ? '' : ' data-goto="why-root"') + '>根本までたどる ›</a></p>' : ruleList((AN.rules && AN.rules.d5 || []).slice(0, 2))) + '</dd></div>' +
@@ -1035,7 +1016,7 @@
     if (!fl || !Object.keys(fl).length) return h + '<section><h2>' + ico('pulse') + 'データを待っています</h2><p>この画面のデータは、毎朝のBotが深掘り分析と一緒に書き出します。</p><div class="actions"><a class="btn" href="#lesson-pro-flows">需給の読み方を学ぶ</a></div></section>';
     var c = AN.ai && AN.ai.chief, pb = c && c.playbook;
     // 1. 今日の要点
-    h += '<section class="brief ai-card"><h2>' + ico('target') + '今日の要点<span class="h-r sub">' + esc(asofText()) + '</span></h2>' +
+    h += '<section class="brief ai-card"><h2>' + ico('target') + '今日の要点</h2>' +
       (c && c.supply_demand ? '<p>' + esc(c.supply_demand) + '</p>' : '') + stratTiles() + '</section>';
     // 2. 今の戦い方
     if (pb && pb.stance) h += '<section><h2>' + ico('shield') + '今の戦い方</h2><p>' + esc(pb.stance) + '</p><div class="dash"><div class="span-6 do-box"><h3 class="mini-h up">機能しやすい行動</h3><ul>' + (pb.do || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div><div class="span-6 avoid-box"><h3 class="mini-h down">避けるべき行動</h3><ul>' + (pb.avoid || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>' + (pb.risk ? '<p class="notice"><strong>損切りと考えを変える価格:</strong> ' + esc(pb.risk) + '</p>' : '') + '</section>';
@@ -1496,8 +1477,9 @@
     if (viaAsk || looksLikeQuestion(v)) { $('#q').value = ''; sendAsk(v); } else goSearch(v);
   });
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('#ol-run,#menu-btn,#search-open,#search-close,[data-term],[data-q],[data-ask],[data-goto],.opt,[data-review],#next-q,button[data-candle],[data-dmode],[data-whyh],[data-news],[data-tab],#dr-next,#dr-skip,#sim-run,#sheet-close,#bk-out,#bk-in,[data-reload],#ask-clear,#ask-stop');
+    var t = e.target.closest('#ms-toggle,#ol-run,#menu-btn,#search-open,#search-close,[data-term],[data-q],[data-ask],[data-goto],.opt,[data-review],#next-q,button[data-candle],[data-dmode],[data-whyh],[data-news],[data-tab],#dr-next,#dr-skip,#sim-run,#sheet-close,#bk-out,#bk-in,[data-reload],#ask-clear,#ask-stop');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
+    if (t.id === 'ms-toggle') { stripOpen = !stripOpen; renderStrip(); return; }
     if (t.id === 'ol-run') { runOutlookAI(); return; }
     if (t.id === 'menu-btn') { openMenu(); return; }
     if (t.id === 'search-open') { $('#top').classList.add('searching'); $('#q').focus(); return; }
