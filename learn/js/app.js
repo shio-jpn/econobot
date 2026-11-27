@@ -324,10 +324,17 @@
   function fmtChg(st, k) { if (!st || st[k] == null) return '—'; if (st.kind === 'gauge') return sgn(st[k], 2); return st.rate ? sgn(st[k] * 100, 0, 'bp') : sgn(st[k], 2, '%'); }
   /* 電光掲示板(東証アローズの円形の表示のように、その日の取得データをページ上部に流す) */
   var ledKey = '';
-  function ledItem(name, level, chg, unit, stale) {
+  /* 1つの銘柄: 上の行に名前と実数、下の行にその日の増減(値幅と率) */
+  function ledItem(name, level, chg, unit, stale, raw) {
     var c = chg == null ? '' : chg > 0 ? 'up' : chg < 0 ? 'down' : '';
-    var ch = stale ? '遅れ' : chg == null ? '' : (chg > 0 ? '▲' : chg < 0 ? '▼' : '―') + (unit === 'bp' ? Math.abs(Math.round(chg)) + 'bp' : Math.abs(chg).toFixed(2) + '%');
-    return '<span class="led-i"><span class="led-n">' + esc(name) + '</span>' + (level ? '<span class="led-v">' + level + '</span>' : '') + (ch ? '<span class="led-c ' + c + '">' + ch + '</span>' : '') + '</span>';
+    var mark = chg > 0 ? '▲' : chg < 0 ? '▼' : '―', ch = '';
+    if (stale) ch = 'データ遅れ';
+    else if (chg != null && unit === 'bp') ch = mark + Math.abs(Math.round(chg)) + 'bp';
+    else if (chg != null) {
+      var diff = raw != null ? raw - raw / (1 + chg / 100) : null;   // 前日比の率から値幅を出す
+      ch = diff != null ? mark + ledLevel(Math.abs(diff)) + ' ' + (chg > 0 ? '+' : chg < 0 ? '−' : '') + Math.abs(chg).toFixed(2) + '%' : mark + Math.abs(chg).toFixed(2) + '%';
+    }
+    return '<span class="led-i"><span class="led-t"><span class="led-n">' + esc(name) + '</span>' + (level ? '<span class="led-v">' + level + '</span>' : '') + '</span><span class="led-c ' + c + '">' + (ch || '　') + '</span></span>';
   }
   function ledLevel(v, unit) { return v == null ? '' : unit === 'bp' ? v.toFixed(2) + '%' : v >= 1000 ? v.toLocaleString('en-US', { minimumFractionDigits: v >= 10000 ? 0 : 2, maximumFractionDigits: v >= 10000 ? 0 : 2 }) : v.toFixed(2); }
   function ledItems() {
@@ -336,11 +343,13 @@
       var F = AN.features, S = AN.strategy || {}, d = AN.asof.us;
       var mkSame = function (id) { var st = mkStats(id); return st && st.date === d ? st : null; };   // 公的統計がその日まで出ていれば使う
       out.push('<span class="led-h">◆ ' + md(d) + ' 米国' + (AN.asof.jp ? ' ・ ' + md(AN.asof.jp) + ' 日本' : '') + ' の終値</span>');
-      if (F.SPY) out.push(ledItem('S&P 500', ledLevel(S.us && S.us.levels ? S.us.levels.close : null), F.SPY.c1, '%', F.SPY.stale));
-      [['NASDAQCOM', 'ナスダック'], ['DJIA', 'ダウ平均']].forEach(function (x) { var st = mkSame(x[0]); if (st) out.push(ledItem(x[1], ledLevel(st.last), st.d1, '%')); });
+      var sl = S.us && S.us.levels, spx = sl ? sl.close : null, spc = sl && sl.prev ? (sl.close / sl.prev - 1) * 100 : F.SPY && F.SPY.c1;   // 指数そのものの前日の終値から(無ければETFの率)
+      if (F.SPY || spx) out.push(ledItem('S&P 500', ledLevel(spx), spc, '%', F.SPY && F.SPY.stale, spx));
+      [['NASDAQCOM', 'ナスダック'], ['DJIA', 'ダウ平均']].forEach(function (x) { var st = mkSame(x[0]); if (st) out.push(ledItem(x[1], ledLevel(st.last), st.d1, '%', false, st.last)); });
       ['^N225', '1306.T', '^TNX', '^IRX', '^VIX', 'JPY=X', 'DX-Y.NYB', 'CL=F', 'GC=F', 'HG=F', 'BTC-USD', '^STOXX50E', '^GDAXI', '^HSI', '000001.SS', '^KS11'].forEach(function (k) {
         var f = F[k]; if (!f) return;
-        out.push(ledItem(f.name.replace('(恐怖指数)', ''), k === '1306.T' ? '' : ledLevel(f.last, f.unit), f.c1, f.unit, f.stale));
+        var pc = f.unit !== 'bp' && f.prev ? (f.last / f.prev - 1) * 100 : f.c1;   // 前日の実際の終値があれば、それとの差
+        out.push(ledItem(f.name.replace('(恐怖指数)', ''), k === '1306.T' ? '' : ledLevel(f.last, f.unit), pc, f.unit, f.stale, k === '1306.T' ? null : f.last));
       });
       var mv = (AN.movers || []).slice(0, 10);
       if (mv.length) { out.push('<span class="led-h">◆ 大きく動いた米国の大型株</span>'); mv.forEach(function (m) { out.push(ledItem(m.sym, '', m.chg, '%')); }); }
@@ -352,7 +361,7 @@
     out.push('<span class="led-h">◆ 公的統計(FRED)の最新値</span>');
     ['SP500', 'NASDAQCOM', 'DJIA', 'NIKKEI225', 'DGS10', 'DEXJPUS', 'VIXCLS', 'DCOILWTICO'].forEach(function (id) {
       var st = mkStats(id); if (!st) return;
-      out.push(ledItem(MK.series[id].name + ' ' + md(st.date), fmtLevel(st), st.rate ? st.d1 * 100 : st.d1, st.rate ? 'bp' : '%'));
+      out.push(ledItem(MK.series[id].name + ' ' + md(st.date), fmtLevel(st), st.rate ? st.d1 * 100 : st.d1, st.rate ? 'bp' : '%', false, st.rate ? null : st.last));
     });
     return out;
   }
