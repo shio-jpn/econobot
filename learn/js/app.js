@@ -316,30 +316,58 @@
 
   /* ================= 実データ ================= */
   var MK = null, mkReady = false;
-  K.mkt.load().then(function (d) { MK = d; mkReady = true; renderTicker(); if (curName === 'home' || curName === 'market' || curName === 'drill' || curName === 'outlook') route(); });
+  K.mkt.load().then(function (d) { MK = d; mkReady = true; renderLed(); if (curName === 'home' || curName === 'market' || curName === 'drill' || curName === 'outlook') route(); });
   var AN = null, anReady = false;
-  K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; if (curName === 'why' || curName === 'flow' || curName === 'outlook' || curName === 'home') route(); });
+  K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; renderLed(); if (curName === 'why' || curName === 'flow' || curName === 'outlook' || curName === 'home') route(); });
   function mkStats(id) { var s = MK && MK.series[id]; return s ? K.mkt.stats(s.rows, s.kind) : null; }
   function fmtLevel(st, kind) { if (!st) return '—'; if (st.kind === 'gauge') return st.last.toFixed(2); if (st.rate) return st.last.toFixed(2) + '%'; return st.last >= 1000 ? st.last.toLocaleString('en-US', { maximumFractionDigits: 0 }) : st.last.toFixed(2); }
   function fmtChg(st, k) { if (!st || st[k] == null) return '—'; if (st.kind === 'gauge') return sgn(st[k], 2); return st.rate ? sgn(st[k] * 100, 0, 'bp') : sgn(st[k], 2, '%'); }
-  function renderTicker() {
-    var el = $('#ticker'); if (!el) return;
-    var r = MK && K.mkt.regime(MK);
+  /* 電光掲示板(東証アローズの円形の表示のように、その日の取得データをページ上部に流す) */
+  var ledKey = '';
+  function ledItem(name, level, chg, unit, stale) {
+    var c = chg == null ? '' : chg > 0 ? 'up' : chg < 0 ? 'down' : '';
+    var ch = stale ? '遅れ' : chg == null ? '' : (chg > 0 ? '▲' : chg < 0 ? '▼' : '―') + (unit === 'bp' ? Math.abs(Math.round(chg)) + 'bp' : Math.abs(chg).toFixed(2) + '%');
+    return '<span class="led-i"><span class="led-n">' + esc(name) + '</span>' + (level ? '<span class="led-v">' + level + '</span>' : '') + (ch ? '<span class="led-c ' + c + '">' + ch + '</span>' : '') + '</span>';
+  }
+  function ledLevel(v, unit) { return v == null ? '' : unit === 'bp' ? v.toFixed(2) + '%' : v >= 1000 ? v.toLocaleString('en-US', { minimumFractionDigits: v >= 10000 ? 0 : 2, maximumFractionDigits: v >= 10000 ? 0 : 2 }) : v.toFixed(2); }
+  function ledItems() {
+    var r = MK && K.mkt.regime(MK), out = [];
     if (AN && AN.features && AN.asof && (!r || AN.asof.us >= r.date)) {   // 深掘り分析の方が新しい時は、そちらの値(ホームの要点と同じ日付)
-      el.innerHTML = [['SPY', 'S&P 500'], ['^N225', '日経平均'], ['^TNX', '米10年債'], ['JPY=X', 'ドル円'], ['^VIX', 'VIX'], ['CL=F', '原油'], ['GC=F', '金'], ['BTC-USD', 'ビットコイン']].map(function (x) {
-        var f = AN.features[x[0]]; if (!f) return '';
-        return '<a class="tk" href="#why"><span class="tk-n">' + esc(x[1]) + '</span><span class="tk-c ' + cls(f.c1) + '">' + (f.stale ? '遅れ' : wpct(f.c1, f.unit)) + '</span></a>';
-      }).join('');
-      el.hidden = false; return;
+      var F = AN.features, S = AN.strategy || {}, d = AN.asof.us;
+      var mkSame = function (id) { var st = mkStats(id); return st && st.date === d ? st : null; };   // 公的統計がその日まで出ていれば使う
+      out.push('<span class="led-h">◆ ' + md(d) + ' 米国' + (AN.asof.jp ? ' ・ ' + md(AN.asof.jp) + ' 日本' : '') + ' の終値</span>');
+      if (F.SPY) out.push(ledItem('S&P 500', ledLevel(S.us && S.us.levels ? S.us.levels.close : null), F.SPY.c1, '%', F.SPY.stale));
+      [['NASDAQCOM', 'ナスダック'], ['DJIA', 'ダウ平均']].forEach(function (x) { var st = mkSame(x[0]); if (st) out.push(ledItem(x[1], ledLevel(st.last), st.d1, '%')); });
+      ['^N225', '1306.T', '^TNX', '^IRX', '^VIX', 'JPY=X', 'DX-Y.NYB', 'CL=F', 'GC=F', 'HG=F', 'BTC-USD', '^STOXX50E', '^GDAXI', '^HSI', '000001.SS', '^KS11'].forEach(function (k) {
+        var f = F[k]; if (!f) return;
+        out.push(ledItem(f.name.replace('(恐怖指数)', ''), k === '1306.T' ? '' : ledLevel(f.last, f.unit), f.c1, f.unit, f.stale));
+      });
+      var mv = (AN.movers || []).slice(0, 10);
+      if (mv.length) { out.push('<span class="led-h">◆ 大きく動いた米国の大型株</span>'); mv.forEach(function (m) { out.push(ledItem(m.sym, '', m.chg, '%')); }); }
+      var sec = Object.keys(F).map(function (k) { return F[k]; }).filter(function (f) { return f.group === 'us' && f.c1 != null; }).sort(function (a, b) { return b.c1 - a.c1; });
+      if (sec.length > 1) out.push('<span class="led-h">◆ 米国のセクター 上位 ' + esc(sec[0].name) + ' ' + wpct(sec[0].c1) + ' ・ 下位 ' + esc(sec[sec.length - 1].name) + ' ' + wpct(sec[sec.length - 1].c1) + '</span>');
+      return out;
     }
-    if (!MK) { el.hidden = true; return; }
+    if (!MK) return out;
+    out.push('<span class="led-h">◆ 公的統計(FRED)の最新値</span>');
+    ['SP500', 'NASDAQCOM', 'DJIA', 'NIKKEI225', 'DGS10', 'DEXJPUS', 'VIXCLS', 'DCOILWTICO'].forEach(function (id) {
+      var st = mkStats(id); if (!st) return;
+      out.push(ledItem(MK.series[id].name + ' ' + md(st.date), fmtLevel(st), st.rate ? st.d1 * 100 : st.d1, st.rate ? 'bp' : '%'));
+    });
+    return out;
+  }
+  function renderLed() {
+    var el = $('#led'), tr = $('#led-track'); if (!el || !tr) return;
+    var items = ledItems();
+    if (!items.length) { el.hidden = true; return; }
+    var key = items.join('');
+    if (key === ledKey) return;   // 同じ内容なら作り直さない(流れが途切れないように)
+    ledKey = key;
+    var row = '<span class="led-row">' + items.join('<span class="led-s" aria-hidden="true">・</span>') + '<span class="led-s" aria-hidden="true">・</span></span>';
+    tr.innerHTML = row + row.replace('<span class="led-row">', '<span class="led-row" aria-hidden="true">');
     el.hidden = false;
-    var items = ['SP500', 'NASDAQCOM', 'DJIA', 'NIKKEI225', 'DGS10', 'DEXJPUS', 'VIXCLS', 'DCOILWTICO'].filter(function (id) { return MK.series[id]; }).map(function (id) {
-      var st = mkStats(id); if (!st) return '';
-      return '<a class="tk" href="#market"><span class="tk-n">' + esc(MK.series[id].name) + '</span><span class="tk-c ' + cls(st.d1) + '">' + fmtChg(st, 'd1') + '</span></a>';
-    }).join('');
-    el.innerHTML = items;
-    el.hidden = false;
+    var w = tr.firstChild.getBoundingClientRect().width;
+    tr.style.animationDuration = Math.max(20, w / 70) + 's';   // 1秒に約70px
   }
 
   /* ================= AIへの質問 ================= */
@@ -473,7 +501,7 @@
     var an = AN && AN.asof && AN.asof.us && (!r || AN.asof.us >= r.date) ? AN : null, ac = an && an.ai && an.ai.chief;
     var cap = ac ? md(an.asof.us).replace('/', '月') + '日 ・ ' + ac.headline : r ? r.date.slice(5).replace('-', '月') + '日 ・ ' + r.title : '株トレ道場 ・ 日本株と米国株をプロの水準まで';
     var say = an ? '' : r ? r.text : '';   // 深掘り分析がある日は、相場の話は下の「今日の要点」にまとめ、ここは学習の案内にする
-    var h = '<section class="hero"><div class="chart" id="hero-chart"></div><div class="hero-top"><div id="ticker" class="ticker" hidden></div></div><p class="hero-cap">' + esc(cap) + '</p></section>';
+    var h = '<section class="hero"><div class="chart" id="hero-chart"></div><p class="hero-cap">' + esc(cap) + '</p></section>';
     h += '<section class="say"><p>' + (say ? esc(say) : nx ? (started ? '続きは「' + esc(nx.t) + '」。' : 'まずは「' + esc(nx.t) + '」から。') + esc(nx.sum) : '全レッスンを読み終えました。あとは復習と演習で磨きます。') + '</p>' +
       '<div class="actions">' + (r && !an ? '<a class="btn" href="#outlook">今後の見立てを見る</a><a class="btn ghost" href="#market">指標とチャート</a>' : '') + (nx ? '<a class="btn' + (r && !an ? ' ghost' : '') + '" href="#lesson-' + nx.id + '">' + (started ? '続きから読む' : '読み始める') + '</a>' : '') + (due ? '<a class="btn ghost" href="#review">復習 ' + due + '問</a>' : '') + '</div>' +
       '<p class="stamp">' + ov.rank + ' ・ 定着 ' + ov.score + '% ・ 演習 ' + dr.n + '回</p></section>';
@@ -1374,7 +1402,6 @@
     badge.hidden = !due; badge.textContent = due > 99 ? '99+' : due;
     $('#top').classList.toggle('searching', name === 'search');
     $('#top-title').textContent = TITLES[nav] || '株トレ道場';
-    renderTicker();
     if (name !== 'search') { $('#q').value = ''; query = ''; }
     document.documentElement.dataset.candle = state.candle;
     if (name === 'charts') labUpdate();
