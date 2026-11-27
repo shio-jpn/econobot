@@ -2838,8 +2838,15 @@ def _sleep(sec):
     time.sleep(sec)
 
 
+def _slot():
+    """時計(clock.py)からの起動なら "morning" / "evening"。手動・scheduleは空"""
+    v = os.environ.get("SLOT", "").strip().lower()
+    return v if v in ("morning", "evening") else ""
+
+
 def _is_schedule():
-    return os.environ.get("EVENT_NAME") == "schedule"
+    """定時の起動か(scheduleと時計の起動)。定時の起動は目標の時刻まで待つ"""
+    return os.environ.get("EVENT_NAME") == "schedule" or bool(_slot())
 
 
 def _sleep_until(target, what):
@@ -2899,6 +2906,10 @@ _CRON_LABEL = {**{f"{c} * * *": f"早い起動(JST {_hm(c)}の予定)" for c in 
 def trigger_label():
     """何の起動か(workflowが環境変数で渡す。ログ・失敗の知らせ・記録・ページのコメントに出す)"""
     ev = os.environ.get("EVENT_NAME", "")
+    if _slot() == "morning":
+        return "時計の起動(朝。7:25取得・8:00投稿)"
+    if _slot() == "evening":
+        return "時計の起動(夕方の更新。学習アプリのデータだけ)"
     if ev == "schedule":
         cron = os.environ.get("SCHEDULE_CRON", "")
         return _CRON_LABEL.get(cron, f"定時の起動({cron or '予定不明'})")
@@ -3271,7 +3282,7 @@ def main():
             notify_failure(stage="学習アプリのデータ(手動)", error=str(e))
             raise
         return
-    if _is_schedule() and os.environ.get("SCHEDULE_CRON", "") in {f"{c} * * *" for c in EVENING_CRONS}:
+    if _slot() == "evening" or (_is_schedule() and os.environ.get("SCHEDULE_CRON", "") in {f"{c} * * *" for c in EVENING_CRONS}):
         try:
             evening_update()
         except Exception as e:

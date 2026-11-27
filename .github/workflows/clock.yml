@@ -1,0 +1,35 @@
+name: 時計 - EconoBotを決めた時刻に起動する(朝7:00・夕方17:15)
+
+# GitHubのscheduleは後回しにされ、11/27は夕方の起動が1回も来なかった。手動実行(workflow_dispatch)は数秒で始まるので、
+# この時計がGitHubの中で目標の時刻まで待ち、時刻になったら econobot.yml を slot 付きで起動する(clock.py)。
+# ジョブは6時間で打ち切られるため、5時間40分ごとに次の時計を起動して引き継ぐ(リレー)。
+# 公開リポジトリなのでActionsの利用時間は無料。
+on:
+  workflow_dispatch:
+    inputs:
+      relay:
+        description: '前の時計からの引き継ぎ(clock.pyが使う。手動では空のまま)'
+        type: string
+        default: ''
+  # リレーが切れた時の起こし直し。遅れて来てもよい。時計が動いていれば何もせず終わる
+  schedule:
+    - cron: '37 */3 * * *'
+
+jobs:
+  clock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: 時計
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELAY: ${{ inputs.relay }}
+        run: python -u clock.py
