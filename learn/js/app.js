@@ -359,7 +359,7 @@
     if (AN && AN.features && AN.asof && (!r || AN.asof.us >= r.date)) {   // 深掘り分析の方が新しい時は、そちらの値(ホームの要点と同じ日付)
       var F = AN.features, S = AN.strategy || {}, d = AN.asof.us;
       var mkSame = function (id) { var st = mkStats(id); return st && st.date === d ? st : null; };   // 公的統計がその日まで出ていれば使う
-      out.push('<span class="led-h">◆ ' + md(d) + ' 米国' + (AN.asof.jp ? ' ・ ' + md(AN.asof.jp) + ' 日本' : '') + ' の終値(更新 ' + esc((AN.updated || '').slice(5, 16).replace('-', '/').replace('T', ' ')) + ')</span>');
+      out.push('<span class="led-h">◆ ' + mdDate(d) + ' 米国' + (AN.asof.jp ? ' ・ ' + mdDate(AN.asof.jp) + ' 日本' : '') + ' の終値(更新 ' + esc((AN.updated || '').slice(5, 16).replace('-', '/').replace('T', ' ')) + ')</span>');
       var sl = S.us && S.us.levels, spx = sl ? sl.close : null, spc = sl && sl.prev ? (sl.close / sl.prev - 1) * 100 : F.SPY && F.SPY.c1;   // 指数そのものの前日の終値から(無ければETFの率)
       if (F.SPY || spx) out.push(ledItem('S&P 500', ledLevel(spx), spc, '%', F.SPY && F.SPY.stale, spx));
       [['NASDAQCOM', 'ナスダック'], ['DJIA', 'ダウ平均']].forEach(function (x) { var st = mkSame(x[0]); if (st) out.push(ledItem(x[1], ledLevel(st.last), st.d1, '%', false, st.last)); });
@@ -378,7 +378,7 @@
     out.push('<span class="led-h">◆ 公的統計(FRED)の最新値</span>');
     ['SP500', 'NASDAQCOM', 'DJIA', 'NIKKEI225', 'DGS10', 'DEXJPUS', 'VIXCLS', 'DCOILWTICO'].forEach(function (id) {
       var st = mkStats(id); if (!st) return;
-      out.push(ledItem(MK.series[id].name + ' ' + md(st.date), fmtLevel(st), st.rate ? st.d1 * 100 : st.d1, st.rate ? 'bp' : '%', false, st.rate ? null : st.last));
+      out.push(ledItem(MK.series[id].name + ' ' + mdDate(st.date), fmtLevel(st), st.rate ? st.d1 * 100 : st.d1, st.rate ? 'bp' : '%', false, st.rate ? null : st.last));
     });
     return out;
   }
@@ -525,7 +525,7 @@
     var started = Object.keys(state.done).length > 0;
     // 深掘り分析の方が新しい(または同じ日)なら、その要点を優先する(ホームと分析で日付を食い違わせない)
     var an = AN && AN.asof && AN.asof.us && (!r || AN.asof.us >= r.date) ? AN : null, ac = an && an.ai && an.ai.chief;
-    var cap = ac ? md(an.asof.us).replace('/', '月') + '日 ・ ' + ac.headline : r ? r.date.slice(5).replace('-', '月') + '日 ・ ' + r.title : '株トレ道場 ・ 日本株と米国株をプロの水準まで';
+    var cap = ac ? mdDate(an.asof.us).replace('/', '月') + '日 ・ ' + ac.headline : r ? r.date.slice(5).replace('-', '月') + '日 ・ ' + r.title : '株トレ道場 ・ 日本株と米国株をプロの水準まで';
     var say = an ? '' : r ? r.text : '';   // 深掘り分析がある日は、相場の話は下の「今日の要点」にまとめ、ここは学習の案内にする
     var h = '<section class="hero"><div class="chart" id="hero-chart"></div><p class="hero-cap">' + esc(cap) + '</p></section>';
     h += '<section class="say"><p>' + (say ? esc(say) : nx ? (started ? '続きは「' + esc(nx.t) + '」。' : 'まずは「' + esc(nx.t) + '」から。') + esc(nx.sum) : '全レッスンを読み終えました。あとは復習と演習で磨きます。') + '</p>' +
@@ -649,7 +649,7 @@
     var r = K.mkt.regime(MK);
     h += '<p class="lead">データ更新 ' + esc((MK.updated || '').replace('T', ' ').slice(0, 16)) + ' ・ 出典 ' + esc(MK.source || 'FRED') + '。各系列の最新の日付は系列ごとに異なります。</p></div><div class="dash">';
     if (r) {
-      h += '<section class="span-7"><h2>値動きの型(公的統計)<span class="h-r">' + esc(r.date) + '</span></h2>' + (AN && AN.asof && AN.asof.us > r.date ? '<p class="note">公的統計(FRED)は1日遅れで公表されます。' + esc(md(AN.asof.us)) + 'までの最新の分析は<a href="#why">なぜ動いたか</a>にあります。</p>' : '') + '<p class="regime-t">' + esc(r.title) + '</p><p>' + esc(r.text) + '</p><ul class="facts">' + r.facts.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
+      h += '<section class="span-7"><h2>値動きの型(公的統計)<span class="h-r">' + esc(r.date) + '</span></h2>' + (AN && AN.asof && AN.asof.us > r.date ? '<p class="note">公的統計(FRED)は1日遅れで公表されます。' + esc(mdDate(AN.asof.us)) + 'までの最新の分析は<a href="#why">なぜ動いたか</a>にあります。</p>' : '') + '<p class="regime-t">' + esc(r.title) + '</p><p>' + esc(r.text) + '</p><ul class="facts">' + r.facts.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
         (r.notes.length ? '<ul class="plain notes">' + r.notes.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
         '<p class="sub">組み合わせから当てはめた目安です。原因の確定には、材料の時刻と業種ごとの動きで裏を取ります。</p><div class="actions"><a class="btn" href="#outlook">相場の見立て(今後の見通し)を見る</a><button type="button" class="btn" data-ask="今日の相場の動きを、データから読み解いてください。何が効いた可能性が高く、何を確かめるべきか、日本株への影響も含めて。">AIに読み解いてもらう</button>' + r.lessons.map(function (x) { return lessonById[x] ? '<a class="btn ghost" href="#lesson-' + x + '">' + esc(lessonById[x].t) + '</a>' : ''; }).join('') + '</div></section>';
     }
@@ -861,8 +861,8 @@
     return body ? '<details class="panel fold"' + (id ? ' id="' + id + '"' : '') + '><summary>' + ico(icon) + '<span><strong>' + esc(title) + '</strong>' + (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</span></summary><div class="fold-b">' + body + '</div></details>' : '';
   }
   function firstS(t) { if (!t) return ''; var i = t.indexOf('。'); return i < 0 ? t : t.slice(0, i + 1); }
-  function md(d) { return d ? d.slice(5).replace('-', '/') : ''; }
-  function asofText() { return AN && AN.asof ? (AN.asof.us ? '米国 ' + md(AN.asof.us) : '') + (AN.asof.jp ? ' ・ 日本 ' + md(AN.asof.jp) : '') + ' の終値' : ''; }
+  function mdDate(d) { return d ? d.slice(5).replace('-', '/') : ''; }
+  function asofText() { return AN && AN.asof ? (AN.asof.us ? '米国 ' + mdDate(AN.asof.us) : '') + (AN.asof.jp ? ' ・ 日本 ' + mdDate(AN.asof.jp) : '') + ' の終値' : ''; }
   /* 数字の帯: 主要な指数・金利・VIX・為替の水準と前日比 */
   function keyStrip() {
     var F = AN.features || {}, S = AN.strategy || {}, ap = (AN.quality && AN.quality.approx) || {};
@@ -939,7 +939,7 @@
       }).join('') + '</div>' : '';
     var done = sh.filter(function (x) { return x.hit != null; }), hits = done.filter(function (x) { return x.hit; }).length;
     var hist = sh.length ? '<div class="table-wrap"><table class="num"><thead><tr><th>日付</th><th>米国の方向</th><th>その後5日</th><th>判定</th><th class="l">見出し</th></tr></thead><tbody>' +
-      sh.slice(0, 15).map(function (x) { return '<tr><td>' + esc(md(x.date)) + '</td><td>' + dirPill(x.us) + '</td><td class="' + (x.chg > 0 ? 'up' : x.chg < 0 ? 'down' : '') + '">' + (x.chg == null ? '—' : wpct(x.chg)) + '</td><td>' + (x.hit == null ? '判定待ち' : x.hit ? '的中' : '外れ') + '</td><td class="l">' + esc(x.headline) + '</td></tr>'; }).join('') +
+      sh.slice(0, 15).map(function (x) { return '<tr><td>' + esc(mdDate(x.date)) + '</td><td>' + dirPill(x.us) + '</td><td class="' + (x.chg > 0 ? 'up' : x.chg < 0 ? 'down' : '') + '">' + (x.chg == null ? '—' : wpct(x.chg)) + '</td><td>' + (x.hit == null ? '判定待ち' : x.hit ? '的中' : '外れ') + '</td><td class="l">' + esc(x.headline) + '</td></tr>'; }).join('') +
       '</tbody></table></div><p class="sub">その後5営業日のS&P 500(ETF)で、上昇=+0.5%超、下落=−0.5%未満、もみ合い=±1.5%以内を的中とします。外れた日に何を見落としたかを考えるのが、いちばんの練習です。</p>' : '';
     var rules = (AN.rules && (AN.rules.d5 || AN.rules.d20)) ? '<p class="sub">上の分析の土台です。ふだんより大きく動いたものだけを、型に当てはめています。</p><h3 class="mini-h">直近5日</h3>' + ruleList(AN.rules.d5) + '<h3 class="mini-h">この1か月(20日)</h3>' + ruleList(AN.rules.d20) : '';
     var nl = ((ai.news) || []).filter(function (l) { return /^N\d+ /.test(l); });
@@ -975,8 +975,8 @@
     if (!v) return '';
     var r = v.rule || {}, c = v.caution || {}, lv = v.levels || {};
     var parts = Object.keys(c.parts || {}).map(function (k) { var x = c.parts[k]; return '<span class="pill ' + (x > 0 ? 'up' : x < 0 ? 'down' : 'flat') + '">' + esc(k) + (x > 0 ? ' 良好' : x < 0 ? ' 警戒' : ' 中立') + '</span>'; }).join(' ');
-    return '<div class="dash"><div class="span-6"><h3 class="mini-h">判定の中身<span class="sub mini-s">' + esc(md(v.date)) + ' の終値</span></h3>' +
-      '<p>月末の規則: <strong>' + (r.position === 100 ? '投資(100%)' : '待機(0%)') + '</strong> <span class="sub">' + esc(md(r.decided)) + 'の月末に判定</span></p>' +
+    return '<div class="dash"><div class="span-6"><h3 class="mini-h">判定の中身<span class="sub mini-s">' + esc(mdDate(v.date)) + ' の終値</span></h3>' +
+      '<p>月末の規則: <strong>' + (r.position === 100 ? '投資(100%)' : '待機(0%)') + '</strong> <span class="sub">' + esc(mdDate(r.decided)) + 'の月末に判定</span></p>' +
       '<p>注意の度合い: <strong class="' + (/高/.test(c.level) ? 'down' : 'up') + '">' + esc(c.level || '—') + '</strong> → 1回の売買は <strong>' + esc(c.size || '—') + '</strong></p><p>' + parts + (c.dist_days != null ? ' <span class="sub">売り抜けの日 ' + c.dist_days + '日(25日間)</span>' : '') + '</p>' +
       '<h3 class="mini-h">売買の大きさの計算</h3><p class="sub">1回で失ってよい額(資金の1%が目安)と損切りの幅(ATRの2倍が目安)から、持てる金額の上限を出します。</p>' +
       '<div class="fs-in"><label>資金(円)<input id="fs-cap" type="number" inputmode="numeric" value="1000000" step="100000"></label><label>1回のリスク(%)<input id="fs-risk" type="number" inputmode="decimal" value="1" step="0.25"></label><label>損切りの幅(ATRの何倍)<input id="fs-k" type="number" inputmode="decimal" value="2" step="0.5"></label></div><div id="fs-out" class="fs-out"></div></div>' +
@@ -1019,9 +1019,9 @@
       '<div class="span-6"><h3 class="mini-h">プット・コール比率(CBOE)</h3>' + (pc.ok ? '<div class="table-wrap"><table class="num"><tbody><tr><td class="l">個別株</td><td>' + pc.equity + '</td><td class="sub">10日平均 ' + (pc.equity10 || '—') + '</td></tr><tr><td class="l">全体</td><td>' + pc.total + '</td><td class="sub">10日平均 ' + (pc.total10 || '—') + '</td></tr><tr><td class="l">指数</td><td>' + pc.index + '</td><td></td></tr><tr><td class="l">S&amp;P 500</td><td>' + (pc.spx || '—') + '</td><td></td></tr></tbody></table></div><p class="sub">個別株の比率が0.8を超えると悲観の行き過ぎ(逆張りでは買いの合図に近い)、0.5を下回ると楽観の行き過ぎと読まれます。</p>' : '<p class="sub">今日の値はまだ公表されていません。</p>') +
       ['^VVIX', '^SKEW', '^VXN'].filter(function (k) { return it[k]; }).map(function (k) { var x = it[k]; return '<p><strong>' + esc(x.name) + '</strong> ' + x.last + ' <span class="sub">1年で' + x.pct1y + '%の位置</span></p>'; }).join('') + '</div></div>' : '';
     var vbH = Object.keys(vb).length ? '<div class="table-wrap"><table class="num"><thead><tr><th class="l">指数</th><th class="l">状態(オニール流)</th><th>高値から</th><th>売り抜けの日<br>(25日)</th><th>出来高<br>÷50日平均</th></tr></thead><tbody>' +
-      Object.keys(vb).map(function (k) { var v = vb[k]; return '<tr><td class="l">' + esc(v.name) + '</td><td class="l">' + esc(v.phase) + (v.ftd ? '<br><span class="sub">フォロースルー ' + esc(md(v.ftd.date)) + ' ' + sgn(v.ftd.chg, 2, '%') + '</span>' : '') + '</td><td class="down">' + sgn(v.drawdown, 1, '%') + '</td><td class="' + (v.dist_days >= 6 ? 'down' : '') + '">' + (v.dist_days == null ? '—' : v.dist_days) + '</td><td>' + (v.ratio50 || '—') + '</td></tr>'; }).join('') +
+      Object.keys(vb).map(function (k) { var v = vb[k]; return '<tr><td class="l">' + esc(v.name) + '</td><td class="l">' + esc(v.phase) + (v.ftd ? '<br><span class="sub">フォロースルー ' + esc(mdDate(v.ftd.date)) + ' ' + sgn(v.ftd.chg, 2, '%') + '</span>' : '') + '</td><td class="down">' + sgn(v.drawdown, 1, '%') + '</td><td class="' + (v.dist_days >= 6 ? 'down' : '') + '">' + (v.dist_days == null ? '—' : v.dist_days) + '</td><td>' + (v.ratio50 || '—') + '</td></tr>'; }).join('') +
       '</tbody></table></div><p class="sub">売り抜けの日は「0.2%以上下げ、出来高が前日より多い日」。大口の売りの跡とされ、25日間に5〜6日を超えると上昇トレンドが崩れやすくなります。調整局面では、安値から4日目以降に出来高を伴って1.25%以上上げた日(フォロースルー)が、底打ちの最初の確認になります。</p>' : '';
-    var cotH = Object.keys(cot).length ? '<p class="sub">' + esc(md((cot.sp || cot[Object.keys(cot)[0]]).date)) + '時点(CFTC、毎週金曜に公表)</p><ul class="cot">' +
+    var cotH = Object.keys(cot).length ? '<p class="sub">' + esc(mdDate((cot.sp || cot[Object.keys(cot)[0]]).date)) + '時点(CFTC、毎週金曜に公表)</p><ul class="cot">' +
       Object.keys(cot).map(function (k) { var v = cot[k]; return '<li><strong>' + esc(v.name) + '</strong><div class="cot-r"><span>ヘッジファンド等 <b class="' + (v.lev_net > 0 ? 'up' : 'down') + '">' + sgn(v.lev_net, 0, '枚') + '</b> <span class="sub">前週比 ' + sgn(v.lev_chg, 0) + '</span></span>' + idxBar(v.lev_idx, '3年での偏り') + '</div><div class="cot-r"><span>資産運用会社 <b class="' + (v.am_net > 0 ? 'up' : 'down') + '">' + sgn(v.am_net, 0, '枚') + '</b> <span class="sub">前週比 ' + sgn(v.am_chg, 0) + '</span></span>' + idxBar(v.am_idx, '3年での偏り') + '</div></li>'; }).join('') +
       '</ul><p class="sub">偏りは過去3年の最も売り越し(0)〜最も買い越し(100)のどこにいるか。90以上・10以下は持ち高が一方に傾きすぎで、巻き戻されると逆向きに大きく動きやすくなります。円の先物でヘッジファンドが大きく売り越している時は円キャリーが積み上がっている状態で、巻き戻しは円高と日本株安を招きやすいです。米国債の先物のヘッジファンドの大きな売り越しは、大半が裁定取引(ベーシス取引)で、金利の方向への賭けではありません。</p>' : '';
     var names = ['海外投資家', '個人', '信託銀行', '事業法人', '投資信託', '証券会社(自己)'];
@@ -1031,7 +1031,7 @@
       (mh.length ? '<h3 class="mini-h">信用取引の残高(二市場)</h3><div class="table-wrap"><table class="num"><thead><tr><th class="l">週末</th><th>買い残</th><th>前週比</th><th>売り残</th><th>信用倍率</th></tr></thead><tbody>' +
         mh.slice(-6).reverse().map(function (m) { return '<tr><td class="l">' + esc(m.date.slice(4, 6) + '/' + m.date.slice(6)) + '</td><td>' + oku(m.buy).replace('+', '') + '</td><td class="' + (m.buy_chg > 0 ? 'up' : 'down') + '">' + oku(m.buy_chg) + '</td><td>' + oku(m.sell).replace('+', '') + '</td><td>' + m.ratio + '倍</td></tr>'; }).join('') +
         '</tbody></table></div><p class="sub">信用買い残は将来の売り(返済の売り)の予備軍。買い残が多いまま株価が下がると投げ売りで下げが加速しやすく、大きく減ると「売りの出尽くし」に近づきます。</p>' : '') : '';
-    var calH = cal.length ? '<ul class="cal-l">' + cal.map(function (e) { return '<li><span class="cal-d"><b>' + esc(md(e.date)) + '</b><span class="sub">あと' + e.days + '日</span></span><span><strong>' + esc(e.what) + '</strong><span class="sub">' + esc(e.why) + '</span></span></li>'; }).join('') + '</ul>' : '';
+    var calH = cal.length ? '<ul class="cal-l">' + cal.map(function (e) { return '<li><span class="cal-d"><b>' + esc(mdDate(e.date)) + '</b><span class="sub">あと' + e.days + '日</span></span><span><strong>' + esc(e.what) + '</strong><span class="sub">' + esc(e.why) + '</span></span></li>'; }).join('') + '</ul>' : '';
     h += '<section><h2>' + ico('pulse') + '需給のデータ</h2>' + tabs('flowd', [['op', 'オプション', opH], ['vol', '出来高', vbH], ['cot', '大口の持ち高', cotH], ['jp', '日本の主体別', ihH], ['cal', '日程', calH]]) + '</section>';
     // 5. 詳しく見る
     var passes = (AN.ai && AN.ai.passes) || {};
