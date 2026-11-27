@@ -9,25 +9,25 @@
   M.ORDER = ['SP500', 'NASDAQCOM', 'DJIA', 'NIKKEI225', 'DGS10', 'DGS2', 'T10Y2Y', 'DEXJPUS', 'DTWEXBGS', 'VIXCLS', 'VXVCLS', 'DCOILWTICO', 'BAMLH0A0HYM2', 'NFCI', 'WALCL'];
   M.RATE_KINDS = { yield: 1, spread: 1, gauge: 1 };
 
-  /* 読み込み。無ければ null(この画面はデータ無しの説明に切り替える) */
+  /* 読み込み。無ければ null(この画面はデータ無しの説明に切り替える)。
+     force=true で読み直す。GitHub Pagesの配信の一時保存(約10分)を避けるため、毎回 ?t=時刻 を付ける */
+  function getJSON(path) {
+    return fetch(path + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+  }
   var loading = null;
-  M.load = function () {
-    if (loading) return loading;
+  M.load = function (force) {
+    if (loading && !force) return loading;
     if (typeof fetch !== 'function') return (loading = Promise.resolve(null));
-    loading = fetch('data/market.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { return d && d.series && Object.keys(d.series).length ? d : null; })
-      .catch(function () { return null; });
+    loading = getJSON('data/market.json').then(function (d) { return d && d.series && Object.keys(d.series).length ? d : null; });
     return loading;
   };
 
   /* 深掘り分析(data/analysis.json)。無ければ null */
   var aLoading = null;
-  M.loadAnalysis = function () {
-    if (aLoading) return aLoading;
+  M.loadAnalysis = function (force) {
+    if (aLoading && !force) return aLoading;
     if (typeof fetch !== 'function') return (aLoading = Promise.resolve(null));
-    aLoading = fetch('data/analysis.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { return d && d.features && Object.keys(d.features).length ? d : null; })
-      .catch(function () { return null; });
+    aLoading = getJSON('data/analysis.json').then(function (d) { return d && d.features && Object.keys(d.features).length ? d : null; });
     return aLoading;
   };
 
