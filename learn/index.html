@@ -571,6 +571,14 @@
   /* 読みやすさ: 文章の行が長くなりすぎないように(表・数字の帯は対象外) */
   main section > p, .qa dd p, .causes p, .sec-why p, .items p, .chain-l p, .tab-p > p, .fold-b > p, .watch-l li, main section > ul > li { max-width: 46em; }
   .mstrip { color: var(--text); }
+  .track-l { list-style: none; padding: 0 !important; gap: 10px !important; }
+  .track-l > li { background: var(--tile); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; border: 1px solid rgba(255, 255, 255, 0.04); }
+  .track-l > li.miss { box-shadow: inset 3px 0 0 var(--down); } .track-l > li.hit { box-shadow: inset 3px 0 0 var(--up); }
+  .tr-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .tr-h b { color: var(--ink); }
+  .lesson-line { color: var(--ink); font-weight: 600; }
+  .lessons { gap: 8px !important; }
+  main section > ul.track-l > li, main section > ul.lessons > li { max-width: none; }
   @media (max-width: 760px) {
     .kstrip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .stiles { grid-template-columns: minmax(0, 1fr); }
