@@ -336,19 +336,19 @@ class TestEconobot(unittest.TestCase):
             return Resp(json.dumps(out).encode())
 
         with mock.patch.object(eb.urllib.request, "urlopen", side_effect=lambda r, timeout=None: fake_urlopen(r, timeout)):
-            eb._SCHEMA_REJECTED["value"] = False
+            eb._SCHEMA_REJECTED["value"] = False; eb._SCHEMA_REJECTED["keys"].clear()
             eb.summarize_with_gemini(ECON)
             eb.summarize_major_news(MAJOR)
         self.assertEqual(calls, [True, True])
 
         calls.clear()
         with mock.patch.object(eb.urllib.request, "urlopen", side_effect=lambda r, timeout=None: fake_urlopen(r, timeout, True)):
-            eb._SCHEMA_REJECTED["value"] = False
+            eb._SCHEMA_REJECTED["value"] = False; eb._SCHEMA_REJECTED["keys"].clear()
             raw = eb.summarize_with_gemini(ECON)
             eb.summarize_major_news(MAJOR)
-        self.assertEqual(calls, [True, False, False])
+        self.assertEqual(calls, [True, False, True, False])   # 拒否はスキーマごと(2026-11-28)。主要の要約は別のスキーマなので一度は付けて送る
         self.assertTrue(eb.parse_summary(raw, ECON)["ok"])
-        eb._SCHEMA_REJECTED["value"] = False
+        eb._SCHEMA_REJECTED["value"] = False; eb._SCHEMA_REJECTED["keys"].clear()
 
     def test_slack_payload(self):
         econ, major, _ = render(json.dumps(ECON_JSON, ensure_ascii=False), json.dumps(MAJOR_JSON, ensure_ascii=False))
@@ -379,6 +379,53 @@ def write_samples(out):
         p = eb.build_slack_payload("https://shio-jpn.github.io/econobot/", econ, major, MAJOR, now=NOW)
         with open(os.path.join(out, f"slack_{name}.json"), "w", encoding="utf-8") as f:
             json.dump(p, f, ensure_ascii=False, indent=2)
+
+
+
+class SchemaFallbackTest(unittest.TestCase):
+    """2026-11-28: 1つのスキーマの拒否で全部がスキーマ無しになり、答えの形が崩れた。拒否はスキーマごと、無しの時はひな形を付ける"""
+
+    def test_skeleton(self):
+        sch = {"type": "OBJECT", "properties": {"a": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
+            "k": {"type": "STRING", "enum": ["x", "y"]}, "n": {"type": "INTEGER"}}}}, "s": {"type": "STRING"}}}
+        self.assertEqual(eb.schema_skeleton(sch), {"a": [{"k": "x|y", "n": 0}], "s": "文字列"})
+        self.assertIn('"a": [{"k": "x|y"', eb._with_skeleton("指示", sch))
+
+    def test_rejection_is_per_schema(self):
+        a = {"type": "OBJECT", "properties": {"a": {"type": "STRING"}}}
+        b = {"type": "OBJECT", "properties": {"b": {"type": "STRING"}}}
+        sent = []
+
+        class Res:
+            def __init__(self, body):
+                self.body = body
+
+            def read(self):
+                return self.body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *x):
+                return False
+
+        def fake(req, timeout=None):
+            body = json.loads(req.data.decode())
+            sent.append(body)
+            if "responseSchema" in body["generationConfig"] and "a" in body["generationConfig"]["responseSchema"]["properties"]:
+                raise urllib.error.HTTPError("u", 400, "Bad", {}, io.BytesIO(b"too many states"))
+            return Res(json.dumps({"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}).encode())
+        eb._SCHEMA_REJECTED["keys"].clear()
+        budget = eb.GEMINI_BUDGET
+        self.addCleanup(lambda: eb._gemini_reset(budget))
+        eb._gemini_reset(400)
+        with mock.patch.object(eb.urllib.request, "urlopen", fake):
+            eb._call_gemini("p", a, "A", models=["m"])
+            eb._call_gemini("p", b, "B", models=["m"])
+        self.assertNotIn("responseSchema", sent[1]["generationConfig"])          # Aはスキーマ無しで再送
+        self.assertIn("■答えの形", sent[1]["contents"][0]["parts"][0]["text"])    # ひな形つき
+        self.assertIn("responseSchema", sent[2]["generationConfig"])              # Bはスキーマを使う
+        eb._SCHEMA_REJECTED["keys"].clear()
 
 
 if __name__ == "__main__" or os.environ.get("ECONOBOT_TEST_OUT"):
@@ -790,7 +837,7 @@ class SpecUpgradeTest(unittest.TestCase):
              mock.patch.object(eb, "publish_to_github_pages", side_effect=AssertionError("公開しない")), \
              mock.patch.object(eb, "post_to_slack", side_effect=AssertionError("投稿しない")), \
              mock.patch.object(eb.urllib.request, "urlopen", side_effect=fake_urlopen):
-            eb._SCHEMA_REJECTED["value"] = False
+            eb._SCHEMA_REJECTED["value"] = False; eb._SCHEMA_REJECTED["keys"].clear()
             out = eb.build_outputs(now=NOW)
         self.assertEqual(order, ["market", "gemini", "gemini"])
         self.assertEqual(calls, [True, False])   # 経済用のプロンプトにだけ対象日が入る
@@ -1150,7 +1197,7 @@ class TimeoutResilienceTest(unittest.TestCase):
         for p in patches:
             p.start()
         try:
-            eb._SCHEMA_REJECTED["value"] = False
+            eb._SCHEMA_REJECTED["value"] = False; eb._SCHEMA_REJECTED["keys"].clear()
             eb.main()   # 例外で止まらないこと
         finally:
             for p in patches:
@@ -1266,7 +1313,7 @@ class TimeoutResilienceTest(unittest.TestCase):
             raise TimeoutError("The read operation timed out")
         with mock.patch.object(eb, "NEWS_API_KEY", "k"), \
              mock.patch.object(eb.urllib.request, "urlopen", side_effect=fake_urlopen):
-            eb._SCHEMA_REJECTED["value"] = False
+            eb._SCHEMA_REJECTED["value"] = False; eb._SCHEMA_REJECTED["keys"].clear()
             out = eb.build_outputs(now=NOW)
         self.assertTrue(out["html"].startswith("<!DOCTYPE html>"))
         self.assertEqual(len(out["ai_errors"]), 2)

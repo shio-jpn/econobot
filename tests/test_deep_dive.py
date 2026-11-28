@@ -607,9 +607,11 @@ class KeepDraftTest(unittest.TestCase):
         self.assertEqual(dd.empty_parts(out), [])
         self.assertEqual(dd.empty_parts(rev), ["us", "root_cause"])
 
-    def test_schema_requires_items(self):
-        self.assertEqual(dd.CHIEF_SCHEMA["properties"]["us"]["properties"]["causes"]["minItems"], 1)
-        self.assertEqual(dd.CHIEF_SCHEMA["properties"]["root_cause"]["properties"]["chain"]["minItems"], 2)
+    def test_chief_schema_is_light(self):
+        """2026-11-28: チーフのスキーマが拒否(HTTP 400)された。入れ子の列挙とminItemsを使わない"""
+        txt = json.dumps(dd.CHIEF_SCHEMA["properties"]["us"], ensure_ascii=False)
+        self.assertNotIn("minItems", json.dumps(dd.CHIEF_SCHEMA))
+        self.assertNotIn('"enum": ["現象"', txt)
 
 
 class FlowViewsTest(unittest.TestCase):
