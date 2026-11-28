@@ -610,3 +610,16 @@ class KeepDraftTest(unittest.TestCase):
     def test_schema_requires_items(self):
         self.assertEqual(dd.CHIEF_SCHEMA["properties"]["us"]["properties"]["causes"]["minItems"], 1)
         self.assertEqual(dd.CHIEF_SCHEMA["properties"]["root_cause"]["properties"]["chain"]["minItems"], 2)
+
+
+class FlowViewsTest(unittest.TestCase):
+    """需給のデータごとの読み方と3つの立場の意見"""
+
+    def test_clean_flow_views_scrubs_and_keeps_blocks(self):
+        dropped = []
+        v = {"options": {"read": "VIXは高い。", "analyst": "A", "trader": "T", "investor": "I"}, "cot": "壊れた値", "bad": {"read": "x"}}
+        out = dd.clean_flow_views(v, {"pct": [], "num": []}, dropped)
+        self.assertEqual(set(out), {"options"})
+        self.assertEqual(out["options"]["trader"], "T")
+        self.assertEqual(set(dd.FLOW_VIEW_SCHEMA["required"]), set(dd.FLOW_BLOCKS))
+        self.assertIn("プロのトレーダー", dd._flow_view_prompt("■オプション市場\nVIX 23.81", {"headline": "見出し"}))
