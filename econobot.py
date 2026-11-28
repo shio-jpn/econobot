@@ -338,9 +338,33 @@ GEMINI_MODELS = [
     "gemini-2.5-flash",
 ]
 
-# responseSchemaをモデルに拒否された(HTTP 400)ことがある実行中は、2回目以降の呼び出しで
-# 最初からスキーマ無しにする(同じ400を毎回踏んで呼び出し回数を増やさないため)
-_SCHEMA_REJECTED = {"value": False}
+# responseSchemaをモデルに拒否された(HTTP 400)スキーマは、その実行の間はスキーマ無しで送る(同じ400を毎回踏まないため)。
+# 2026-11-28: 以前は1つ拒否されると全部の呼び出しがスキーマ無しになり、チーフと需給の読み方の答えの形が崩れて中身が空になった。
+# そこで拒否はスキーマごとに覚え、スキーマ無しで送る時は、答えの形(JSONのひな形)を指示文に付ける
+_SCHEMA_REJECTED = {"value": False, "keys": set()}
+
+
+def _schema_key(schema):
+    return json.dumps(schema, sort_keys=True, ensure_ascii=False)[:4000] if schema is not None else ""
+
+
+def schema_skeleton(schema, depth=0):
+    """スキーマから答えの形(JSONのひな形)を作る。スキーマ無しで送る時に指示文へ付ける"""
+    if not isinstance(schema, dict) or depth > 8:
+        return "..."
+    t = schema.get("type")
+    if t == "OBJECT":
+        return {k: schema_skeleton(v, depth + 1) for k, v in (schema.get("properties") or {}).items()}
+    if t == "ARRAY":
+        return [schema_skeleton(schema.get("items"), depth + 1)]
+    if schema.get("enum"):
+        return "|".join(schema["enum"])
+    return {"STRING": "文字列", "INTEGER": 0, "NUMBER": 0.0, "BOOLEAN": True}.get(t, "...")
+
+
+def _with_skeleton(prompt, schema):
+    return prompt + ("\n\n■答えの形(必ずこのキー名・入れ子のJSONだけを返す。配列は中身を入れる。「a|b」は どれか1つ)\n"
+                     + json.dumps(schema_skeleton(schema), ensure_ascii=False))
 
 # 時間切れ・接続の失敗(HTTPErrorでない通信の失敗)。urllibは「送る前」の失敗をURLErrorに包み、
 # 「送った後の返事待ち」の時間切れはTimeoutErrorのまま投げる(2026-11-17の本番はこれで全体が止まった)
@@ -400,7 +424,7 @@ def _call_gemini(prompt, schema, label, models=None):
             "https://generativelanguage.googleapis.com/v1beta/models"
             f"/{model}:generateContent?key={GEMINI_API_KEY}"
         )
-        use_schema = schema is not None and not _SCHEMA_REJECTED["value"]
+        use_schema = schema is not None and _schema_key(schema) not in _SCHEMA_REJECTED["keys"]
         attempt = 0
         net_fail = 0
         while attempt < 3:
@@ -411,8 +435,9 @@ def _call_gemini(prompt, schema, label, models=None):
             gen_cfg = {"temperature": 0.2, "responseMimeType": "application/json"}
             if use_schema:
                 gen_cfg["responseSchema"] = schema
+            text_in = prompt if use_schema or schema is None else _with_skeleton(prompt, schema)
             body = json.dumps({
-                "contents": [{"parts": [{"text": prompt}]}],
+                "contents": [{"parts": [{"text": text_in}]}],
                 "generationConfig": gen_cfg,
             }).encode("utf-8")
             print(f"  モデル試行: {model} [{label}] schema={'on' if use_schema else 'off'}")
@@ -433,8 +458,13 @@ def _call_gemini(prompt, schema, label, models=None):
                     return ""
             except urllib.error.HTTPError as e:
                 if e.code == 400 and use_schema:
-                    print(f"  HTTP 400(スキーマ指定を拒否された可能性)→ スキーマ無しで再送")
+                    try:
+                        why = e.read().decode("utf-8", "ignore")[:300].replace("\n", " ")
+                    except Exception:
+                        why = ""
+                    print(f"  HTTP 400(スキーマ指定を拒否された可能性: {why})→ この形はスキーマ無し・ひな形つきで再送")
                     _SCHEMA_REJECTED["value"] = True
+                    _SCHEMA_REJECTED["keys"].add(_schema_key(schema))
                     use_schema = False
                     continue  # attemptは増やさない(400の送り直しは1回だけ)
                 wait = 15 * (attempt + 1)

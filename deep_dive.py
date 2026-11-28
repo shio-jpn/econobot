@@ -24,6 +24,7 @@ ANALYSIS_PATH = "learn/data/analysis.json"
 HISTORY_DAYS = 90          # 答え合わせ用に残す見立ての日数
 TRACK_CONTEXT = ""         # 過去の見立ての答え合わせ(track.py)。チーフに渡す
 TRACK_PCT = set()          # チーフの文で使ってよい数字(もみ合いの幅)
+MEMORY_CONTEXT = ""        # これまでの分析の記録と、そこから読める続いている構造(memory.py)。チーフに渡す
 DEEP_BUDGET = 840          # 深掘り分析でGeminiに使う時間の合計の上限(秒)。投稿の後に動くので要約の時間とは別に数える
 CHIEF_RESERVE = 200        # チーフの統合と査読のために残しておく時間(秒)。足りなくなりそうなら残りの役割を飛ばす
 REVIEW_MIN = 100           # 査読と改訂を始める時に残っているべき時間(秒)
@@ -1154,18 +1155,22 @@ ITEM = {"type": "OBJECT", "properties": {
 ANALYST_SCHEMA = {"type": "OBJECT", "properties": {
     "view": {"type": "STRING"}, "items": {"type": "ARRAY", "items": ITEM},
     "watch": {"type": "ARRAY", "items": {"type": "STRING"}}}, "required": ["view", "items"]}
+# チーフ用の因果の段: 列挙(enum)を入れ子で何度も使うとスキーマが複雑になりすぎて拒否されるため文字列にする(clean_chainが種類と確かさを直す)
+CHAIN_LITE = {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
+    "kind": {"type": "STRING"}, "text": {"type": "STRING"}, "evidence": {"type": "ARRAY", "items": {"type": "STRING"}},
+    "status": {"type": "STRING"}}, "required": ["kind", "text", "status"]}}
 CAUSE = {"type": "OBJECT", "properties": {
     "title": {"type": "STRING"}, "weight": {"type": "INTEGER"}, "explain": {"type": "STRING"},
-    "evidence": {"type": "ARRAY", "items": {"type": "STRING"}}, "chain": CHAIN}, "required": ["title", "weight", "explain", "evidence", "chain"]}
+    "evidence": {"type": "ARRAY", "items": {"type": "STRING"}}, "chain": CHAIN_LITE}, "required": ["title", "weight", "explain", "evidence", "chain"]}
 MKT = {"type": "OBJECT", "properties": {
     "direction": {"type": "STRING", "enum": ["上昇", "下落", "もみ合い"]},
-    "summary": {"type": "STRING"}, "causes": {"type": "ARRAY", "items": CAUSE, "minItems": 1}},
+    "summary": {"type": "STRING"}, "causes": {"type": "ARRAY", "items": CAUSE}},
     "required": ["direction", "summary", "causes"]}
 CHIEF_SCHEMA = {"type": "OBJECT", "properties": {
     "headline": {"type": "STRING"}, "us": MKT, "jp": MKT,
     "sectors": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
         "name": {"type": "STRING"}, "why": {"type": "STRING"}, "root": {"type": "STRING"}}, "required": ["name", "why", "root"]}},
-    "root_cause": {"type": "OBJECT", "properties": {"summary": {"type": "STRING"}, "chain": dict(CHAIN, minItems=2)},
+    "root_cause": {"type": "OBJECT", "properties": {"summary": {"type": "STRING"}, "chain": CHAIN_LITE},
                    "required": ["summary", "chain"]},
     "debate": {"type": "STRING"},
     "outlook_short": {"type": "STRING"}, "outlook_mid": {"type": "STRING"},
@@ -1179,11 +1184,12 @@ CHIEF_SCHEMA = {"type": "OBJECT", "properties": {
         "stance": {"type": "STRING"}, "do": {"type": "ARRAY", "items": {"type": "STRING"}},
         "avoid": {"type": "ARRAY", "items": {"type": "STRING"}}, "risk": {"type": "STRING"}},
         "required": ["stance", "do", "avoid", "risk"]}},
+    "continuity": {"type": "STRING"},
     "forecast": {"type": "OBJECT", "properties": {m: {"type": "OBJECT", "properties": {
         "dir": {"type": "STRING", "enum": ["上昇", "下落", "もみ合い"]}, "reason": {"type": "STRING"}}, "required": ["dir", "reason"]}
         for m in ("us", "jp")}, "required": ["us", "jp"]},
     "required": ["headline", "us", "jp", "root_cause", "debate", "outlook_short", "outlook_mid", "change", "confidence", "lesson",
-                 "supply_demand", "playbook", "forecast"]}
+                 "supply_demand", "playbook", "forecast", "continuity"]}
 REVIEW_SCHEMA = {"type": "OBJECT", "properties": {
     "ok": {"type": "BOOLEAN"},
     "issues": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
@@ -1326,11 +1332,14 @@ def _chief_prompt(data_txt, news_txt, passes, rules, issues=None, draft=None):
 - forecast: 次の5営業日の方向の予想。us(S&P 500)と jp(日経平均)それぞれに dir(上昇・下落・もみ合い)と reason(根拠を2〜3文)。
   終値で採点され、結果は蓄積して次の分析に渡される。もみ合いの幅は下の『予想の採点のしかた』のとおり。
   outlook_short と矛盾させない。過去の答え合わせの教訓が当てはまる時は、どう考慮したかを reason に書く
+- continuity: これまでの分析の記録とのつながり(3〜5文)。下の『これまでの分析の記録』の使い方に従う
 """
     p += "\n■規則にもとづく主因の候補(データから自動計算)\n" + "\n".join(f"- {r['title']}({r['side']}): {r['text']}" for r in rules)
     p += "\n\n■規則の判定(プログラムの判定。このとおりに扱う)\n" + "\n".join(RULE_LINES)
     if TRACK_CONTEXT:
         p += "\n\n" + TRACK_CONTEXT
+    if MEMORY_CONTEXT:
+        p += "\n\n" + MEMORY_CONTEXT
     p += "\n\n■7人の分析\n" + _prior_txt(passes)
     if issues and draft:
         p += "\n\n■あなたの前回の案\n" + json.dumps(draft, ensure_ascii=False) + \
@@ -1556,6 +1565,7 @@ def clean_chief(c, allowed, known, dropped):
         "change": [t for t in (scrub(x, allowed, dropped) for x in (c.get("change") or [])[:5]) if t],
         "confidence": c.get("confidence") if c.get("confidence") in ("高", "中", "低") else "中",
         "lesson": s("lesson"),
+        "continuity": s("continuity"),
         "supply_demand": s("supply_demand"),
         "playbook": {"stance": scrub((c.get("playbook") or {}).get("stance"), allowed, dropped),
                      "do": [t for t in (scrub(x, allowed, dropped) for x in ((c.get("playbook") or {}).get("do") or [])[:5]) if t],
@@ -1804,12 +1814,46 @@ def track_after(tr, res, closes, bnds):
         print(f"  [WARN] 答え合わせの保存に失敗(分析は続ける): {type(e).__name__}: {e}")
 
 
+def memory_before(fetched):
+    """分析の記録(memory.py)を読み、これまでの記録から読める構造をチーフに渡す文にする。失敗しても分析は続ける"""
+    global MEMORY_CONTEXT
+    import memory as M
+    MEMORY_CONTEXT = ""
+    try:
+        mem = M.load(_eb()._gh_get_file)
+        upto = ((fetched or {}).get("quality") or {}).get("expected_us")
+        MEMORY_CONTEXT = M.context(mem, upto)
+        print(f"  分析の記録: {len(mem['records'])}件を読んだ")
+        return mem
+    except Exception as e:
+        print(f"  [WARN] 分析の記録の準備に失敗(分析は続ける): {type(e).__name__}: {e}")
+        return None
+
+
+def memory_after(mem, res, tr=None):
+    """今回の要点を記録に積み、記録全体を分析して画面に載せ、保存する"""
+    if mem is None:
+        return
+    import memory as M
+    try:
+        M.upsert(mem, M.snapshot(res))
+        res["memory"] = M.analyze(mem, tr)
+        _eb()._gh_put_file(M.MEM_PATH, json.dumps(mem, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+                           f"🗂 分析の記録: {res.get('asof', {}).get('us')} を積んだ(全{len(mem['records'])}件)")
+        m = res["memory"]
+        print(f"  分析の記録: 全{m['n']}件、動きの型「{(m.get('type_now') or {}).get('type')}」{(m.get('type_now') or {}).get('streak')}件連続、"
+              f"前回からの変化 {len(m.get('changes') or [])}件")
+    except Exception as e:
+        print(f"  [WARN] 分析の記録の保存に失敗(分析は続ける): {type(e).__name__}: {e}")
+
+
 def publish_analysis(out=None, market=None, fetch=None, prev=None, saved_news=None, waits=None, flow_fn=None):
     eb = _eb()
     fetched = fetch_all(fetch, waits=waits)
     if prev is None:
         prev = _read_prev()
     tr, closes, bnds = track_before(fetched)
+    mem = memory_before(fetched)
     res = build_analysis(fetched, market, out, saved_news=saved_news, prev=prev, flow_fn=flow_fn)
     if res is None:
         print("  深掘り分析: 米国セクターのデータが足りないため更新しません")
@@ -1817,6 +1861,7 @@ def publish_analysis(out=None, market=None, fetch=None, prev=None, saved_news=No
     reuse_ai(res, prev)
     add_history(res, prev)
     track_after(tr, res, closes, bnds)
+    memory_after(mem, res, tr)
     text = json.dumps(res, ensure_ascii=False, separators=(",", ":"))
     eb._gh_put_file(ANALYSIS_PATH, text.encode("utf-8"), f"🔎 学習アプリの深掘り分析: {res['updated'][:16]}")
     ai = res["ai"]
