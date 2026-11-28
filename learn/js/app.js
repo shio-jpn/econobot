@@ -318,7 +318,7 @@
   var MK = null, mkReady = false;
   K.mkt.load().then(function (d) { MK = d; mkReady = true; renderStrip(); if (curName === 'home' || curName === 'market' || curName === 'drill' || curName === 'outlook') route(); });
   var AN = null, anReady = false;
-  K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; renderStrip(); if (curName === 'why' || curName === 'flow' || curName === 'outlook' || curName === 'home') route(); });
+  K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; renderStrip(); if (['why', 'data', 'plan', 'outlook', 'home', 'track'].indexOf(curName) >= 0) route(); });
   /* 開いたままのページにも毎日のデータ更新を取り込む: 5分ごとと、画面に戻った時に読み直し、
      更新時刻(updated)が変わっていれば電光掲示板と今の画面を描き直す */
   var DATA_PAGES = { home: 1, market: 1, why: 1, flow: 1, outlook: 1, track: 1 };
@@ -536,13 +536,6 @@
     else h += '<section class="brief"><h2>' + ico('pulse') + '今日の相場<a class="h-r" href="#market">詳しく ›</a></h2>' + marketMini() + '</section>';
     if (an) {
       h += pageMap();
-      var F = an.features || {}, secs = function (g) { return Object.keys(F).map(function (k) { return F[k]; }).filter(function (f) { return f.group === g && f.c1 != null; }).sort(function (a, b) { return b.c1 - a.c1; }); };
-      var mini = function (xs, n) { return xs.length ? '<div class="sec-mini">' + xs.slice(0, n).concat(xs.slice(-n)).map(function (f) { return '<span class="sm" style="background:' + heatBg(f.z1) + '"><b>' + esc(f.name) + '</b>' + wpct(f.c1) + '</span>'; }).join('') + '</div>' : ''; };
-      var us = secs('us'), jp = secs('jp');
-      var secH = us.length ? '<section class="span-6"><h2>' + ico('grid') + '買われた業種・売られた業種<a class="h-r" href="#why">すべて ›</a></h2><h3 class="mini-h">米国(上位3・下位3)</h3>' + mini(us, 3) + (jp.length ? '<h3 class="mini-h">日本(上位3・下位3)</h3>' + mini(jp, 3) : '') + '</section>' : '';
-      var cal = ((an.flow && an.flow.calendar) || []).slice(0, 4);
-      var calH = cal.length ? '<section class="span-6"><h2>' + ico('redo') + '近い日程<a class="h-r" href="#flow">需給 ›</a></h2><ul class="cal-l">' + cal.map(function (e) { return '<li><span class="cal-d"><b>' + esc(mdDate(e.date)) + '</b><span class="sub">あと' + e.days + '日</span></span><span><strong>' + esc(e.what) + '</strong></span></li>'; }).join('') + '</ul></section>' : '';
-      h += '<div class="dash">' + secH + calH + '</div>';
     }
     if (MK) h += '<section class="hero"><div class="chart" id="hero-chart"></div><p class="hero-cap">S&amp;P 500 ・ 半年の推移(公的統計) <a href="#market">指標とチャート ›</a></p></section>';
     h += helpBox(['VIX', '移動平均線', 'ATR', '値がさ株', '逆イールド', '信用倍率'], ['daily-read', 'money-flow', 'pro-flows'], '今日の相場について、分からないところを教えてください: ');
@@ -736,31 +729,44 @@
     ['流動性', 'マクロ投資家', 'FRBの総資産と金融環境指数。お金の量と借りやすさ。'],
     ['ドル', 'グローバルマクロ', 'ドル指数。強すぎるドルは世界のリスク資産の重し。']
   ];
+  function aheadHTML() {
+    var c = AN && AN.ai && AN.ai.chief, h = '';
+    if (c && c.forecast && (c.forecast.us || c.forecast.jp)) h += '<section class="brief ai-card"><h2>' + ico('target') + '次の5営業日の予想<a class="h-r" href="#track">答え合わせ ›</a></h2><dl class="qa">' + ['us', 'jp'].filter(function (m) { return c.forecast[m]; }).map(function (m) { return '<div><dt>' + MKT_NAME[m] + '</dt><dd><p>' + dirPill(c.forecast[m].dir) + '</p><p>' + esc(c.forecast[m].reason) + '</p></dd></div>'; }).join('') + '</dl>' + (AN.track ? trackMini(AN.track) : '') + '</section>';
+    if (c) {
+      h += '<section><h2>' + ico('compass') + '見通し(深掘り分析)</h2><div class="dash"><div class="span-6"><h3 class="mini-h">数日〜2週間</h3><p>' + esc(c.outlook_short) + '</p><h3 class="mini-h">1〜3か月</h3><p>' + esc(c.outlook_mid) + '</p></div>' +
+        '<div class="span-6">' + (c.change && c.change.length ? '<h3 class="mini-h">見解が変わる条件</h3><ul>' + c.change.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
+        (c.watch && c.watch.length ? '<h3 class="mini-h">これから注目するもの</h3><ul class="watch-l">' + c.watch.map(function (x) { return '<li><strong>' + esc(x.what) + '</strong><span class="sub">' + esc(x.why) + '</span></li>'; }).join('') + '</ul>' : '') + '</div></div></section>';
+    }
+    var cal = calendarHTML();
+    if (cal) h += '<section><h2>' + ico('redo') + '近い日程</h2>' + cal + '</section>';
+    return h;
+  }
   function viewOutlook() {
-    var h = '<div class="page-head"><h1>相場の見立て</h1><p class="page-q">この先どうなりやすいか</p><p class="lead">プロのトレーダーとアナリストが使う7つの視点で、今の株価がなぜこうなっているのか、この先どうなりやすいのかを組み立てます。マイケル・バーリや空売り筋の懐疑的な目線も入れています。</p></div>';
+    var h = '<div class="page-head"><h1>この先</h1><p class="page-q">この先どうなりやすいか</p><p class="lead">先行きをまとめた画面です。深掘り分析の5営業日の予想と見通し、近い日程、公的統計にもとづく7つの視点の見立て(バーリや空売り筋の懐疑的な目線を含む)。</p></div>';
+    h += aheadHTML();
     if (!mkReady) return h + '<section><p class="sub">読み込み中…</p></section>';
     var o = MK && K.mkt.outlook(MK);
     if (!o) {
-      return h + '<section><h2>' + ico('pulse') + 'データを待っています</h2><p>この画面は、毎朝のニュースBotが公的統計(FRED)から書き出す市場データを使います。公開版でBotが一度動いた後から、毎朝自動で見立てが更新されます。</p><div class="actions"><a class="btn" href="#lesson-outlook-method">見立ての作り方を学ぶ</a><a class="btn ghost" href="#lesson-short-sellers">バーリ・空売り筋の思考</a></div></section>' +
+      return h + '<section><h2>' + ico('pulse') + '7つの視点の見立ては準備中</h2><p>この画面は、毎朝のニュースBotが公的統計(FRED)から書き出す市場データを使います。公開版でBotが一度動いた後から、毎朝自動で見立てが更新されます。</p><div class="actions"><a class="btn" href="#lesson-outlook-method">見立ての作り方を学ぶ</a><a class="btn ghost" href="#lesson-short-sellers">バーリ・空売り筋の思考</a></div></section>' +
         '<section><h2>' + ico('grid') + '使う7つの視点</h2><ul class="lens-list">' + LENS_INFO.map(function (x) { return '<li><strong>' + x[0] + '</strong><span class="sub">' + x[1] + '</span><p>' + x[2] + '</p></li>'; }).join('') + '</ul></section>';
     }
     var reg = K.mkt.regime(MK);
-    if (AN && AN.ai && AN.ai.chief) h += '<section class="ai-card"><h2>' + ico('flow') + 'なぜ動いたか(深掘り分析)<a class="h-r" href="#why">詳しく ›</a></h2><p class="why-head">' + esc(AN.ai.chief.headline) + '</p><p>' + esc(AN.ai.chief.us.summary) + '</p><div class="actions"><a class="btn" href="#why">セクター・金利・世界情勢からの分析を見る</a></div></section>';
-    else if (AN) h += '<section><h2>' + ico('flow') + 'なぜ動いたか<a class="h-r" href="#why">詳しく ›</a></h2><p>セクター・金利・商品・世界の市場の動きから、値動きの原因を分析しています。</p></section>';
-    h += '<section><h2>' + ico('target') + '結論<span class="h-r">' + esc(o.name) + ' ・ ' + esc(o.date) + '</span></h2><div class="verdicts">' + verdictBox(o.short, '短期') + verdictBox(o.mid, '中期') + '</div>' +
+    h += '<section><h2>' + ico('target') + '7つの視点の見立て<span class="h-r">' + esc(o.name) + ' ・ ' + esc(o.date) + '</span></h2><div class="verdicts">' + verdictBox(o.short, '短期') + verdictBox(o.mid, '中期') + '</div>' +
       '<p class="sub">確率は7つの視点の採点から置いた目安です。統計的に厳密な予測ではありません。</p></section>';
     var top = o.lenses.slice().sort(function (a, b) { return Math.abs(b.mid) + Math.abs(b.short) - Math.abs(a.mid) - Math.abs(a.short); }).filter(function (l) { return l.mid || l.short; }).slice(0, 3);
-    h += '<section><h2>' + ico('chat') + 'なぜ今の株価になっているのか</h2>' + (reg ? '<p><strong>直近の値動き: ' + esc(reg.title) + '。</strong>' + esc(reg.text) + '</p>' : '') +
-      (top.length ? '<p>いま相場を最も強く動かしている要因:</p><ol class="why">' + top.map(function (l) { return '<li><strong>' + esc(l.name) + '</strong>(' + esc(l.who) + ')— ' + esc(l.text) + '</li>'; }).join('') + '</ol>' : '<p>どの視点にも強い材料は出ておらず、相場は方向を探っています。</p>') + '</section>';
-    h += '<div class="dash"><section class="span-6 bear-card"><h2>' + ico('shield') + '弱気筋・空売り筋の見立て</h2>' + (o.bear.length ? '<ul>' + o.bear.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '<p class="sub">いまのデータからは、弱気筋が強く主張できる材料は多くありません。</p>') + '</section>' +
-      '<section class="span-6 bull-card"><h2>' + ico('pulse') + '強気筋の見立て</h2>' + (o.bull.length ? '<ul>' + o.bull.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '<p class="sub">いまのデータからは、強気筋が強く主張できる材料は多くありません。</p>') + '</section></div>';
-    h += '<section><h2>' + ico('grid') + '7つの視点の採点</h2><ul class="lens-list">' + o.lenses.map(function (l) {
+    var lt = [];
+    lt.push(['pos', '今の位置', (reg ? '<p><strong>直近の値動き: ' + esc(reg.title) + '。</strong>' + esc(reg.text) + '</p>' : '') +
+      (top.length ? '<p>いま相場を最も強く動かしている要因:</p><ol class="why">' + top.map(function (l) { return '<li><strong>' + esc(l.name) + '</strong>(' + esc(l.who) + ')— ' + esc(l.text) + '</li>'; }).join('') + '</ol>' : '<p>どの視点にも強い材料は出ておらず、相場は方向を探っています。</p>')]);
+    lt.push(['bb', '弱気と強気', '<div class="dash"><div class="span-6 bear-card"><h3 class="mini-h down">弱気筋・空売り筋の見立て</h3>' + (o.bear.length ? '<ul>' + o.bear.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '<p class="sub">いまのデータからは、弱気筋が強く主張できる材料は多くありません。</p>') + '</div>' +
+      '<div class="span-6 bull-card"><h3 class="mini-h up">強気筋の見立て</h3>' + (o.bull.length ? '<ul>' + o.bull.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '<p class="sub">いまのデータからは、強気筋が強く主張できる材料は多くありません。</p>') + '</div></div>']);
+    lt.push(['lens', '視点ごとの採点', '<ul class="lens-list">' + o.lenses.map(function (l) {
       return '<li><div class="lens-h"><strong>' + esc(l.name) + '</strong><span class="sub">' + esc(l.who) + '</span><span class="lens-s">' + sigChip(l.short, '短期') + sigChip(l.mid, '中期') + '</span></div><p class="lens-m">' + esc(l.metric) + '</p><p>' + esc(l.text) + '</p>' + (lessonById[l.lesson] ? '<a class="sub" href="#lesson-' + l.lesson + '">考え方: ' + esc(lessonById[l.lesson].t) + ' ›</a>' : '') + '</li>';
-    }).join('') + '</ul></section>';
-    h += '<section><h2>' + ico('shield') + 'バーリ流の過熱チェック<span class="h-r">' + o.burry.n + ' / 4</span></h2><ul class="froth">' + o.burry.items.map(function (x) { return '<li class="' + (x[1] ? 'on' : '') + '"><span class="fz">' + (x[1] ? '該当' : '—') + '</span><span>' + esc(x[0]) + '</span><em>' + esc(x[2]) + '</em></li>'; }).join('') + '</ul><p class="sub">3つ以上が重なると、懐疑派が警戒を強める環境。ただし「下がる理由」の蓄積であって、「下がり始めた合図」ではありません。行動はトレンドと信用の変化を待ちます。<a href="#lesson-short-sellers">詳しく</a></p></section>';
-    h += '<section><h2>' + ico('target') + 'シナリオと注目の価格水準</h2><ul class="scen">' + o.scenarios.map(function (x) { return '<li><div class="scen-h"><strong class="' + x.cls + '">' + x.name + '</strong><span class="scen-p">' + x.p + '%</span></div><div class="v-bar ' + x.cls + '"><i style="width:' + x.p + '%"></i></div><p>' + esc(x.text) + '</p><p class="sub">確認の条件: ' + esc(x.trigger) + '</p></li>'; }).join('') + '</ul></section>';
-    h += '<section><h2>' + ico('redo') + '見立てが変わる条件</h2><ul>' + o.changes.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></section>';
-    if (o.jp) h += '<section><h2>' + aico('market') + '日本株への影響</h2><p>' + esc(o.jp.text) + '</p></section>';
+    }).join('') + '</ul>']);
+    lt.push(['burry', '過熱チェック ' + o.burry.n + '/4', '<ul class="froth">' + o.burry.items.map(function (x) { return '<li class="' + (x[1] ? 'on' : '') + '"><span class="fz">' + (x[1] ? '該当' : '—') + '</span><span>' + esc(x[0]) + '</span><em>' + esc(x[2]) + '</em></li>'; }).join('') + '</ul><p class="sub">3つ以上が重なると、懐疑派が警戒を強める環境。ただし「下がる理由」の蓄積であって、「下がり始めた合図」ではありません。行動はトレンドと信用の変化を待ちます。<a href="#lesson-short-sellers">詳しく</a></p>']);
+    lt.push(['scen', 'シナリオと価格', '<ul class="scen">' + o.scenarios.map(function (x) { return '<li><div class="scen-h"><strong class="' + x.cls + '">' + x.name + '</strong><span class="scen-p">' + x.p + '%</span></div><div class="v-bar ' + x.cls + '"><i style="width:' + x.p + '%"></i></div><p>' + esc(x.text) + '</p><p class="sub">確認の条件: ' + esc(x.trigger) + '</p></li>'; }).join('') + '</ul>']);
+    lt.push(['chg', '変わる条件', '<ul>' + o.changes.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>']);
+    if (o.jp) lt.push(['jp', '日本株への影響', '<p>' + esc(o.jp.text) + '</p>']);
+    h += '<section><h2>' + ico('grid') + '7つの視点の中身</h2>' + tabs('lens', lt) + '</section>';
     h += '<section class="ai-card"><h2>' + ico('chat') + 'プロのアナリストとしての分析</h2><p class="sub">上の採点と数値を材料に、AIがプロのトレーダー兼アナリストの目線で、原因・弱気筋と強気筋の見方・シナリオ・日本株への影響・動き方まで詳しく書きます。</p><div class="actions"><button type="button" class="btn" id="ol-run">' + (olAI.state === 'done' ? 'もう一度分析する' : '詳しく分析してもらう') + '</button><button type="button" class="btn ghost" data-ask="今日の相場の見立てについて、バーリのような空売り筋が今いちばん警戒しているのは何か、具体的に教えて">質問で深掘りする</button></div><div id="ol-ai"></div></section>';
     h += '<p class="disclaimer">この見立ては公的統計の数値から規則にもとづいて組み立てた学習用の分析で、将来の値動きを保証するものではありません。個別株の決算、出来高、相場の幅、オプションの売買動向は含まれていません。売買の判断はご自身で行ってください。</p>';
     return h;
@@ -946,7 +952,7 @@
       return '<p class="what-l">' + dirPill(c[m] && c[m].direction) + ' <b>' + MKT_NAME[m] + '</b>' + moveNums(m) + '<br><span>' + inline(firstS(c[m] && c[m].summary), seen) + '</span></p>';
     }).join('') : ruleList((AN.rules && AN.rules.d1 || []).slice(0, 2))) + '</dd></div>';
     if (!home) {   // なぜ動いたかの先頭: 見出しと「何が起きたか」だけ(なぜ・どうするかは下の欄と需給の画面にある)
-      return '<section class="brief ai-card"><h2>' + ico('target') + '何が起きたか' + (c ? '<span class="h-r sub">確信度 ' + esc(c.confidence) + '</span>' : '') + '</h2>' +
+      return '<section class="brief ai-card"><h2>' + ico('target') + '今日の見出し' + (c ? '<span class="h-r sub">確信度 ' + esc(c.confidence) + '</span>' : '') + '</h2>' +
         (c ? '<p class="why-head">' + esc(c.headline) + '</p>' : '') + '<dl class="qa">' + what + '</dl></section>';
     }
     return '<section class="brief ai-card"><h2>' + ico('target') + '今日の要点' + (c ? '<span class="h-r sub">確信度 ' + esc(c.confidence) + '</span>' : '') + '</h2>' +
@@ -954,27 +960,28 @@
       (c ? '<p class="why-head">' + esc(c.headline) + '</p>' : '<p class="notice">今日はAIの分析ができなかったため、データの自動判定を表示しています。</p>') +
       '<dl class="qa">' + what +
       '<div><dt>なぜ</dt><dd>' + (rc ? '<p>' + inline(rc.summary, seen) + ' <a href="#why">根本までたどる ›</a></p>' : ruleList((AN.rules && AN.rules.d5 || []).slice(0, 2))) + '</dd></div>' +
-      (stratTiles() ? '<div><dt>どうするか</dt><dd>' + stratTiles() + '<p class="sub"><a href="#flow">需給と戦い方を見る ›</a></p></dd></div>' : '') +
+      (stratTiles() ? '<div><dt>どうするか</dt><dd>' + stratTiles() + '<p class="sub"><a href="#plan">戦い方と損切りを見る ›</a></p></dd></div>' : '') +
       '</dl></section>';
   }
-  /* ホームの「どこに何があるか」: 画面ごとの問いと、その画面の今日の答えの一部 */
+  /* ホームの「今日の答え」: 情報の種類(事実・解釈・判断・先行き)ごとに、その画面の今日の答えを1行で */
   function pageMap() {
-    var c = AN && AN.ai && AN.ai.chief, ty = (AN && AN.structure && AN.structure.types) || [], S = (AN && AN.strategy) || {}, tr = AN && AN.track;
-    var top = c && c.us && c.us.causes && c.us.causes[0];
-    var rule = ['us', 'jp'].filter(function (k) { return S[k] && S[k].rule; }).map(function (k) { return S[k].name + ' ' + (S[k].rule.position === 100 ? '投資' : '待機'); }).join(' ・ ');
-    var caut = S.us && S.us.caution && S.us.caution.level;
-    var fc = c && c.forecast ? ['us', 'jp'].filter(function (m) { return c.forecast[m]; }).map(function (m) { return MKT_NAME[m] + ' ' + c.forecast[m].dir; }).join(' ・ ') : '';
-    var tl = tr && tr.all ? (tr.all.n ? tr.all.hit + ' / ' + tr.all.n + ' 的中(' + tr.all.pct + '%)' : 'まだ採点なし' + (tr.pending ? ' ・ 判定待ち ' + tr.pending + '件' : '')) : '';
-    var cards = [
-      ['why', 'flow', 'なぜ動いたか', '原因を根本まで・業種・お金の流れ・ニュース', ty.length ? '動きの型: ' + ty[0].type + ' ' + ty[0].share + '%' : top ? '主因: ' + top.title : ''],
-      ['flow', 'person', '需給と戦略', 'だれが売り買いしたか・月末の規則・損切り', rule ? rule + (caut ? ' ・ 注意 ' + caut : '') : ''],
-      ['outlook', 'compass', '相場の見立て', 'この先どうなりやすいか・強気と弱気', fc ? '5営業日の予想: ' + fc : ''],
-      ['track', 'redo', '答え合わせ', '過去の予想は当たったか・外れた理由', tl],
-      ['market', 'pulse', '指標とチャート', '金利・為替・指数の長い推移', '']
+    var c = AN && AN.ai && AN.ai.chief, ty = (AN && AN.structure && AN.structure.types) || [], S = (AN && AN.strategy) || {}, tr = AN && AN.track, F = (AN && AN.features) || {};
+    var secs = Object.keys(F).map(function (k) { return F[k]; }).filter(function (f) { return f.group === 'us' && f.c1 != null; }).sort(function (x, y) { return y.c1 - x.c1; });
+    var dataA = secs.length ? '最も強い ' + secs[0].name + ' ' + sgnN(secs[0].c1, 2, '%') + ' ・ 最も弱い ' + secs[secs.length - 1].name + ' ' + sgnN(secs[secs.length - 1].c1, 2, '%') : '';
+    var whyA = ty.length ? '動きの型は「' + ty[0].type + '」(' + ty[0].share + '%)' : (c && c.us && c.us.causes && c.us.causes[0] ? '主因: ' + c.us.causes[0].title : '');
+    var planA = ['us', 'jp'].filter(function (k) { return S[k] && S[k].rule; }).map(function (k) { return S[k].name + ' ' + (S[k].rule.position === 100 ? '投資' : '待機'); }).join(' ・ ') + (S.us && S.us.caution ? ' ・ 注意 ' + S.us.caution.level : '');
+    var aheadA = c && c.forecast ? ['us', 'jp'].filter(function (m) { return c.forecast[m]; }).map(function (m) { return MKT_NAME[m] + ' ' + c.forecast[m].dir; }).join(' ・ ') : '';
+    var cal = AN && AN.flow && AN.flow.calendar && AN.flow.calendar[0];
+    if (cal) aheadA += (aheadA ? ' ・ ' : '') + '次の日程 ' + mdDate(cal.date) + ' ' + cal.what;
+    var rows = [
+      ['data', '事実', 'データ', '何がどれだけ動いたか', dataA],
+      ['why', '解釈', 'なぜ動いたか', 'その原因', whyA],
+      ['plan', '判断', '戦略', '今どう動くか', planA],
+      ['outlook', '先行き', 'この先', '5営業日の予想と日程', aheadA]
     ];
-    return '<section class="pmap"><h2>' + ico('grid') + 'どこに何があるか</h2><div class="pmap-g">' + cards.map(function (x) {
-      return '<a class="pm" href="#' + x[0] + '">' + ico(x[1]) + '<span class="pm-b"><strong>' + x[2] + ' ›</strong><span class="sub">' + x[3] + '</span>' + (x[4] ? '<span class="pm-now">' + esc(x[4]) + '</span>' : '') + '</span></a>';
-    }).join('') + '</div></section>';
+    return '<section class="pmap"><h2>' + ico('grid') + '今日の答え(画面ごと)' + (tr && tr.all ? '<a class="h-r" href="#track">答え合わせ ' + (tr.all.n ? tr.all.pct + '%' : 'まだ採点なし') + ' ›</a>' : '') + '</h2><ul class="pm-l">' + rows.map(function (x) {
+      return '<li><a href="#' + x[0] + '"><span class="pm-k">' + x[1] + '</span><span class="pm-b"><strong>' + x[2] + '<span class="sub"> ・ ' + x[3] + '</span></strong>' + (x[4] ? '<span class="pm-now">' + esc(x[4]) + '</span>' : '') + '</span><i>›</i></a></li>';
+    }).join('') + '</ul></section>';
   }
   /* わからない時に開く: この画面の言葉(押すと用語集)と、考え方のレッスン */
   function helpBox(terms, lessonIds, ask) {
@@ -985,36 +992,20 @@
       '<div class="chips"><a class="chip" href="#glossary">用語集</a><button type="button" class="chip" data-ask="' + esc(ask) + '">AIに質問する</button></div></section>';
   }
   function viewWhy() {
-    var h = '<div class="page-head"><h1>なぜ動いたか</h1><p class="page-q">なぜ今日の株価はこう動いたのか</p><p class="lead">セクター・金利・世界の市場・ニュースを材料に、7人のアナリストが分析を重ね、チーフが統合した見解です。毎朝更新。</p></div>';
+    var h = '<div class="page-head"><h1>なぜ動いたか</h1><p class="page-q">なぜ今日の株価はこう動いたのか</p><p class="lead">原因の解釈をまとめた画面です。7人のアナリストが分析を重ね、チーフが統合しました。もとになった数字は「データ」、どう動くかは「戦略」、先行きは「この先」にあります。</p></div>';
     if (!anReady) return h + '<section><p class="sub">読み込み中…</p></section>';
     if (!AN) return h + '<section><h2>' + ico('pulse') + 'データを待っています</h2><p>この画面のデータは、毎朝のニュースBotが投稿の後に <code>learn/data/analysis.json</code> として書き出します。公開版でBotが一度動いた後から表示されます。</p><div class="actions"><a class="btn" href="#outlook">相場の見立て</a><a class="btn ghost" href="#lesson-money-flow">セクターの読み方</a></div></section>';
-    var ai = AN.ai || {}, c = ai.chief, hs = whyH === 'c1' ? '1日' : whyH === 'c5' ? '5日' : '20日';
+    var ai = AN.ai || {}, c = ai.chief;
     var rc = c && c.root_cause && c.root_cause.summary ? c.root_cause : null;
     // 1. 何が起きたか(見出しと数字)
     h += briefHTML(false);
     // 2. 原因を根本までたどる
     if (rc || typesHTML()) h += '<section class="root-card" id="why-root"><h2>' + ico('flow') + '原因を根本までたどる</h2>' + (rc ? '<p class="why-head small">' + esc(rc.summary) + '</p>' + chainHTML(rc.chain, true) : '') + typesHTML() + '</section>';
     // 3. 市場ごとの説明
-    if (c) h += '<section><h2>' + ico('globe') + '市場ごとの説明</h2>' + tabs('mkt', [['us', '米国', mktInner(c.us)], ['jp', '日本', mktInner(c.jp)], ['debate', '強気と弱気', c.debate ? '<p>' + esc(c.debate) + '</p>' : '']]) + '</section>';
+    if (c) h += '<section><h2>' + ico('globe') + '市場ごとの説明</h2>' + tabs('mkt', [['us', '米国', mktInner(c.us)], ['jp', '日本', mktInner(c.jp)], ['debate', '強気と弱気', c.debate ? '<p>' + esc(c.debate) + '</p>' : ''], ['sd', '需給の見方', c.supply_demand ? bullets(c.supply_demand) : '']]) + '</section>';
+    // 4. 業種ごとの理由
+    if (c && c.sectors && c.sectors.length) h += '<section><h2>' + ico('grid') + '業種ごとの理由<a class="h-r" href="#data">数字 ›</a></h2><ul class="sec-why">' + c.sectors.map(function (x) { return '<li><strong>' + esc(x.name) + '</strong><p>' + esc(x.why) + '</p>' + (x.root ? '<p class="root-line"><span class="chain-k">⑤ 根本の原因</span> ' + esc(x.root) + '</p>' : '') + '</li>'; }).join('') + '</ul></section>';
     // 4. データで確かめる
-    var seg = '<div class="seg small" role="group" aria-label="期間">' + [['c1', '1日'], ['c5', '5日'], ['c20', '20日']].map(function (x) { return '<button type="button" data-whyh="' + x[0] + '" class="' + (whyH === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') + '</div>';
-    var bu = AN.breadth && AN.breadth.us, bj = AN.breadth && AN.breadth.jp, cu = AN.contrib && AN.contrib.us, cj = AN.contrib && AN.contrib.jp;
-    var secH = '<h3 class="mini-h">米国(セクターETF)' + (bu ? '<span class="sub mini-s">今日の上昇 ' + bu.up1 + ' / ' + bu.n + ' ・ 50日線の上 ' + bu.above50 + ' / ' + bu.n + '</span>' : '') + '</h3>' + heatGrid('us') +
-      '<h3 class="mini-h">日本(TOPIX-17業種のETF)' + (bj ? '<span class="sub mini-s">今日の上昇 ' + bj.up1 + ' / ' + bj.n + ' ・ 50日線の上 ' + bj.above50 + ' / ' + bj.n + '</span>' : '') + '</h3>' + heatGrid('jp') +
-      '<p class="sub">色の濃さは「ふだんの値動きの何倍か」。対指数は S&P 500 / TOPIX との差。</p>' +
-      (c && c.sectors && c.sectors.length ? '<details class="chain"><summary>大きく動いた業種と、その理由(' + c.sectors.length + '業種)</summary><ul class="sec-why">' + c.sectors.map(function (x) { return '<li><strong>' + esc(x.name) + '</strong><p>' + esc(x.why) + '</p>' + (x.root ? '<p class="root-line"><span class="chain-k">⑤ 根本の原因</span> ' + esc(x.root) + '</p>' : '') + '</li>'; }).join('') + '</ul></details>' : '');
-    var conH = (cu || cj) ? '<div class="dash">' + contribInner(cj, '日経平均を動かした値がさ株', '日経平均とTOPIXの差') + contribInner(cu, 'S&P 500を動かした巨大株', '時価総額加重と均等加重の差') + '</div>' : '';
-    var sigH = (AN.signals || []).length ? '<ul class="sigs">' + AN.signals.map(sigRow).join('') + '</ul><p class="sub">「買われた側 − 売られた側」の騰落の差。プロは指数より、この差で市場が何を織り込んでいるかを読みます。<a href="#lesson-money-flow">考え方</a></p>' : '';
-    var crossH = '<div class="dash"><div class="span-6"><h3 class="mini-h">金利・恐怖指数・商品・為替</h3>' + crossTable(['cross', 'style']) + '</div><div class="span-6"><h3 class="mini-h">世界の株価指数</h3>' + crossTable(['global']) + '</div></div>';
-    h += '<section><h2>' + ico('grid') + 'データで確かめる<span class="h-r">' + seg + '</span></h2>' +
-      tabs('data', [['sec', 'セクター', secH], ['contrib', '指数を動かした銘柄', conH], ['movers', '大きく動いた大型株', moversInner()], ['flow', 'お金の流れ', sigH], ['cross', '金利・為替・世界', crossH]]) +
-      '<p class="sub dq">期間: ' + hs + '(大型株は1日、寄与は1日・5日)</p></section>';
-    // 5. この先
-    if (c) {
-      h += '<section><h2>' + ico('compass') + 'この先</h2><div class="dash"><div class="span-6"><h3 class="mini-h">数日〜2週間</h3><p>' + esc(c.outlook_short) + '</p><h3 class="mini-h">1〜3か月</h3><p>' + esc(c.outlook_mid) + '</p></div>' +
-        '<div class="span-6">' + (c.change && c.change.length ? '<h3 class="mini-h">見解が変わる条件</h3><ul>' + c.change.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
-        (c.watch && c.watch.length ? '<h3 class="mini-h">これから注目するもの</h3><ul class="watch-l">' + c.watch.map(function (x) { return '<li><strong>' + esc(x.what) + '</strong><span class="sub">' + esc(x.why) + '</span></li>'; }).join('') + '</ul>' : '') + '</div></div></section>';
-    }
     // 6. 詳しく見る
     var passes = ai.passes || {};
     var panels = Object.keys(passes).length ? '<p class="steps">' + (ai.steps || []).map(esc).join(' → ') + '</p><p class="sub">後の人は前の人の分析を読んだうえで、補ったり反論したりしています。</p><div class="panels">' +
@@ -1027,17 +1018,31 @@
     var rules = (AN.rules && (AN.rules.d5 || AN.rules.d20)) ? '<p class="sub">上の分析の土台です。ふだんより大きく動いたものだけを、型に当てはめています。</p><h3 class="mini-h">直近5日</h3>' + ruleList(AN.rules.d5) + '<h3 class="mini-h">この1か月(20日)</h3>' + ruleList(AN.rules.d20) : '';
     var nl = ((ai.news) || []).filter(function (l) { return /^N\d+ /.test(l); });
     var news = nl.length ? '<p class="sub">根拠の「ニュース○」は、この番号の記事です。英語の記事は見出しと概要のまま載せています。</p><ol class="news-list">' + nl.map(function (l) { var m = l.match(/^(N\d+) \(([^,]*), ([^)]*)\) (.*)$/); return m ? '<li id="news-' + m[1] + '"><span class="ev-c">ニュース' + m[1].slice(1) + '</span> <span class="sub">' + esc(m[2]) + ' ・ ' + esc(m[3]) + '</span><p>' + esc(m[4]) + '</p></li>' : '<li>' + esc(l) + '</li>'; }).join('') + '</ol>' : '';
-    if (AN.track) h += '<section><h2>' + ico('redo') + '見立ての答え合わせ<a class="h-r" href="#track">すべて ›</a></h2>' + trackMini(AN.track) + (c && c.forecast && (c.forecast.us || c.forecast.jp) ? '<p class="sub">今回の予想(5営業日): ' + ['us', 'jp'].filter(function (m) { return c.forecast[m]; }).map(function (m) { return MKT_NAME[m] + ' ' + esc(c.forecast[m].dir); }).join(' ・ ') + '</p>' : '') + '</section>';
     h += '<section><h2>' + ico('book') + '詳しく見る</h2><div class="folds">' +
       fold('chat', 'アナリスト会議', '7つの役割の分析の全文', panels) +
       fold('grid', 'データの自動判定', 'AIを使わない計算', rules) +
       fold('book', '今日の相場から学べること', '', c && c.lesson ? '<p>' + esc(c.lesson) + '</p>' : '') +
       '<div id="why-news-sec">' + fold('book', '分析に使ったニュース(' + nl.length + '件)', '', news) + '</div>' +
-      fold('shield', 'データの確認', '取得した日付・照合の結果', qualityLine()) +
       '</div></section>';
     h += helpBox(['VIX', '移動平均線', '値がさ株', 'イールドカーブ', '逆イールド', '騰落レシオ', 'セクター'], ['money-flow', 'daily-read'], '今日の「なぜ動いたか」の分析で分からないところを、初心者にも分かるように説明してください: ');
     h += '<p class="disclaimer">AIの文章は、数字をデータとニュースに照らして確かめ、確かめられない数字を含む文は捨てています(今日は ' + ((ai.dropped || []).length) + ' 文)。それでも分析は推測を含み、将来の値動きを保証するものではありません。売買の判断はご自身で行ってください。更新 ' + esc((AN.updated || '').replace('T', ' ').slice(0, 16)) + '</p>';
     return h;
+  }
+
+  /* データ(事実)の画面の欄: 価格の動き */
+  function priceDataSec() {
+    var c = AN.ai && AN.ai.chief, hs = whyH === 'c1' ? '1日' : whyH === 'c5' ? '5日' : '20日';
+    var seg = '<div class="seg small" role="group" aria-label="期間">' + [['c1', '1日'], ['c5', '5日'], ['c20', '20日']].map(function (x) { return '<button type="button" data-whyh="' + x[0] + '" class="' + (whyH === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') + '</div>';
+    var bu = AN.breadth && AN.breadth.us, bj = AN.breadth && AN.breadth.jp, cu = AN.contrib && AN.contrib.us, cj = AN.contrib && AN.contrib.jp;
+    var secH = '<h3 class="mini-h">米国(セクターETF)' + (bu ? '<span class="sub mini-s">今日の上昇 ' + bu.up1 + ' / ' + bu.n + ' ・ 50日線の上 ' + bu.above50 + ' / ' + bu.n + '</span>' : '') + '</h3>' + heatGrid('us') +
+      '<h3 class="mini-h">日本(TOPIX-17業種のETF)' + (bj ? '<span class="sub mini-s">今日の上昇 ' + bj.up1 + ' / ' + bj.n + ' ・ 50日線の上 ' + bj.above50 + ' / ' + bj.n + '</span>' : '') + '</h3>' + heatGrid('jp') +
+      '<p class="sub">色の濃さは「ふだんの値動きの何倍か」。対指数は S&P 500 / TOPIX との差。</p>';
+    var conH = (cu || cj) ? '<div class="dash">' + contribInner(cj, '日経平均を動かした値がさ株', '日経平均とTOPIXの差') + contribInner(cu, 'S&P 500を動かした巨大株', '時価総額加重と均等加重の差') + '</div>' : '';
+    var sigH = (AN.signals || []).length ? '<ul class="sigs">' + AN.signals.map(sigRow).join('') + '</ul><p class="sub">「買われた側 − 売られた側」の騰落の差。プロは指数より、この差で市場が何を織り込んでいるかを読みます。<a href="#lesson-money-flow">考え方</a></p>' : '';
+    var crossH = '<div class="dash"><div class="span-6"><h3 class="mini-h">金利・恐怖指数・商品・為替</h3>' + crossTable(['cross', 'style']) + '</div><div class="span-6"><h3 class="mini-h">世界の株価指数</h3>' + crossTable(['global']) + '</div></div>';
+    return '<section><h2>' + ico('grid') + '価格の動き<span class="h-r">' + seg + '</span></h2>' +
+      tabs('data', [['sec', 'セクター', secH], ['contrib', '指数を動かした銘柄', conH], ['movers', '大きく動いた大型株', moversInner()], ['flow', 'お金の流れ', sigH], ['cross', '金利・為替・世界', crossH]]) +
+      '<p class="sub dq">期間: ' + hs + '(大型株は1日、寄与は1日・5日)</p></section>';
   }
 
   /* ================= 画面: 需給と戦略 ================= */
@@ -1078,15 +1083,14 @@
       '<p>持てる金額の上限: <strong class="big">' + fmtN(size, 0) + '円</strong>(資金の' + (cap ? Math.round(size / cap * 100) : 0) + '%)</p>' +
       (lev < 1 ? '<p class="warn"><span class="warn-label">注意</span>今は注意の度合いが「' + esc(st.caution.level) + '」のため、プロはこの半分(約' + fmtN(size / 2, 0) + '円)以下に抑えるのが一般的です。</p>' : '');
   }
-  function viewFlow() {
-    var h = '<div class="page-head"><h1>需給と戦略</h1><p class="page-q">だれが売り買いしていて、今どう戦うか</p><p class="lead">だれが売り、だれが買っているのか(需給)と、プロが成績を残すための戦い方(投資比率・売買の大きさ・損切り)。公開の統計(Yahoo・CBOE・CFTC・JPX)から毎朝計算します。</p></div>';
+  function viewPlan() {
+    var h = '<div class="page-head"><h1>戦略</h1><p class="page-q">今どう動くか</p><p class="lead">判断をまとめた画面です。月末の規則(投資か待機か)、注意の度合いと1回の売買の大きさ、今の戦い方と損切りの価格。需給の数字は「データ」にあります。</p></div>';
     if (!anReady) return h + '<section><p class="sub">読み込み中…</p></section>';
-    var fl = AN && AN.flow, stg = AN && AN.strategy || {};
-    if (!fl || !Object.keys(fl).length) return h + '<section><h2>' + ico('pulse') + 'データを待っています</h2><p>この画面のデータは、毎朝のBotが深掘り分析と一緒に書き出します。</p><div class="actions"><a class="btn" href="#lesson-pro-flows">需給の読み方を学ぶ</a></div></section>';
+    var stg = AN && AN.strategy || {};
+    if (!AN || !(stg.us || stg.jp)) return h + '<section><h2>' + ico('pulse') + 'データを待っています</h2><p>この画面のデータは、毎朝のBotが深掘り分析と一緒に書き出します。</p><div class="actions"><a class="btn" href="#lesson-pro-flows">需給の読み方を学ぶ</a></div></section>';
     var c = AN.ai && AN.ai.chief, pb = c && c.playbook;
-    // 1. 今日の要点
-    h += '<section class="brief ai-card"><h2>' + ico('target') + '今日の要点</h2>' +
-      (c && c.supply_demand ? bullets(c.supply_demand) : '') + stratTiles() + '</section>';
+    // 1. 規則の判定
+    h += '<section class="brief ai-card"><h2>' + ico('target') + '規則の判定</h2>' + stratTiles() + '</section>';
     // 2. 今の戦い方
     if (pb && pb.stance) h += '<section><h2>' + ico('shield') + '今の戦い方</h2><p>' + esc(pb.stance) + '</p><div class="dash"><div class="span-6 do-box"><h3 class="mini-h up">機能しやすい行動</h3><ul>' + (pb.do || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div><div class="span-6 avoid-box"><h3 class="mini-h down">避けるべき行動</h3><ul>' + (pb.avoid || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>' + (pb.risk ? '<p class="notice"><strong>損切りと考えを変える価格:</strong> ' + esc(pb.risk) + '</p>' : '') + '</section>';
     // 3. 指数ごとの規則と計算
@@ -1094,6 +1098,25 @@
       TAB.fsm = fsMkt;
       h += '<section><h2>' + ico('tool') + '指数ごとの規則と計算</h2>' + tabs('fsm', [['us', 'S&P 500', stratInner(stg.us)], ['jp', '日経平均', stratInner(stg.jp)]]) + '</section>';
     }
+    // 5. 詳しく見る
+    var passes = (AN.ai && AN.ai.passes) || {};
+    var pf = ['strategy'].filter(function (k) { return passes[k]; });
+    var why = '<p>トレンド・売り抜けの日・VIXなどを組み合わせて毎日投資比率を変える規則を過去20年で検証したところ、判定の変更が年18〜46回と多く、米国では前半・後半とも持ち続けに負けました。最も安定していたのは「月末の終値が200日平均の上なら投資、下なら待機」という単純な規則(M.フェイバーが2007年に公表)で、日米・前半後半のすべてで最大の下落を大きく減らしました。数値は過去に合わせて調整していません。売り抜けの日やVIXは、投資比率の切り替えではなく「1回の売買の大きさ」の目安(注意の度合い)として使います。</p><p class="sub">規則に従うと、強い上昇相場では持ち続けより年率が下がることがあります(2017年以降の米国など)。この規則の価値は、大きな下落を避けて退場しないことにあります。<a href="#lesson-pro-flows">考え方</a></p>';
+    var anl = pf.map(function (k) {
+      var p = passes[k];
+      return '<details class="panel"><summary>' + ico(k === 'flow' ? 'person' : 'shield') + '<span><strong>' + esc(p.role) + '</strong><span class="sub">' + esc(p.view) + '</span></span></summary><ul class="items">' + (p.items || []).map(function (it) {
+        return '<li><div class="cause-h"><strong>' + esc(it.title) + '</strong>' + (it.impact ? '<span class="pill ' + (it.impact === '上昇要因' ? 'up' : it.impact === '下落要因' ? 'down' : 'flat') + '">' + esc(it.impact) + '</span>' : '') + '</div><p>' + esc(it.explain) + '</p>' + evChips(it.evidence) + chainHTML(it.chain) + '</li>';
+      }).join('') + '</ul></details>';
+    }).join('');
+    h += '<section><h2>' + ico('book') + '詳しく見る</h2><div class="folds">' + fold('book', 'この規則を選んだ理由', '過去20年の検証から', stg.us || stg.jp ? why : '') + fold('chat', '担当アナリストの分析', '売買戦略とリスク管理', anl ? '<div class="panels">' + anl + '</div>' : '') + '</div></section>';
+    h += helpBox(['ATR', 'ポジションサイズ', '損切り', '移動平均線', 'フォロースルーデー'], ['pro-flows'], '「戦略」の画面で分からないところを、初心者にも分かるように説明してください: ');
+    h += '<p class="disclaimer">規則の成績は過去の検証で、将来の成績を保証するものではありません。売買の判断はご自身で行ってください。更新 ' + esc((AN.updated || '').replace('T', ' ').slice(0, 16)) + '</p>';
+    return h;
+  }
+
+  /* データ(事実)の画面の欄: 需給 */
+  function flowDataSec() {
+    var fl = AN.flow || {};
     // 4. 需給のデータ
     var op = fl.options || {}, pc = fl.putcall || {}, it = op.items, vb = fl.volume || {}, cot = fl.cot || {}, ih = fl.investor_hist || [], mh = fl.margin_hist || [], cal = fl.calendar || [];
     var opH = it ? '<div class="dash"><div class="span-6"><h3 class="mini-h">恐怖の期間構造</h3>' +
@@ -1115,21 +1138,23 @@
       (mh.length ? '<h3 class="mini-h">信用取引の残高(二市場)</h3><div class="table-wrap"><table class="num"><thead><tr><th class="l">週末</th><th>買い残</th><th>前週比</th><th>売り残</th><th>信用倍率</th></tr></thead><tbody>' +
         mh.slice(-6).reverse().map(function (m) { return '<tr><td class="l">' + esc(m.date.slice(4, 6) + '/' + m.date.slice(6)) + '</td><td>' + oku(m.buy).replace('+', '') + '</td><td class="' + (m.buy_chg > 0 ? 'up' : 'down') + '">' + oku(m.buy_chg) + '</td><td>' + oku(m.sell).replace('+', '') + '</td><td>' + m.ratio + '倍</td></tr>'; }).join('') +
         '</tbody></table></div><p class="sub">信用買い残は将来の売り(返済の売り)の予備軍。買い残が多いまま株価が下がると投げ売りで下げが加速しやすく、大きく減ると「売りの出尽くし」に近づきます。</p>' : '') : '';
-    var calH = cal.length ? '<ul class="cal-l">' + cal.map(function (e) { return '<li><span class="cal-d"><b>' + esc(mdDate(e.date)) + '</b><span class="sub">あと' + e.days + '日</span></span><span><strong>' + esc(e.what) + '</strong><span class="sub">' + esc(e.why) + '</span></span></li>'; }).join('') + '</ul>' : '';
-    h += '<section><h2>' + ico('pulse') + '需給のデータ</h2>' + tabs('flowd', [['op', 'オプション', opH], ['vol', '出来高', vbH], ['cot', '大口の持ち高', cotH], ['jp', '日本の主体別', ihH], ['cal', '日程', calH]]) + '</section>';
-    // 5. 詳しく見る
-    var passes = (AN.ai && AN.ai.passes) || {};
-    var pf = ['flow', 'strategy'].filter(function (k) { return passes[k]; });
-    var why = '<p>トレンド・売り抜けの日・VIXなどを組み合わせて毎日投資比率を変える規則を過去20年で検証したところ、判定の変更が年18〜46回と多く、米国では前半・後半とも持ち続けに負けました。最も安定していたのは「月末の終値が200日平均の上なら投資、下なら待機」という単純な規則(M.フェイバーが2007年に公表)で、日米・前半後半のすべてで最大の下落を大きく減らしました。数値は過去に合わせて調整していません。売り抜けの日やVIXは、投資比率の切り替えではなく「1回の売買の大きさ」の目安(注意の度合い)として使います。</p><p class="sub">規則に従うと、強い上昇相場では持ち続けより年率が下がることがあります(2017年以降の米国など)。この規則の価値は、大きな下落を避けて退場しないことにあります。<a href="#lesson-pro-flows">考え方</a></p>';
-    var anl = pf.map(function (k) {
-      var p = passes[k];
-      return '<details class="panel"><summary>' + ico(k === 'flow' ? 'person' : 'shield') + '<span><strong>' + esc(p.role) + '</strong><span class="sub">' + esc(p.view) + '</span></span></summary><ul class="items">' + (p.items || []).map(function (it) {
-        return '<li><div class="cause-h"><strong>' + esc(it.title) + '</strong>' + (it.impact ? '<span class="pill ' + (it.impact === '上昇要因' ? 'up' : it.impact === '下落要因' ? 'down' : 'flat') + '">' + esc(it.impact) + '</span>' : '') + '</div><p>' + esc(it.explain) + '</p>' + evChips(it.evidence) + chainHTML(it.chain) + '</li>';
-      }).join('') + '</ul></details>';
-    }).join('');
-    h += '<section><h2>' + ico('book') + '詳しく見る</h2><div class="folds">' + fold('book', 'この規則を選んだ理由', '過去20年の検証から', stg.us || stg.jp ? why : '') + fold('chat', '担当アナリストの分析', '需給・売買戦略の2人', anl ? '<div class="panels">' + anl + '</div>' : '') + '</div></section>';
-    h += helpBox(['VIX', 'ATR', 'ディストリビューション', 'フォロースルーデー', '信用倍率', '円キャリー取引', 'SQ', 'ポジションサイズ', '損切り'], ['pro-flows'], '「需給と戦略」の画面で分からないところを、初心者にも分かるように説明してください: ');
-    h += '<p class="disclaimer">需給の数値は公開の統計を自動で集計したものです(CFTCは火曜時点で金曜公表、投資部門別と信用残は前週分)。規則の成績は過去の検証で、将来の成績を保証するものではありません。売買の判断はご自身で行ってください。更新 ' + esc((AN.updated || '').replace('T', ' ').slice(0, 16)) + '</p>';
+    return '<section><h2>' + ico('person') + '需給(だれが売り買いしたか)</h2>' + tabs('flowd', [['op', 'オプション', opH], ['vol', '出来高', vbH], ['cot', '大口の持ち高', cotH], ['jp', '日本の主体別', ihH]]) + '</section>';
+  }
+  function calendarHTML(n) {
+    var cal = ((AN && AN.flow && AN.flow.calendar) || []).slice(0, n || 99);
+    return cal.length ? '<ul class="cal-l">' + cal.map(function (e) { return '<li><span class="cal-d"><b>' + esc(mdDate(e.date)) + '</b><span class="sub">あと' + e.days + '日</span></span><span><strong>' + esc(e.what) + '</strong>' + (e.why ? '<span class="sub">' + esc(e.why) + '</span>' : '') + '</span></li>'; }).join('') + '</ul>' : '';
+  }
+  /* ================= 画面: データ(事実) ================= */
+  function viewData() {
+    var h = '<div class="page-head"><h1>データ</h1><p class="page-q">今日、実際に何がどれだけ動いたか</p><p class="lead">AIの解釈を入れない、数字だけの画面です。価格の動き(業種・指数を動かした銘柄・お金の流れ・金利や為替)と、需給(オプション・出来高・大口の持ち高・日本の主体別)を毎朝集計します。</p></div>';
+    if (!anReady) return h + '<section><p class="sub">読み込み中…</p></section>';
+    if (!AN) return h + '<section><h2>' + ico('pulse') + 'データを待っています</h2><p>毎朝のBotがデータを書き出した後に表示されます。</p></section>';
+    h += priceDataSec();
+    if (AN.flow && Object.keys(AN.flow).length) h += flowDataSec();
+    h += '<section><h2>' + ico('pulse') + '長い期間の推移<a class="h-r" href="#market">指標とチャート ›</a></h2><p>金利・為替・指数の数か月〜数年の推移は「指標とチャート」で見られます(公的統計 FRED)。</p></section>';
+    h += '<section><h2>' + ico('book') + '詳しく見る</h2><div class="folds">' + fold('shield', 'データの確認', '取得した日付・照合の結果', qualityLine()) + '</div></section>';
+    h += helpBox(['VIX', 'ATR', 'セクター', '値がさ株', '騰落レシオ', 'ディストリビューション', '信用倍率'], ['money-flow', 'pro-flows'], '「データ」の画面の数字の読み方を、初心者にも分かるように説明してください: ');
+    h += '<p class="disclaimer">数値は公開の統計を自動で集計したものです(CFTCは火曜時点で金曜公表、投資部門別と信用残は前週分)。更新 ' + esc((AN.updated || '').replace('T', ' ').slice(0, 16)) + '</p>';
     return h;
   }
 
@@ -1437,12 +1462,12 @@
 
   /* ================= ナビゲーションとルーティング ================= */
   var NAV = [
-    ['今日の市場', [['home', '今日の市場', 'grid'], ['why', 'なぜ動いたか', 'flow'], ['flow', '需給と戦略', 'person'], ['outlook', '相場の見立て', 'compass'], ['track', '答え合わせ', 'redo'], ['market', '指標とチャート', 'pulse']]],
+    ['今日の市場', [['home', '今日の市場', 'grid'], ['why', 'なぜ動いたか', 'flow'], ['data', 'データ', 'pulse'], ['plan', '戦略', 'shield'], ['outlook', 'この先', 'compass'], ['track', '答え合わせ', 'redo'], ['market', '指標とチャート', 'pulse']]],
     ['練習', [['drill', 'チャート演習', 'target'], ['review', '復習', 'redo']]],
     ['わからない時に', [['library', '学ぶ', 'book'], ['glossary', '用語集', 'abc'], ['ask', '質問する', 'chat'], ['macro', '因果マップ', 'flow'], ['charts', 'チャート図鑑', 'candle'], ['traders', 'トレーダー研究', 'person'], ['tools', 'ツール', 'tool']]]
   ];
   var DOCK_L = [['home', '今日', 'grid'], ['why', 'なぜ', 'flow']];
-  var DOCK_M = [['flow', '需給', 'person'], ['outlook', '見立て', 'compass'], ['library', '学ぶ', 'book']];
+  var DOCK_M = [['data', 'データ', 'pulse'], ['plan', '戦略', 'shield'], ['outlook', 'この先', 'compass']];
   var ICON = {
     grid: '<rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/>',
     pulse: '<path d="M3 12h4l2-6 4 12 2-6h6"/>',
@@ -1467,8 +1492,8 @@
   var AREA_ICON = { market: 'globe', company: 'doc', chart: 'candle', risk: 'shield', strategy: 'target', base: 'compass' };
   function aico(id) { return '<span class="aico a-' + id + '">' + ico(AREA_ICON[id]) + '</span>'; }
   function ico(name) { return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">' + ICON[name] + '</svg>'; }
-  var TITLES = { home: '今日の市場', market: '指標とチャート', why: 'なぜ動いたか', flow: '需給と戦略', track: '答え合わせ', outlook: '相場の見立て', drill: 'チャート演習', library: '学ぶ', macro: '因果マップ', charts: 'チャート図鑑', traders: 'トレーダー研究', review: '復習', tools: 'ツール', ask: '質問する', glossary: '用語集' };
-  var NAV_OF = { lesson: 'library', topic: 'library', course: 'library', chart: 'charts', trader: 'traders', search: 'ask' };
+  var TITLES = { home: '今日の市場', market: '指標とチャート', why: 'なぜ動いたか', data: 'データ', plan: '戦略', track: '答え合わせ', outlook: 'この先', drill: 'チャート演習', library: '学ぶ', macro: '因果マップ', charts: 'チャート図鑑', traders: 'トレーダー研究', review: '復習', tools: 'ツール', ask: '質問する', glossary: '用語集' };
+  var NAV_OF = { track: 'outlook', market: 'data', lesson: 'library', topic: 'library', course: 'library', chart: 'charts', trader: 'traders', search: 'ask' };
   function navHTML(cur) {
     var due = dueList().length;
     return NAV.map(function (g) {
@@ -1477,7 +1502,7 @@
   }
   var query = '', curName = '';
   /* 分析の画面の先頭に、その画面の欄の目次を置く(押すとその欄へ移る) */
-  var JUMP = { why: 1, flow: 1, outlook: 1, track: 1, market: 1 };
+  var JUMP = { why: 1, data: 1, plan: 1, outlook: 1, track: 1, market: 1 };
   function jumpNav() {
     var head = view.querySelector('.page-head'); if (!head) return;
     var hs = view.querySelectorAll('#view > section > h2, #view > .dash > section > h2'), items = [];
@@ -1497,13 +1522,15 @@
   function route() {
     var hash = (location.hash || '#home').slice(1), cut = hash.indexOf('-'), name = cut < 0 ? hash : hash.slice(0, cut), arg = cut < 0 ? '' : hash.slice(cut + 1);
     if (name === 'course') { location.replace('#library'); return; }
+    if (name === 'flow') { location.replace('#plan'); return; }   // 旧「需給と戦略」: 判断は戦略、需給の数字はデータへ
     var html, prevName = curName;
     curName = name;
     switch (name) {
       case 'home': html = viewHome(); break;
       case 'market': html = viewMarket(); break;
       case 'why': html = viewWhy(); break;
-      case 'flow': html = viewFlow(); break;
+      case 'plan': html = viewPlan(); break;
+      case 'data': html = viewData(); break;
       case 'track': html = viewTrack(); break;
       case 'outlook': html = viewOutlook(); break;
       case 'drill': html = viewDrill(); break;
@@ -1526,7 +1553,7 @@
     session = null;
     view.innerHTML = html;
     if (JUMP[name]) jumpNav();
-    if (name === 'flow') fsUpdate();
+    if (name === 'plan') fsUpdate();
     var nav = NAV_OF[name] || name;
     var grp = function (list) { return '<div class="dock-group">' + list.map(function (n) { return '<a href="#' + n[0] + '"' + (n[0] === nav ? ' aria-current="page"' : '') + ' aria-label="' + n[1] + '">' + ico(n[2]) + '<span>' + n[1] + '</span></a>'; }).join('') + '</div>'; };
     $('#dock').innerHTML = '<div class="dock-in">' + grp(DOCK_L) + grp(DOCK_M) + '<a class="fab' + (nav === 'ask' ? ' on' : '') + '" href="#ask" aria-label="質問する" title="質問する">' + ico('plus') + '</a></div>';
