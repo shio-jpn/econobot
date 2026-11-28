@@ -205,4 +205,20 @@ ok('期待値の計算', function () {
   var r = K.simulate({ win: 35, rr: 4, risk: 1, n: 50, paths: 20 }, Math.random);
   assert(Math.abs(r.exp - 0.75) < 1e-9); assert.strictEqual(r.med.length, 51);
 });
+
+ok('ホーム画面に追加できる(マニフェスト・アイコン・サービスワーカー)', function () {
+  assert(html.indexOf('rel="manifest"') >= 0 && html.indexOf('apple-touch-icon') >= 0);
+  var mf = JSON.parse(fs.readFileSync(path.join(root, 'manifest.webmanifest'), 'utf8'));
+  assert.strictEqual(mf.display, 'standalone');
+  mf.icons.forEach(function (i) { assert(fs.existsSync(path.join(root, i.src)), i.src); });
+  var sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+  assert(sw.indexOf('.json') >= 0, 'データはネットを先に');
+  sw.match(/SHELL = \[([^\]]+)\]/)[1].split(',').map(function (x) { return x.trim().replace(/'/g, ''); }).filter(function (x) { return x && x !== './'; })
+    .forEach(function (f) { assert(fs.existsSync(path.join(root, f)), 'SWの先読み ' + f); });
+});
+ok('自動更新で描き直す画面に、データ・戦略が入っている(旧 flow は無い)', function () {
+  var src = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8'), m = src.match(/var DATA_PAGES = \{([^}]+)\}/)[1];
+  ['home', 'why', 'data', 'plan', 'outlook', 'track'].forEach(function (k) { assert(m.indexOf(k + ':') >= 0, k); });
+  assert(m.indexOf('flow:') < 0);
+});
 console.log('\n' + n + '件のチェックに合格。レッスン ' + lessons.length + ' / 問題 ' + lessons.reduce(function (a, l) { return a + l.quiz.length; }, 0) + ' / 用語 ' + K.glossary.length + ' / 因果マップ ' + K.macro.length + ' / チャート ' + K.charts.length + ' / 人物 ' + K.traders.length + ' / ケース ' + K.cases.length);

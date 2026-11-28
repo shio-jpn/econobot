@@ -2738,6 +2738,10 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
   @media (prefers-reduced-motion: reduce) {{
     * {{ transition: none !important; }}
   }}
+  .applink {{ display: block; margin: 18px 0; padding: 14px 16px; border-radius: 14px; border: 1px solid rgba(244, 169, 59, 0.45);
+    background: rgba(244, 169, 59, 0.10); color: inherit; text-decoration: none; }}
+  .applink b {{ display: block; font-size: 16px; }}
+  .applink span {{ font-size: 14px; opacity: 0.85; }}
 </style>
 </head>
 <body>
@@ -2748,7 +2752,7 @@ def generate_html(econ, econ_articles, major, major_articles, now=None):
   </div>
 </header>
 <main id="main">{asof_html}
-  <h1>{_esc(headline)}</h1>{notice}{today_html}{kp_html}{mk_html}{major_heads_html}{nav_html}{sec_html}{up_html}{detail_html}{gl_html}{src_html}
+  <h1>{_esc(headline)}</h1>{notice}{today_html}{kp_html}{mk_html}{APP_LINK_HTML}{major_heads_html}{nav_html}{sec_html}{up_html}{detail_html}{gl_html}{src_html}
 </main>
 <footer>
   <div class="howmade">
@@ -3043,6 +3047,11 @@ def _slack_esc(s):
     return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# 毎朝のページから、深掘り分析(学習アプリ)へ。なぜ動いたか・需給・戦略・この先・記録はそちらにある(2026-11-28)
+APP_LINK_HTML = ('\n  <a class="applink" href="learn/#home"><b>深掘り分析を見る(株トレ道場) ›</b>'
+                 '<span>なぜ動いたか(原因を根本まで)・データと需給・戦略・この先・これまでの記録</span></a>')
+
+
 def build_slack_payload(page_url, econ, major, major_articles, now=None):
     """Slackに送るJSON(dict)を作る。投稿はしない(確認時はこれをファイルに書き出す)。
     1段目の数字は「昨日の米国市場」の箱と同じ計算結果(econ['today'])から作る"""
@@ -3092,7 +3101,7 @@ def build_slack_payload(page_url, econ, major, major_articles, now=None):
             blocks.append({"type": "section", "text": {"type": "mrkdwn",
                            "text": f"*今日の用語* {_slack_esc(g[0][1])}:{_slack_esc(g[0][2])}"}})
     blocks.append({"type": "section", "text": {"type": "mrkdwn",
-                   "text": (f"<{page_url}|ページで数字と見出しを見る>" if econ.get("ai_failed") else f"<{page_url}|ページで続きを読む(理由・指標・今後の予定)>") + f"  ・  <{page_url}#major|主要ニュースへ>"}})
+                   "text": (f"<{page_url}|ページで数字と見出しを見る>" if econ.get("ai_failed") else f"<{page_url}|ページで続きを読む(理由・指標・今後の予定)>") + f"  ・  <{page_url}#major|主要ニュースへ>  ・  <{page_url}learn/#home|深掘り分析>"}})
     head = headline if econ["ok"] else f"{date_str}(要約準備中)"
     if t:
         parts = [f"米国株 S&P 500 {t['sp_text']}"]
