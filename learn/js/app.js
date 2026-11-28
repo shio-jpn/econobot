@@ -1138,7 +1138,63 @@
       (mh.length ? '<h3 class="mini-h">信用取引の残高(二市場)</h3><div class="table-wrap"><table class="num"><thead><tr><th class="l">週末</th><th>買い残</th><th>前週比</th><th>売り残</th><th>信用倍率</th></tr></thead><tbody>' +
         mh.slice(-6).reverse().map(function (m) { return '<tr><td class="l">' + esc(m.date.slice(4, 6) + '/' + m.date.slice(6)) + '</td><td>' + oku(m.buy).replace('+', '') + '</td><td class="' + (m.buy_chg > 0 ? 'up' : 'down') + '">' + oku(m.buy_chg) + '</td><td>' + oku(m.sell).replace('+', '') + '</td><td>' + m.ratio + '倍</td></tr>'; }).join('') +
         '</tbody></table></div><p class="sub">信用買い残は将来の売り(返済の売り)の予備軍。買い残が多いまま株価が下がると投げ売りで下げが加速しやすく、大きく減ると「売りの出尽くし」に近づきます。</p>' : '') : '';
-    return '<section><h2>' + ico('person') + '需給(だれが売り買いしたか)</h2>' + tabs('flowd', [['op', 'オプション', opH], ['vol', '出来高', vbH], ['cot', '大口の持ち高', cotH], ['jp', '日本の主体別', ihH]]) + '</section>';
+    var rv = ruleViews(fl);
+    return '<section><h2>' + ico('person') + '需給(だれが売り買いしたか)</h2>' + tabs('flowd', [['op', 'オプション', opH && opH + viewsBox('options', rv.options)], ['vol', '出来高', vbH && vbH + viewsBox('volume', rv.volume)], ['cot', '大口の持ち高', cotH && cotH + viewsBox('cot', rv.cot)], ['jp', '日本の主体別', ihH && ihH + viewsBox('jp', rv.jp)]]) + '</section>';
+  }
+  /* 需給のデータの下: このデータから読めること と、3つの立場の意見。
+     AIの文(毎朝、数字を照合済み)があればそれを、無ければ数字から規則で組み立てた文を出す */
+  var VIEW_WHO = [['analyst', 'プロのアナリスト', 'だれが・なぜ'], ['trader', 'プロのトレーダー', '数日〜数週の売買'], ['investor', 'プロの投資家', '数か月〜数年の資産配分']];
+  function viewsBox(key, rule) {
+    var ai = AN && AN.ai && AN.ai.flow_views && AN.ai.flow_views[key], v = ai && ai.read ? ai : rule;
+    if (!v || !v.read) return '';
+    return '<div class="fviews"><h3 class="mini-h">このデータから読めること<span class="sub mini-s">' + (ai && ai.read ? 'AI(数字はデータと照合済み)' : '数字から規則で判定') + '</span></h3><p>' + esc(v.read) + '</p>' +
+      '<ul class="fv-l">' + VIEW_WHO.filter(function (w) { return v[w[0]]; }).map(function (w) {
+        return '<li class="fv-' + w[0] + '"><span class="fv-h"><b>' + w[1] + '</b><span class="sub">' + w[2] + '</span></span><p>' + esc(v[w[0]]) + '</p></li>';
+      }).join('') + '</ul></div>';
+  }
+  function ruleViews(fl) {
+    var out = {}, op = fl.options || {}, it = op.items || {}, pc = fl.putcall || {}, vb = fl.volume || {}, cot = fl.cot || {}, ih = fl.investor_hist || [], mh = fl.margin_hist || [];
+    var vix = it['^VIX'];
+    if (vix) {
+      var inv = op.term > 1, hi = vix.pct1y >= 80, lo = vix.pct1y <= 20;
+      var pcs = pc.ok ? (pc.equity >= 0.8 ? '個別株のプット・コール比率は' + pc.equity + 'と悲観に傾いています。' : pc.equity <= 0.5 ? '個別株のプット・コール比率は' + pc.equity + 'と楽観に傾いています。' : '個別株のプット・コール比率は' + pc.equity + 'で中立の範囲です。') : 'プット・コール比率は今日の値がまだありません。';
+      out.options = {
+        read: 'VIXは' + vix.last + 'で1年の' + vix.pct1y + '%の位置、期間構造は' + (inv ? '逆転(' + op.term + ')で目先の急落への備えが強い状態' : '順(' + op.term + ')で平常の形') + 'です。' + (op.move1d ? 'オプションは1日 ±' + op.move1d + '%・1週間 ±' + op.move1w + '%の値動きを織り込んでいます。' : '') + pcs,
+        analyst: inv ? '期間構造の逆転は、ヘッジの買いが目先に集中している合図です。パニックの最中に出やすく、逆転が解消し始めると売りの一巡に近づきます。' : hi ? 'VIXは高めですが期間構造は順のままで、恐怖は「急落の最中」ではなく「先の不確かさ」として織り込まれています。ヘッジの需要は残り、上値は重くなりやすい局面です。' : lo ? 'VIXが低く、ヘッジがほとんど買われていない状態です。安心が行き過ぎると、小さな悪材料でも値動きが大きくなりやすくなります。' : '恐怖の水準は平常の範囲で、オプション市場は大きな波乱を織り込んでいません。',
+        trader: inv ? '逆転の最中に逆張りで買うのは危険です。VIX÷3か月が1を下回り、VIXが前日の高値を超えなくなるのを待ってから、小さく試すのが定石です。' : hi ? '織り込まれた値動きが大きい間は、1回の売買を小さくし、損切りの幅を広めにとります。VIXが下がり始めた日に指数が上がるかを確かめます。' : '値動きの想定は織り込みの範囲(1日 ±' + (op.move1d || '—') + '%)を目安にし、これを大きく超えた日は流れが変わった合図として扱います。',
+        investor: hi || inv ? '恐怖が高い時期は、長期では悪くない買い場になりやすい一方、底は事前にわかりません。一度に買わず、数回に分けて買う前提で現金を残します。' : lo ? '恐怖が低い時期はヘッジが安く買えます。持ち高を増やすより、資産配分を見直して偏りを直す時期と考えます。' : '資産配分を大きく変える材料ではありません。決めた比率を保ち、定期的な積み立てを続けます。'
+      };
+    }
+    var vk = Object.keys(vb), v0 = vk.length ? vb[vk[0]] : null;
+    if (v0) {
+      var dd = v0.dist_days, bad = dd != null && dd >= 6, ftd = v0.ftd;
+      out.volume = {
+        read: vk.map(function (k) { var x = vb[k]; return x.name + 'は「' + x.phase + '」、高値から' + sgnN(x.drawdown, 1, '%') + (x.dist_days != null ? '、売り抜けの日は25日間で' + x.dist_days + '日' : ''); }).join('。') + '。' + (ftd ? 'フォロースルーは' + mdDate(ftd.date) + 'に出ています。' : '底打ちを確かめるフォロースルーはまだ出ていません。'),
+        analyst: bad ? '売り抜けの日が重なっているのは、大口の投資家が上昇の場面で持ち高を減らしてきた跡です。上昇トレンドが崩れやすい状態で、指数の反発も買いの厚みを確かめる必要があります。' : '売り抜けの日は多くなく、大口の売りが続いている形ではありません。出来高を伴って上がる日が増えるかが、買いの厚みを測る目安です。',
+        trader: ftd ? 'フォロースルーの後は、その日の安値を割らない限り上昇の試しを続けられます。割り込んだら一度引いて、次の合図を待ちます。' : bad ? '売り抜けの日が多い間は新規の買いを控え、出来高を伴って1.25%以上上げる日(フォロースルー)を待つのがオニール流です。' : '出来高を伴う上昇の日と、出来高を伴う下落の日の数を比べて、どちらが優勢かで売買の大きさを決めます。',
+        investor: bad ? '長期の投資家にとっては、天井圏の売り抜けは利益の一部を確定して現金を厚くする合図になり得ます。ただし全部を売る判断は、月末の規則(200日平均)と合わせて行います。' : '出来高の動きだけで長期の配分を変える必要はありません。トレンドの規則(200日平均)を優先します。'
+      };
+    }
+    var ck = Object.keys(cot).filter(function (k) { return k !== 'ust10'; });
+    if (ck.length) {
+      var ext = ck.filter(function (k) { return cot[k].lev_idx >= 90 || cot[k].lev_idx <= 10; });
+      out.cot = {
+        read: ck.map(function (k) { var x = cot[k]; return x.name + ': ヘッジファンド等 ' + sgnN(x.lev_net, 0, '枚') + '(偏り' + x.lev_idx + ')'; }).join('、') + '。' + (ext.length ? ext.map(function (k) { return cot[k].name; }).join('・') + 'は3年で見て持ち高が一方に傾きすぎています。' : '3年で見て極端に傾いた持ち高はありません。'),
+        analyst: ext.length ? '持ち高が一方に傾きすぎると、反対の材料が出た時に巻き戻しの売買が一斉に起き、値動きが大きくなります。どちらに傾いているか(買い越しか売り越しか)と、前週からの変化の向きを合わせて読みます。' : '大口の持ち高は極端ではなく、巻き戻しで相場が大きく振れる危険は今のところ小さいと読めます。',
+        trader: '持ち高は毎週金曜に火曜時点の分が出るため、数日遅れの情報です。偏りが90以上・10以下に達した市場では、逆向きの急な動きに備えて損切りを近めに置きます。',
+        investor: '長期の投資家は、持ち高の極端な偏りを「混雑した取引」の警告として使います。人気が集中した資産は比率を上げすぎないようにします。'
+      };
+    }
+    if (ih.length) {
+      var w = ih[ih.length - 1], fo = w['海外投資家'], ind = w['個人'], m0 = mh.length ? mh[mh.length - 1] : null;
+      out.jp = {
+        read: '直近の週の差引は、海外投資家 ' + oku(fo) + '、個人 ' + oku(ind) + '。' + (m0 ? '信用取引の買い残は' + oku(m0.buy).replace('+', '') + '、信用倍率は' + m0.ratio + '倍です。' : ''),
+        analyst: fo < 0 ? '海外投資家の売り越しは、日本株の方向を左右する最大の買い手が引いている状態です。円相場や米国株のリスク回避と合わせて読むと、売りの理由が見えます。' : '海外投資家が買い越しており、日本株の下支えになっています。続くかどうかは、円相場と企業の資本政策(自社株買いなど)への評価次第です。',
+        trader: (m0 && m0.ratio >= 5 ? '信用倍率が' + m0.ratio + '倍と買い残が多く、下がると返済の売りが出やすい状態です。下げの日は投げ売りの加速に注意します。' : '信用の買い残は過度ではなく、需給の重しは限られています。') + '海外投資家の売買の向きが変わった週を、流れの変化の合図として使います。',
+        investor: '主体別の売買は1週間遅れて公表されるため、長期の判断では方向感の確認に使います。海外投資家の売りが続く局面は、分けて買う機会と捉える投資家もいます。'
+      };
+    }
+    return out;
   }
   function calendarHTML(n) {
     var cal = ((AN && AN.flow && AN.flow.calendar) || []).slice(0, n || 99);

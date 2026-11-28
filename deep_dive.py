@@ -1190,6 +1190,49 @@ REVIEW_SCHEMA = {"type": "OBJECT", "properties": {
         "where": {"type": "STRING"}, "problem": {"type": "STRING"}, "fix": {"type": "STRING"}},
         "required": ["problem", "fix"]}}}, "required": ["ok", "issues"]}
 
+# 需給のデータごとの読み方と、3つの立場の意見(2026-11-28 Shio「需給のデータの下に、どんな分析ができるか、プロのアナリスト・トレーダー・投資家の意見を」)
+FLOW_BLOCKS = {"options": "オプション(VIXの期間構造・VVIX・SKEW・プット・コール比率・織り込む値動き)",
+               "volume": "出来高と市場の状態(オニール流の売り抜けの日・フォロースルー・高値からの下落)",
+               "cot": "大口の持ち高(CFTC: ヘッジファンド等と資産運用会社の先物の持ち高、3年での偏り)",
+               "jp": "日本の主体別(投資部門別の売買と信用取引の残高)"}
+_VIEW = {"type": "OBJECT", "properties": {"read": {"type": "STRING"}, "analyst": {"type": "STRING"},
+                                          "trader": {"type": "STRING"}, "investor": {"type": "STRING"}},
+         "required": ["read", "analyst", "trader", "investor"]}
+FLOW_VIEW_SCHEMA = {"type": "OBJECT", "properties": {k: _VIEW for k in FLOW_BLOCKS}, "required": list(FLOW_BLOCKS)}
+
+
+def _flow_view_prompt(flow_txt, chief):
+    head = (chief or {}).get("headline") or ""
+    return COMMON + f"""
+あなたは需給の分析の担当です。下の需給のデータを、4つのまとまりごとに読み解いてください。
+まとまり: """ + " / ".join(f"{k}={v}" for k, v in FLOW_BLOCKS.items()) + f"""
+それぞれについて、次の4つを書く(各80〜170字、日本語、です・ます調):
+- read: このデータから今わかること(数字を挙げて、何が起きているか・どの程度珍しいか)
+- analyst: プロのアナリストとしての意見。だれが・なぜそう動いているのか(構造・仕組み)、過去の似た局面と比べた意味
+- trader: プロのトレーダーとしての意見。数日〜数週の売買でどう使うか。どの数字の変化・どの水準を合図にし、何を避けるか
+- investor: プロの投資家(数か月〜数年の資産配分)としての意見。長期の持ち高を増やす・減らす・保つのどれに近い状況か、その理由
+規則:
+- 数字は■データにあるものだけを使う。データが無いまとまりは read に「今回はデータがありません」と書き、ほかは一般的な見方を短く書く
+- 特定の銘柄の売買はすすめない。立場ごとの考え方として書く
+- 今日の深掘り分析の見出し: {head}
+
+■データ
+{flow_txt}
+"""
+
+
+def clean_flow_views(v, allowed, dropped):
+    out = {}
+    for k in FLOW_BLOCKS:
+        x = (v or {}).get(k) if isinstance(v, dict) else None
+        if not isinstance(x, dict):
+            continue
+        y = {f: scrub(x.get(f), allowed, dropped) for f in ("read", "analyst", "trader", "investor")}
+        if any(y.values()):
+            out[k] = y
+    return out
+
+
 ROLES = [
     ("macro", "マクロ・金利ストラテジスト",
      "金利(10年債・3か月債・長短金利差)、ドル、原油、信用スプレッド、FRBの政策と経済指標の観点から、"
@@ -1621,6 +1664,16 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
             errors.append(f"査読・改訂: {type(e).__name__}: {e}")
     except Exception as e:
         errors.append(f"チーフ: {type(e).__name__}: {e}")
+    flow_views = None
+    if chief is not None and flow:
+        try:   # 需給のデータごとの読み方と3つの立場の意見(チーフの後。枠が足りなければ飛ばす。画面は規則にもとづく読み方を出す)
+            if eb._gemini_left() < 60:
+                raise RuntimeError("残り時間が少ないため飛ばした")
+            fv = _ask(_flow_view_prompt(flows.describe(flow, strat), chief), FLOW_VIEW_SCHEMA, "深掘り:需給の読み方")
+            flow_views = clean_flow_views(fv, allowed, dropped)
+            steps.append("需給の読み方(3つの立場)")
+        except Exception as e:
+            errors.append(f"需給の読み方: {type(e).__name__}: {e}")
     if chief is not None and empty_parts(chief):
         print(f"  [WARN] 深掘り分析: チーフの主因・根本の原因の段が空({', '.join(empty_parts(chief))})")
     result = {"ok": chief is not None, "passes": passes, "errors": errors, "steps": steps, "labels": labels,
@@ -1629,6 +1682,8 @@ def run_ai(feat, sigs, rules, macro, out, contrib=None, movers=None, saved_news=
         result["chief"] = clean_chief(chief, allowed, known, dropped)
         result["chief"]["playbook"]["rule"] = list(RULE_LINES)   # 規則の判定はプログラムの文をそのまま出す
         result["empty"] = empty_parts(result["chief"])            # 主因・根本の原因の段が空の所(確認用)
+        if flow_views:
+            result["flow_views"] = flow_views
     result["dropped"] = dropped
     return result
 
