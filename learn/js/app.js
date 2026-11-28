@@ -535,19 +535,14 @@
     if (an) h += briefHTML(true);
     else h += '<section class="brief"><h2>' + ico('pulse') + '今日の相場<a class="h-r" href="#market">詳しく ›</a></h2>' + marketMini() + '</section>';
     if (an) {
-      var rc = c && c.root_cause && c.root_cause.summary ? c.root_cause : null, ty = (an.structure && an.structure.types) || [];
-      var rootH = (rc || ty.length) ? '<section class="span-6 root-card"><h2>' + ico('flow') + '原因の根っこ<a class="h-r" href="#why">たどる ›</a></h2>' + (rc ? '<p>' + esc(rc.summary) + '</p>' : '') +
-        (ty.length ? '<ul class="types types-s">' + ty.slice(0, 3).map(function (t) { return '<li><div class="cause-h"><strong>' + esc(t.type) + '</strong><span class="cause-w">' + t.share + '%</span></div><div class="wbar"><i style="width:' + t.share + '%"></i></div></li>'; }).join('') + '</ul>' : '') + '</section>' : '';
+      h += pageMap();
       var F = an.features || {}, secs = function (g) { return Object.keys(F).map(function (k) { return F[k]; }).filter(function (f) { return f.group === g && f.c1 != null; }).sort(function (a, b) { return b.c1 - a.c1; }); };
       var mini = function (xs, n) { return xs.length ? '<div class="sec-mini">' + xs.slice(0, n).concat(xs.slice(-n)).map(function (f) { return '<span class="sm" style="background:' + heatBg(f.z1) + '"><b>' + esc(f.name) + '</b>' + wpct(f.c1) + '</span>'; }).join('') + '</div>' : ''; };
       var us = secs('us'), jp = secs('jp');
       var secH = us.length ? '<section class="span-6"><h2>' + ico('grid') + '買われた業種・売られた業種<a class="h-r" href="#why">すべて ›</a></h2><h3 class="mini-h">米国(上位3・下位3)</h3>' + mini(us, 3) + (jp.length ? '<h3 class="mini-h">日本(上位3・下位3)</h3>' + mini(jp, 3) : '') + '</section>' : '';
-      h += '<div class="dash">' + rootH + secH + '</div>';
       var cal = ((an.flow && an.flow.calendar) || []).slice(0, 4);
-      var outH = c ? '<section class="span-6"><h2>' + ico('compass') + 'この先<a class="h-r" href="#why">詳しく ›</a></h2><h3 class="mini-h">数日〜2週間</h3><p>' + esc(c.outlook_short) + '</p>' + (c.change && c.change.length ? '<h3 class="mini-h">見解が変わる条件</h3><ul>' + c.change.slice(0, 2).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') + '</section>' : '';
       var calH = cal.length ? '<section class="span-6"><h2>' + ico('redo') + '近い日程<a class="h-r" href="#flow">需給 ›</a></h2><ul class="cal-l">' + cal.map(function (e) { return '<li><span class="cal-d"><b>' + esc(mdDate(e.date)) + '</b><span class="sub">あと' + e.days + '日</span></span><span><strong>' + esc(e.what) + '</strong></span></li>'; }).join('') + '</ul></section>' : '';
-      h += '<div class="dash">' + outH + calH + '</div>';
-      if (an.track) h += '<section><h2>' + ico('redo') + '見立ての答え合わせ<a class="h-r" href="#track">詳しく ›</a></h2>' + trackMini(an.track) + '</section>';
+      h += '<div class="dash">' + secH + calH + '</div>';
     }
     if (MK) h += '<section class="hero"><div class="chart" id="hero-chart"></div><p class="hero-cap">S&amp;P 500 ・ 半年の推移(公的統計) <a href="#market">指標とチャート ›</a></p></section>';
     h += helpBox(['VIX', '移動平均線', 'ATR', '値がさ株', '逆イールド', '信用倍率'], ['daily-read', 'money-flow', 'pro-flows'], '今日の相場について、分からないところを教えてください: ');
@@ -742,7 +737,7 @@
     ['ドル', 'グローバルマクロ', 'ドル指数。強すぎるドルは世界のリスク資産の重し。']
   ];
   function viewOutlook() {
-    var h = '<div class="page-head"><h1>相場の見立て</h1><p class="lead">プロのトレーダーとアナリストが使う7つの視点で、今の株価がなぜこうなっているのか、この先どうなりやすいのかを組み立てます。マイケル・バーリや空売り筋の懐疑的な目線も入れています。</p></div>';
+    var h = '<div class="page-head"><h1>相場の見立て</h1><p class="page-q">この先どうなりやすいか</p><p class="lead">プロのトレーダーとアナリストが使う7つの視点で、今の株価がなぜこうなっているのか、この先どうなりやすいのかを組み立てます。マイケル・バーリや空売り筋の懐疑的な目線も入れています。</p></div>';
     if (!mkReady) return h + '<section><p class="sub">読み込み中…</p></section>';
     var o = MK && K.mkt.outlook(MK);
     if (!o) {
@@ -871,6 +866,11 @@
   function fold(icon, title, sub, body, id) {
     return body ? '<details class="panel fold"' + (id ? ' id="' + id + '"' : '') + '><summary>' + ico(icon) + '<span><strong>' + esc(title) + '</strong>' + (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</span></summary><div class="fold-b">' + body + '</div></details>' : '';
   }
+  /* 長い段落を文ごとの箇条書きに(読みやすさのため。文はそのまま) */
+  function bullets(t) {
+    var xs = String(t || '').split('。').map(function (x) { return x.trim(); }).filter(Boolean).map(function (x) { return x + '。'; });
+    return xs.length > 2 ? '<ul class="bl">' + xs.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '<p>' + esc(t) + '</p>';
+  }
   function firstS(t) { if (!t) return ''; var i = t.indexOf('。'); return i < 0 ? t : t.slice(0, i + 1); }
   function mdDate(d) { return d ? d.slice(5).replace('-', '/') : ''; }
   /* 指数ごとの規則の判定の札(需給と戦略の判定を、どの画面でも同じ形で出す) */
@@ -898,7 +898,7 @@
       (s.lessons && s.lessons.length ? '<p class="sub">最新の教訓: ' + esc(s.lessons[0].lesson) + '</p>' : '');
   }
   function viewTrack() {
-    var h = '<div class="page-head"><h1>見立ての答え合わせ</h1><p class="lead">毎回の分析でチーフが出した「次の5営業日の方向」を保存し、実際の終値(米国はS&amp;P 500、日本は日経平均)で採点します。当たった理由・外れた理由を考察し、教訓を次の分析に渡しています。</p></div>';
+    var h = '<div class="page-head"><h1>見立ての答え合わせ</h1><p class="page-q">過去の予想は当たったか、外れたのはなぜか</p><p class="lead">毎回の分析でチーフが出した「次の5営業日の方向」を保存し、実際の終値(米国はS&amp;P 500、日本は日経平均)で採点します。当たった理由・外れた理由を考察し、教訓を次の分析に渡しています。</p></div>';
     if (!trkReady) return h + '<section><p class="sub">読み込み中…</p></section>';
     var items = (TRK && TRK.items) || [], s = (TRK && TRK.summary) || {};
     if (!items.length) return h + '<section><h2>' + ico('redo') + 'まだ記録がありません</h2><p>次の分析から予想の保存が始まり、5営業日後に最初の採点が出ます。採点は、5営業日後の終値の騰落が「もみ合いの幅」(ふだんの1日の値動き × √5 × 0.25)を超えたかで判定します。</p></section>';
@@ -924,16 +924,57 @@
   }
 
   /* 今日の要点(ホームとなぜ動いたかで同じものを出す)。本文の用語は押すと用語集が開く */
+  /* 指数の騰落(1日は上部の帯と同じ計算、5日は深掘り分析の特徴量) */
+  function moveNums(m) {
+    var F = AN.features || {}, S = AN.strategy || {};
+    var one = null, five = null;
+    if (m === 'us') {
+      var sl = S.us && S.us.levels;
+      one = sl && sl.prev ? (sl.close / sl.prev - 1) * 100 : F.SPY && F.SPY.c1;
+      five = F.SPY && F.SPY.c5;
+    } else {
+      var f = F['^N225'];
+      one = f ? (f.prev ? (f.last / f.prev - 1) * 100 : f.c1) : null;
+      five = f && f.c5;
+    }
+    var cell = function (lab, v) { return v == null ? '' : '<span class="mv"><span class="sub">' + lab + '</span> <b class="' + (v > 0 ? 'up' : v < 0 ? 'down' : '') + '">' + sgnN(v, 2, '%') + '</b></span>'; };
+    return cell('1日', one) + cell('5日', five);
+  }
   function briefHTML(home) {
     var ai = AN.ai || {}, c = ai.chief, rc = c && c.root_cause && c.root_cause.summary ? c.root_cause : null, seen = {};
+    var what = '<div><dt>何が起きたか</dt><dd>' + (c ? ['us', 'jp'].map(function (m) {
+      return '<p class="what-l">' + dirPill(c[m] && c[m].direction) + ' <b>' + MKT_NAME[m] + '</b>' + moveNums(m) + '<br><span>' + inline(firstS(c[m] && c[m].summary), seen) + '</span></p>';
+    }).join('') : ruleList((AN.rules && AN.rules.d1 || []).slice(0, 2))) + '</dd></div>';
+    if (!home) {   // なぜ動いたかの先頭: 見出しと「何が起きたか」だけ(なぜ・どうするかは下の欄と需給の画面にある)
+      return '<section class="brief ai-card"><h2>' + ico('target') + '何が起きたか' + (c ? '<span class="h-r sub">確信度 ' + esc(c.confidence) + '</span>' : '') + '</h2>' +
+        (c ? '<p class="why-head">' + esc(c.headline) + '</p>' : '') + '<dl class="qa">' + what + '</dl></section>';
+    }
     return '<section class="brief ai-card"><h2>' + ico('target') + '今日の要点' + (c ? '<span class="h-r sub">確信度 ' + esc(c.confidence) + '</span>' : '') + '</h2>' +
       (ai.reused_from ? '<p class="notice">AIの利用枠が足りなかったため、' + esc(ai.reused_from.slice(5, 16).replace('-', '/').replace('T', ' ')) + ' 時点のAIの見解を表示しています' + (ai.reused_asof && ai.reused_asof.jp && AN.asof && ai.reused_asof.jp !== AN.asof.jp ? '(日本は' + esc(mdDate(ai.reused_asof.jp)) + 'の終値までの見解)' : '') + '。数値・需給は最新です。</p>' : '') +
       (c ? '<p class="why-head">' + esc(c.headline) + '</p>' : '<p class="notice">今日はAIの分析ができなかったため、データの自動判定を表示しています。</p>') +
-      '<dl class="qa">' +
-      '<div><dt>何が起きたか</dt><dd>' + (c ? '<p>' + dirPill(c.us && c.us.direction) + ' <b>米国</b> ' + inline(firstS(c.us && c.us.summary), seen) + '</p><p>' + dirPill(c.jp && c.jp.direction) + ' <b>日本</b> ' + inline(firstS(c.jp && c.jp.summary), seen) + '</p>' : ruleList((AN.rules && AN.rules.d1 || []).slice(0, 2))) + '</dd></div>' +
-      '<div><dt>なぜ</dt><dd>' + (rc ? '<p>' + inline(rc.summary, seen) + ' <a href="#why"' + (home ? '' : ' data-goto="why-root"') + '>根本までたどる ›</a></p>' : ruleList((AN.rules && AN.rules.d5 || []).slice(0, 2))) + '</dd></div>' +
-      (stratTiles() ? '<div><dt>どうするか</dt><dd>' + stratTiles() + (home ? '' : '<p class="sub"><a href="#flow">需給と戦い方を見る ›</a></p>') + '</dd></div>' : '') +
-      '</dl>' + (home ? '<div class="actions"><a class="btn" href="#why">なぜ動いたか</a><a class="btn ghost" href="#flow">需給と戦略</a><a class="btn ghost" href="#outlook">相場の見立て</a></div>' : '') + '</section>';
+      '<dl class="qa">' + what +
+      '<div><dt>なぜ</dt><dd>' + (rc ? '<p>' + inline(rc.summary, seen) + ' <a href="#why">根本までたどる ›</a></p>' : ruleList((AN.rules && AN.rules.d5 || []).slice(0, 2))) + '</dd></div>' +
+      (stratTiles() ? '<div><dt>どうするか</dt><dd>' + stratTiles() + '<p class="sub"><a href="#flow">需給と戦い方を見る ›</a></p></dd></div>' : '') +
+      '</dl></section>';
+  }
+  /* ホームの「どこに何があるか」: 画面ごとの問いと、その画面の今日の答えの一部 */
+  function pageMap() {
+    var c = AN && AN.ai && AN.ai.chief, ty = (AN && AN.structure && AN.structure.types) || [], S = (AN && AN.strategy) || {}, tr = AN && AN.track;
+    var top = c && c.us && c.us.causes && c.us.causes[0];
+    var rule = ['us', 'jp'].filter(function (k) { return S[k] && S[k].rule; }).map(function (k) { return S[k].name + ' ' + (S[k].rule.position === 100 ? '投資' : '待機'); }).join(' ・ ');
+    var caut = S.us && S.us.caution && S.us.caution.level;
+    var fc = c && c.forecast ? ['us', 'jp'].filter(function (m) { return c.forecast[m]; }).map(function (m) { return MKT_NAME[m] + ' ' + c.forecast[m].dir; }).join(' ・ ') : '';
+    var tl = tr && tr.all ? (tr.all.n ? tr.all.hit + ' / ' + tr.all.n + ' 的中(' + tr.all.pct + '%)' : 'まだ採点なし' + (tr.pending ? ' ・ 判定待ち ' + tr.pending + '件' : '')) : '';
+    var cards = [
+      ['why', 'flow', 'なぜ動いたか', '原因を根本まで・業種・お金の流れ・ニュース', ty.length ? '動きの型: ' + ty[0].type + ' ' + ty[0].share + '%' : top ? '主因: ' + top.title : ''],
+      ['flow', 'person', '需給と戦略', 'だれが売り買いしたか・月末の規則・損切り', rule ? rule + (caut ? ' ・ 注意 ' + caut : '') : ''],
+      ['outlook', 'compass', '相場の見立て', 'この先どうなりやすいか・強気と弱気', fc ? '5営業日の予想: ' + fc : ''],
+      ['track', 'redo', '答え合わせ', '過去の予想は当たったか・外れた理由', tl],
+      ['market', 'pulse', '指標とチャート', '金利・為替・指数の長い推移', '']
+    ];
+    return '<section class="pmap"><h2>' + ico('grid') + 'どこに何があるか</h2><div class="pmap-g">' + cards.map(function (x) {
+      return '<a class="pm" href="#' + x[0] + '">' + ico(x[1]) + '<span class="pm-b"><strong>' + x[2] + ' ›</strong><span class="sub">' + x[3] + '</span>' + (x[4] ? '<span class="pm-now">' + esc(x[4]) + '</span>' : '') + '</span></a>';
+    }).join('') + '</div></section>';
   }
   /* わからない時に開く: この画面の言葉(押すと用語集)と、考え方のレッスン */
   function helpBox(terms, lessonIds, ask) {
@@ -944,12 +985,12 @@
       '<div class="chips"><a class="chip" href="#glossary">用語集</a><button type="button" class="chip" data-ask="' + esc(ask) + '">AIに質問する</button></div></section>';
   }
   function viewWhy() {
-    var h = '<div class="page-head"><h1>なぜ動いたか</h1><p class="lead">セクター・金利・世界の市場・ニュースを材料に、7人のアナリストが分析を重ね、チーフが統合した見解です。毎朝更新。</p></div>';
+    var h = '<div class="page-head"><h1>なぜ動いたか</h1><p class="page-q">なぜ今日の株価はこう動いたのか</p><p class="lead">セクター・金利・世界の市場・ニュースを材料に、7人のアナリストが分析を重ね、チーフが統合した見解です。毎朝更新。</p></div>';
     if (!anReady) return h + '<section><p class="sub">読み込み中…</p></section>';
     if (!AN) return h + '<section><h2>' + ico('pulse') + 'データを待っています</h2><p>この画面のデータは、毎朝のニュースBotが投稿の後に <code>learn/data/analysis.json</code> として書き出します。公開版でBotが一度動いた後から表示されます。</p><div class="actions"><a class="btn" href="#outlook">相場の見立て</a><a class="btn ghost" href="#lesson-money-flow">セクターの読み方</a></div></section>';
     var ai = AN.ai || {}, c = ai.chief, hs = whyH === 'c1' ? '1日' : whyH === 'c5' ? '5日' : '20日';
     var rc = c && c.root_cause && c.root_cause.summary ? c.root_cause : null;
-    // 1. 今日の要点
+    // 1. 何が起きたか(見出しと数字)
     h += briefHTML(false);
     // 2. 原因を根本までたどる
     if (rc || typesHTML()) h += '<section class="root-card" id="why-root"><h2>' + ico('flow') + '原因を根本までたどる</h2>' + (rc ? '<p class="why-head small">' + esc(rc.summary) + '</p>' + chainHTML(rc.chain, true) : '') + typesHTML() + '</section>';
@@ -1038,14 +1079,14 @@
       (lev < 1 ? '<p class="warn"><span class="warn-label">注意</span>今は注意の度合いが「' + esc(st.caution.level) + '」のため、プロはこの半分(約' + fmtN(size / 2, 0) + '円)以下に抑えるのが一般的です。</p>' : '');
   }
   function viewFlow() {
-    var h = '<div class="page-head"><h1>需給と戦略</h1><p class="lead">だれが売り、だれが買っているのか(需給)と、プロが成績を残すための戦い方(投資比率・売買の大きさ・損切り)。公開の統計(Yahoo・CBOE・CFTC・JPX)から毎朝計算します。</p></div>';
+    var h = '<div class="page-head"><h1>需給と戦略</h1><p class="page-q">だれが売り買いしていて、今どう戦うか</p><p class="lead">だれが売り、だれが買っているのか(需給)と、プロが成績を残すための戦い方(投資比率・売買の大きさ・損切り)。公開の統計(Yahoo・CBOE・CFTC・JPX)から毎朝計算します。</p></div>';
     if (!anReady) return h + '<section><p class="sub">読み込み中…</p></section>';
     var fl = AN && AN.flow, stg = AN && AN.strategy || {};
     if (!fl || !Object.keys(fl).length) return h + '<section><h2>' + ico('pulse') + 'データを待っています</h2><p>この画面のデータは、毎朝のBotが深掘り分析と一緒に書き出します。</p><div class="actions"><a class="btn" href="#lesson-pro-flows">需給の読み方を学ぶ</a></div></section>';
     var c = AN.ai && AN.ai.chief, pb = c && c.playbook;
     // 1. 今日の要点
     h += '<section class="brief ai-card"><h2>' + ico('target') + '今日の要点</h2>' +
-      (c && c.supply_demand ? '<p>' + esc(c.supply_demand) + '</p>' : '') + stratTiles() + '</section>';
+      (c && c.supply_demand ? bullets(c.supply_demand) : '') + stratTiles() + '</section>';
     // 2. 今の戦い方
     if (pb && pb.stance) h += '<section><h2>' + ico('shield') + '今の戦い方</h2><p>' + esc(pb.stance) + '</p><div class="dash"><div class="span-6 do-box"><h3 class="mini-h up">機能しやすい行動</h3><ul>' + (pb.do || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div><div class="span-6 avoid-box"><h3 class="mini-h down">避けるべき行動</h3><ul>' + (pb.avoid || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>' + (pb.risk ? '<p class="notice"><strong>損切りと考えを変える価格:</strong> ' + esc(pb.risk) + '</p>' : '') + '</section>';
     // 3. 指数ごとの規則と計算
@@ -1435,6 +1476,24 @@
     }).join('');
   }
   var query = '', curName = '';
+  /* 分析の画面の先頭に、その画面の欄の目次を置く(押すとその欄へ移る) */
+  var JUMP = { why: 1, flow: 1, outlook: 1, track: 1, market: 1 };
+  function jumpNav() {
+    var head = view.querySelector('.page-head'); if (!head) return;
+    var hs = view.querySelectorAll('#view > section > h2, #view > .dash > section > h2'), items = [];
+    for (var i = 0; i < hs.length; i++) {
+      var h2 = hs[i], sec = h2.parentNode, cl = h2.cloneNode(true), r = cl.querySelectorAll('.h-r, svg');
+      for (var j = 0; j < r.length; j++) r[j].parentNode.removeChild(r[j]);
+      var t = (cl.textContent || '').trim();
+      if (!t || /わからない時は/.test(t)) continue;
+      if (!sec.id) sec.id = 'sec-' + i;
+      items.push('<a class="chip" href="#' + curName + '" data-goto="' + sec.id + '">' + esc(t) + '</a>');
+    }
+    if (items.length < 3) return;
+    var nav = document.createElement('nav'); nav.className = 'jump'; nav.setAttribute('aria-label', 'このページの中身');
+    nav.innerHTML = '<span class="chips-label">このページの中身</span>' + items.join('');
+    head.parentNode.insertBefore(nav, head.nextSibling);
+  }
   function route() {
     var hash = (location.hash || '#home').slice(1), cut = hash.indexOf('-'), name = cut < 0 ? hash : hash.slice(0, cut), arg = cut < 0 ? '' : hash.slice(cut + 1);
     if (name === 'course') { location.replace('#library'); return; }
@@ -1466,6 +1525,7 @@
     closeSheet();
     session = null;
     view.innerHTML = html;
+    if (JUMP[name]) jumpNav();
     if (name === 'flow') fsUpdate();
     var nav = NAV_OF[name] || name;
     var grp = function (list) { return '<div class="dock-group">' + list.map(function (n) { return '<a href="#' + n[0] + '"' + (n[0] === nav ? ' aria-current="page"' : '') + ' aria-label="' + n[1] + '">' + ico(n[2]) + '<span>' + n[1] + '</span></a>'; }).join('') + '</div>'; };
