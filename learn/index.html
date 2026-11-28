@@ -597,6 +597,29 @@
     .dock-group a { width: 50px; }
   }
   @media (prefers-reduced-motion: no-preference) { .btn, .chip, .opt, .pick, .mini, .res { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
+  /* どこに何があるか・このページの中身・数字つきの「何が起きたか」(2026-11-28) */
+  .page-q { margin: 0; font-size: 1.02rem; font-weight: 800; color: var(--lav); }
+  .page-q::before { content: "この画面の問い: "; color: var(--faint); font-weight: 700; font-size: 0.85rem; }
+  .jump { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -4px 0 4px; }
+  .jump .chips-label { flex: 0 0 auto; }
+  #view > section, #view > .dash > section { scroll-margin-top: 80px; }
+  @media (max-width: 640px) {
+    .jump { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: -4px -16px 4px; padding: 0 16px; }
+    .jump::-webkit-scrollbar { display: none; }
+    .jump .chip { flex: 0 0 auto; }
+  }
+  .what-l { line-height: 1.6; }
+  .what-l .mv { display: inline-flex; gap: 4px; align-items: baseline; margin-left: 10px; font-variant-numeric: tabular-nums; }
+  .what-l .mv b { font-size: 1.02rem; }
+  .what-l br + span { color: var(--text); }
+  .pmap-g { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+  .pm { display: flex; gap: 10px; align-items: flex-start; padding: 14px; border-radius: 14px; background: var(--tile); text-decoration: none !important; color: var(--ink); border: 1px solid var(--line); }
+  .pm:hover { background: var(--tile2); }
+  .pm > svg { flex: 0 0 auto; margin-top: 2px; color: var(--lav); }
+  .pm-b { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .pm-b strong { font-size: 0.98rem; }
+  .pm-now { margin-top: 4px; font-size: 0.86rem; font-weight: 700; color: var(--lav); }
+  ul.bl { margin: 0 0 10px; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
 </style>
 </head>
 <body>
