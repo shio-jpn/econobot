@@ -316,12 +316,33 @@
 
   /* ================= 実データ ================= */
   var MK = null, mkReady = false;
-  K.mkt.load().then(function (d) { MK = d; mkReady = true; renderStrip(); if (curName === 'home' || curName === 'market' || curName === 'drill' || curName === 'outlook') route(); });
+  /* 公的統計(FRED)の公表の遅れを、深掘り分析と同じ終値(Yahoo)で補う。画面ごとに日付が食い違わないように(2026-11-28)。
+     補った点は series.patched に記録し、指標とチャートに注記を出す */
+  var PATCH = [['SP500', 'spx', 'us'], ['NIKKEI225', '^N225', 'jp'], ['DGS10', '^TNX', 'us'], ['VIXCLS', '^VIX', 'us'], ['DEXJPUS', 'JPY=X', 'us'], ['DCOILWTICO', 'CL=F', 'us']];
+  function prevWeekday(d) { var t = new Date(d + 'T00:00:00Z'); do { t.setUTCDate(t.getUTCDate() - 1); } while (t.getUTCDay() === 0 || t.getUTCDay() === 6); return t.toISOString().slice(0, 10); }
+  function patchMK() {
+    if (!MK || !MK.series || !AN || !AN.features || !AN.asof || MK._patched === AN.updated) return;
+    MK._patched = AN.updated;
+    PATCH.forEach(function (x) {
+      var s = MK.series[x[0]], d = AN.asof[x[2]]; if (!s || !s.rows || !s.rows.length || !d) return;
+      var last, prev;
+      if (x[1] === 'spx') { var lv = AN.strategy && AN.strategy.us && AN.strategy.us.levels; if (!lv) return; last = lv.close; prev = lv.prev; }
+      else { var f = AN.features[x[1]]; if (!f || f.stale) return; last = f.last; prev = f.prev; }
+      if (last == null) return;
+      var end = s.rows[s.rows.length - 1][0]; if (end >= d) return;
+      var pd = prevWeekday(d), add = [];
+      if (prev != null && pd > end) add.push([pd, prev]);
+      add.push([d, last]);
+      s.rows = s.rows.concat(add);
+      s.patched = { from: end, to: d, n: add.length };
+    });
+  }
+  K.mkt.load().then(function (d) { MK = d; mkReady = true; patchMK(); renderStrip(); if (curName === 'home' || curName === 'market' || curName === 'drill' || curName === 'outlook') route(); });
   var AN = null, anReady = false;
-  K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; renderStrip(); if (['why', 'data', 'plan', 'outlook', 'home', 'track'].indexOf(curName) >= 0) route(); });
+  K.mkt.loadAnalysis().then(function (d) { AN = d; anReady = true; patchMK(); renderStrip(); if (['why', 'data', 'plan', 'outlook', 'home', 'track', 'market'].indexOf(curName) >= 0) route(); });
   /* 開いたままのページにも毎日のデータ更新を取り込む: 5分ごとと、画面に戻った時に読み直し、
      更新時刻(updated)が変わっていれば電光掲示板と今の画面を描き直す */
-  var DATA_PAGES = { home: 1, market: 1, why: 1, flow: 1, outlook: 1, track: 1 };
+  var DATA_PAGES = { home: 1, market: 1, why: 1, data: 1, plan: 1, outlook: 1, track: 1 };
   function refreshData() {
     if (document.hidden) return;
     Promise.all([K.mkt.load(true), K.mkt.loadAnalysis(true), K.mkt.loadTrack(true)]).then(function (r) {
@@ -330,12 +351,16 @@
       if (m && (!MK || m.updated !== MK.updated)) { MK = m; mkReady = true; changed = true; }
       if (a && (!AN || a.updated !== AN.updated)) { AN = a; anReady = true; changed = true; }
       if (!changed) return;
+      patchMK();
       renderStrip();
       var ae = document.activeElement, busy = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);   // 入力中は描き直さない
       if (DATA_PAGES[curName] && !busy) { var y = window.scrollY; route(); window.scrollTo(0, y); }
     });
   }
   if (typeof setInterval === 'function') setInterval(refreshData, 5 * 60 * 1000);
+  if (typeof navigator !== 'undefined' && navigator.serviceWorker && typeof location !== 'undefined' && /^https:$|^http:$/.test(location.protocol) && /github\.io$|^localhost$/.test(location.hostname)) {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
   if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshData(); });
   var TRK = null, trkReady = false;
   K.mkt.loadTrack().then(function (d) { TRK = d; trkReady = true; if (curName === 'track') route(); });
@@ -647,6 +672,10 @@
   }
 
   /* ================= 画面: 今日の相場 ================= */
+  function patchNote() {
+    var xs = Object.keys((MK && MK.series) || {}).filter(function (k) { return MK.series[k].patched; });
+    return xs.length ? '<p class="notice">公的統計(FRED)の公表が遅れている ' + xs.map(function (k) { return esc(MK.series[k].name) + '(' + esc(mdDate(MK.series[k].patched.from)) + 'まで)'; }).join('・') + ' は、深掘り分析と同じYahooの終値で ' + esc(mdDate(xs.map(function (k) { return MK.series[k].patched.to; }).sort().pop())) + ' まで補っています(公表後に置き換わります)。</p>' : '';
+  }
   function viewMarket() {
     var h = '<div class="page-head"><h1>指標とチャート</h1>';
     if (!mkReady) return h + '<p class="lead">読み込み中…</p></div>';
@@ -655,7 +684,7 @@
         '<section><h2>データがまだありません</h2><p>この画面のデータは、毎朝6時に動く既存のニュースBotが <code>learn/data/market.json</code> として書き出します。GitHub Pagesで公開した版で、Botが一度動いた後から表示されます。</p><p>それまでは、読み解きの手順を先に身につけておきましょう。</p><div class="actions"><a class="btn" href="#lesson-daily-read">今日の値動きを読み解く手順</a><a class="btn ghost" href="#macro">因果マップ</a><a class="btn ghost" href="#drill">チャート演習</a></div></section>';
     }
     var r = K.mkt.regime(MK);
-    h += '<p class="lead">データ更新 ' + esc((MK.updated || '').replace('T', ' ').slice(0, 16)) + ' ・ 出典 ' + esc(MK.source || 'FRED') + '。各系列の最新の日付は系列ごとに異なります。</p></div><div class="dash">';
+    h += '<p class="lead">データ更新 ' + esc((MK.updated || '').replace('T', ' ').slice(0, 16)) + ' ・ 出典 ' + esc(MK.source || 'FRED') + '。各系列の最新の日付は系列ごとに異なります。</p>' + patchNote() + '</div><div class="dash">';
     if (r) {
       h += '<section class="span-7"><h2>値動きの型(公的統計)<span class="h-r">' + esc(r.date) + '</span></h2>' + (AN && AN.asof && AN.asof.us > r.date ? '<p class="notice">公的統計(FRED)は1日遅れで公表されます。' + esc(mdDate(AN.asof.us)) + 'までの最新の分析は<a href="#why">なぜ動いたか</a>にあります。</p>' : '') + '<p class="regime-t">' + esc(r.title) + '</p><p>' + esc(r.text) + '</p><ul class="facts">' + r.facts.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
         (r.notes.length ? '<ul class="plain notes">' + r.notes.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
@@ -752,7 +781,7 @@
     }
     var reg = K.mkt.regime(MK);
     h += '<section><h2>' + ico('target') + '7つの視点の見立て<span class="h-r">' + esc(o.name) + ' ・ ' + esc(o.date) + '</span></h2><div class="verdicts">' + verdictBox(o.short, '短期') + verdictBox(o.mid, '中期') + '</div>' +
-      '<p class="sub">確率は7つの視点の採点から置いた目安です。統計的に厳密な予測ではありません。</p></section>';
+      '<p class="sub">確率は7つの視点の採点から置いた目安です。統計的に厳密な予測ではありません。</p>' + patchNote() + '</section>';
     var top = o.lenses.slice().sort(function (a, b) { return Math.abs(b.mid) + Math.abs(b.short) - Math.abs(a.mid) - Math.abs(a.short); }).filter(function (l) { return l.mid || l.short; }).slice(0, 3);
     var lt = [];
     lt.push(['pos', '今の位置', (reg ? '<p><strong>直近の値動き: ' + esc(reg.title) + '。</strong>' + esc(reg.text) + '</p>' : '') +
@@ -966,7 +995,7 @@
       one = f ? (f.prev ? (f.last / f.prev - 1) * 100 : f.c1) : null;
       five = f && f.c5;
     }
-    var cell = function (lab, v) { return v == null ? '' : '<span class="mv"><span class="sub">' + lab + '</span> <b class="' + (v > 0 ? 'up' : v < 0 ? 'down' : '') + '">' + sgnN(v, 2, '%') + '</b></span>'; };
+    var cell = function (lab, v) { return v == null ? '' : '<span class="mv"><span class="sub">' + lab + '</span> <b class="' + (v > 0 ? 'up' : v < 0 ? 'down' : '') + '">' + (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%</b></span>'; };
     return cell('1日', one) + cell('5日', five);
   }
   function briefHTML(home) {
@@ -1035,7 +1064,9 @@
     // 3. 市場ごとの説明
     if (c) h += '<section><h2>' + ico('globe') + '市場ごとの説明</h2>' + tabs('mkt', [['us', '米国', mktInner(c.us)], ['jp', '日本', mktInner(c.jp)], ['debate', '強気と弱気', c.debate ? '<p>' + esc(c.debate) + '</p>' : ''], ['sd', '需給の見方', c.supply_demand ? bullets(c.supply_demand) : '']]) + '</section>';
     // 4. 業種ごとの理由
-    if (c && c.sectors && c.sectors.length) h += '<section><h2>' + ico('grid') + '業種ごとの理由<a class="h-r" href="#data">数字 ›</a></h2><ul class="sec-why">' + c.sectors.map(function (x) { return '<li><strong>' + esc(x.name) + '</strong><p>' + esc(x.why) + '</p>' + (x.root ? '<p class="root-line"><span class="chain-k">⑤ 根本の原因</span> ' + esc(x.root) + '</p>' : '') + '</li>'; }).join('') + '</ul></section>';
+    var secLi = function (x) { return '<li><strong>' + esc(x.name) + '</strong><p>' + esc(x.why) + '</p>' + (x.root ? '<p class="root-line"><span class="chain-k">⑤ 根本の原因</span> ' + esc(x.root) + '</p>' : '') + '</li>'; };
+    if (c && c.sectors && c.sectors.length) h += '<section><h2>' + ico('grid') + '業種ごとの理由<a class="h-r" href="#data">数字 ›</a></h2><ul class="sec-why">' + c.sectors.slice(0, 3).map(secLi).join('') + '</ul>' +
+      (c.sectors.length > 3 ? '<details class="chain"><summary>ほかの業種(' + (c.sectors.length - 3) + ')</summary><ul class="sec-why">' + c.sectors.slice(3).map(secLi).join('') + '</ul></details>' : '') + '</section>';
     // 4. データで確かめる
     // 6. 詳しく見る
     var passes = ai.passes || {};
@@ -1606,6 +1637,28 @@
     nav.innerHTML = '<span class="chips-label">このページの中身</span>' + items.join('');
     head.parentNode.insertBefore(nav, head.nextSibling);
   }
+  /* データが古い時(自動更新が止まった・遅れた)の注意。毎朝・毎夕に更新されるので、30時間より古ければ出す */
+  var STALE_PAGES = { home: 1, why: 1, data: 1, plan: 1, outlook: 1, track: 1 };
+  function staleNotice(name) {
+    if (!STALE_PAGES[name] || !AN || !AN.updated) return;
+    var t = Date.parse(AN.updated.length <= 16 ? AN.updated + ':00+09:00' : AN.updated);
+    if (!t || isNaN(t)) t = Date.parse(AN.updated);
+    var hrs = (Date.now() - t) / 3600000, q = AN.quality || {};
+    var msg = hrs > 30 ? '最終更新は ' + esc(AN.updated.slice(5, 16).replace('-', '/').replace('T', ' ')) + '(約' + Math.round(hrs) + '時間前)です。自動更新が遅れています。数値と分析は最終更新の時点のものです。' :
+      (q.complete === false ? '一部の銘柄のデータが取れていません(データの画面の「データの確認」に詳細)。' : '');
+    if (!msg) return;
+    var el = document.createElement('p'); el.className = 'notice stale'; el.innerHTML = msg;
+    view.insertBefore(el, view.firstChild);
+  }
+  /* 横に流れるタブに続きがある時は、右端を薄くして合図する */
+  function markTabs() {
+    var ts = view.querySelectorAll('.tabs');
+    for (var i = 0; i < ts.length; i++) {
+      var t = ts[i];
+      if (t.scrollWidth > t.clientWidth + 4) t.classList.add('more');
+      t.onscroll = function () { this.classList.toggle('more', this.scrollLeft + this.clientWidth < this.scrollWidth - 4); };
+    }
+  }
   function route() {
     var hash = (location.hash || '#home').slice(1), cut = hash.indexOf('-'), name = cut < 0 ? hash : hash.slice(0, cut), arg = cut < 0 ? '' : hash.slice(cut + 1);
     if (name === 'course') { location.replace('#library'); return; }
@@ -1640,6 +1693,9 @@
     session = null;
     view.innerHTML = html;
     if (JUMP[name]) jumpNav();
+    staleNotice(name);
+    markTabs();
+    if (typeof document !== 'undefined') document.title = (name === 'home' ? '' : (TITLES[name] || (name === 'lesson' && lessonById[arg] ? lessonById[arg].t.split(':')[0] : '')) + (name === 'home' ? '' : ' | ')) + '株トレ道場';
     if (name === 'plan') fsUpdate();
     var nav = NAV_OF[name] || name;
     var grp = function (list) { return '<div class="dock-group">' + list.map(function (n) { return '<a href="#' + n[0] + '"' + (n[0] === nav ? ' aria-current="page"' : '') + ' aria-label="' + n[1] + '">' + ico(n[2]) + '<span>' + n[1] + '</span></a>'; }).join('') + '</div>'; };

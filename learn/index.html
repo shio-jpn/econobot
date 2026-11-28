@@ -8,6 +8,14 @@
 <meta name="description" content="毎朝の日本株・米国株の分析(なぜ動いたか・需給と戦略・相場の見立て)と、わからない時に開ける学習の教材。">
 <link rel="icon" href="data:,">
 <meta name="theme-color" content="#08090d">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="株トレ道場">
+<meta name="description" content="毎朝・毎夕に自動で更新される、米国株と日本株の市場分析と、トレードの学び">
 <style>
   /* レイアウト: 暗い背景に角の丸いカードを積む1カラム。上に丸い浮きボタン、下にガラスの帯2つと丸いボタン。暗色で統一した単一テーマ */
   :root {
@@ -634,6 +642,9 @@
   .fv-h b { font-size: 0.92rem; }
   .fv-l p { margin: 0; font-size: 0.9rem; line-height: 1.7; }
   @media (max-width: 760px) { .fv-l { grid-template-columns: 1fr; } }
+  /* データの鮮度の注意、横に流れるタブの続きの合図(2026-11-28) */
+  .notice.stale { border-left: 3px solid var(--down, #ff6b6b); }
+  .tabs.more { -webkit-mask-image: linear-gradient(to right, #000 80%, transparent); mask-image: linear-gradient(to right, #000 80%, transparent); }
 </style>
 </head>
 <body>

@@ -842,6 +842,7 @@ class SpecUpgradeTest(unittest.TestCase):
         self.assertEqual(order, ["market", "gemini", "gemini"])
         self.assertEqual(calls, [True, False])   # 経済用のプロンプトにだけ対象日が入る
         page = out["html"]
+        self.assertIn('href="learn/#home"', page)            # 毎朝のページから深掘り分析へ(2026-11-28)
         self.assertIn('data-trade-date="2026-11-13"', page)
         self.assertIn("政策金利(FRBが決める金利):3.75〜4.00% ・ 最後の変更は2026年9月17日の利上げ(+0.25ポイント)", page)
 
